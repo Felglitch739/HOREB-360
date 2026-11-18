@@ -382,15 +382,19 @@ Deno.serve(async (request) => {
     ].includes(operation.action)
   ) {
     const latestAudit = persisted.state.auditLogs?.[0];
-    await admin.from('horeb_audit_logs').insert({
-      branch_id: branch,
-      actor_id: actor,
-      actor_label: actorLabel,
-      category: latestAudit?.category ?? 'operacion',
-      action: operation.action,
-      summary: latestAudit?.message ?? `${operation.action} ejecutado por ${actorLabel}`,
-      metadata: operation,
-    }).catch(() => {});
+    try {
+      await admin.from('horeb_audit_logs').insert({
+        branch_id: branch,
+        actor_id: actor,
+        actor_label: actorLabel,
+        category: latestAudit?.category ?? 'operacion',
+        action: operation.action,
+        summary: latestAudit?.message ?? `${operation.action} ejecutado por ${actorLabel}`,
+        metadata: operation,
+      });
+    } catch {
+      // No interrumpir la respuesta si falla el registro secundario de auditoría
+    }
   }
 
   return reply({
