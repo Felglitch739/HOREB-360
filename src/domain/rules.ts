@@ -1,4 +1,4 @@
-import { COMBO_PRICE_CENTS, formatMxn } from './money';
+import { COMBO_PRICE_CENTS, formatMxn } from './money.ts';
 import type {
   BranchId,
   BranchInfo,
@@ -11,7 +11,7 @@ import type {
   Shift,
   ShiftClosingSummary,
   TicketState,
-} from './types';
+} from './types.ts';
 
 export const BRANCHES: BranchInfo[] = [
   { id: 'lomas', name: 'Lomas', folioPrefix: 'LOM' },
@@ -225,8 +225,8 @@ export function getBranchSummary(state: DemoState, branchId: BranchId): BranchAd
   };
 }
 
-export function getGlobalAdminTotals(state: DemoState) {
-  const byBranch = BRANCHES.map((b) => getBranchSummary(state, b.id));
+export function getGlobalAdminTotals(state: DemoState, branches = BRANCHES.map((branch) => branch.id)) {
+  const byBranch = branches.map((branch) => getBranchSummary(state, branch));
   const totals = byBranch.reduce(
     (acc, item) => ({
       cashCents: acc.cashCents + item.cashCents,
