@@ -29,11 +29,11 @@ interface MostradorViewProps {
   ordersOnly: boolean;
   initialFilter: string;
   initialQuery: string;
-  onCreateOrder: (input: CreateOrderInput) => { ok: boolean; error?: string; order?: Order };
-  onCapturePayment: (orderId: string, lines: PaymentInputLine[]) => { ok: boolean; error?: string; order?: Order };
-  onConfirmPaymentLine: (lineId: string) => { ok: boolean; error?: string };
-  onAdvanceEncargo: (orderId: string) => { ok: boolean; error?: string };
-  onDeliverEncargo: (orderId: string) => { ok: boolean; error?: string };
+  onCreateOrder: (input: CreateOrderInput) => Promise<{ ok: boolean; error?: string; order?: Order }>;
+  onCapturePayment: (orderId: string, lines: PaymentInputLine[]) => Promise<{ ok: boolean; error?: string; order?: Order }>;
+  onConfirmPaymentLine: (lineId: string) => Promise<{ ok: boolean; error?: string }>;
+  onAdvanceEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
+  onDeliverEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
   onOpenTicket: (orderId: string) => void;
 }
 
@@ -103,7 +103,7 @@ export function MostradorView({
     setFeedback(null);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFeedback(null);
 
@@ -131,8 +131,8 @@ export function MostradorView({
     }
 
     const res = checkout
-      ? onCapturePayment(checkout.id, paymentLines)
-      : onCreateOrder({
+      ? await onCapturePayment(checkout.id, paymentLines)
+      : await onCreateOrder({
           branchId,
           serviceType,
           folio,
@@ -477,8 +477,8 @@ export function MostradorView({
                             <button
                               type="button"
                               className="btn btn-primary btn-sm"
-                              onClick={() => {
-                                const r = onConfirmPaymentLine(line.id);
+                              onClick={async () => {
+                                const r = await onConfirmPaymentLine(line.id);
                                 if (!r.ok && r.error) setFeedback({ type: 'error', text: r.error });
                               }}
                             >
@@ -533,8 +533,8 @@ export function MostradorView({
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
-                          onClick={() => {
-                            const r = onAdvanceEncargo(order.id);
+                          onClick={async () => {
+                            const r = await onAdvanceEncargo(order.id);
                             if (!r.ok && r.error) setFeedback({ type: 'error', text: r.error });
                           }}
                         >
@@ -550,8 +550,8 @@ export function MostradorView({
                         className="btn btn-success btn-sm"
                         disabled={!deliverCheck.allowed}
                         title={deliverCheck.reason}
-                        onClick={() => {
-                          const r = onDeliverEncargo(order.id);
+                        onClick={async () => {
+                          const r = await onDeliverEncargo(order.id);
                           if (!r.ok && r.error) setFeedback({ type: 'error', text: r.error });
                         }}
                       >

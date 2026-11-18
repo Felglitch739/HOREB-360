@@ -26,6 +26,19 @@ npm.cmd run build
 - **Caja** permite abrir un turno con fondo inicial y anotar entradas y retiros con motivo. Esos movimientos modifican el efectivo esperado y permanecen en el historial. Los reportes de ventas cuentan pagos confirmados.
 - **Reportes** consolida las tres sucursales y exporta los importes a CSV.
 
+## Demo compartida con Supabase
+
+La demo local conserva los datos del navegador. La demo compartida usa Supabase Auth, Postgres y una Edge Function que valida los cobros, el cierre y el estado del turno aplicando las mismas reglas TypeScript que la demo local.
+
+1. Completa `.env.local` a partir de `.env.example` con la URL y la clave publicable del proyecto.
+2. Enlaza y aplica la migración con `supabase link --project-ref TU_PROJECT_REF` y `supabase db push`. Despliega con `supabase functions deploy horeb-operation --project-ref TU_PROJECT_REF --use-api --no-verify-jwt`. La función valida el token con Supabase Auth antes de realizar operaciones.
+3. Crea usuarios desde Auth y registra su asignación en `public.horeb_memberships`. Agrega una fila por usuario y sucursal. `operator` opera pedidos y cobros de la sucursal asignada. `supervisor` también abre y cierra turnos y registra movimientos de efectivo. Usa cuentas de prueba con contraseñas individuales.
+4. Arranca con `npm.cmd run dev` y abre **Abrir demo compartida** en el menú. El panel actualiza las sucursales habilitadas cada ocho segundos y también permite actualizar manualmente.
+
+Cada sucursal guarda una versión de órdenes, pagos, tickets y turnos en `horeb_branch_state`. La Edge Function es el único punto de escritura para caja y pedidos desde la app. Postgres registra la operación y su versión en la misma transacción. Un guardado basado en una versión anterior debe revisarse después de recargar, y el reintento del mismo identificador conserva un solo folio. Los datos de la demo local y la compartida usan almacenamiento independiente.
+
+La beta compartida usa datos ficticios y confirmaciones simuladas. El almacenamiento por sucursal en JSONB se eligió para conservar el flujo actual del prototipo. Antes de operar con clientes reales, se requiere modelar los registros operativos para auditoría y reportes, validar recuperación y periféricos y acordar accesos de cada empleado. Configura las variables con un proyecto propio al publicar la app. Nunca incluyas claves administrativas ni contraseñas en el frontend o en el repositorio.
+
 ## Cómo reiniciar datos de prueba
 
 1. En la barra superior derecha, pulsar **Reiniciar datos** y luego **Confirmar reinicio**.

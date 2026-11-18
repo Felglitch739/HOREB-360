@@ -5,23 +5,9 @@ import { CajaView } from './components/CajaView';
 import { MostradorView } from './components/MostradorView';
 import { Overview } from './components/Overview';
 import { TicketModal } from './components/TicketModal';
-import {
-  BRANCHES,
-  advanceEncargoStage,
-  captureEncargoPayment,
-  closeShift,
-  confirmPaymentLine,
-  createOrder,
-  deliverEncargoOrder,
-  emitTicket,
-  getBranchInfo,
-  getOpenShift,
-  getOrderPaymentLines,
-  openNewShift,
-  recordCashMovement,
-  type CreateOrderInput,
-  type PaymentInputLine,
-} from './domain/rules';
+import { BRANCHES, getBranchInfo, getOpenShift, getOrderPaymentLines, type CreateOrderInput, type PaymentInputLine } from './domain/rules';
+import { operate, type Operation } from './domain/operations';
+import type { SharedWorkspace } from './Root';
 import { createExampleState, hasPristineDemo } from './domain/examples';
 import { clearDemoState, loadDemoState, saveDemoState } from './domain/storage';
 import type { BranchId, CashMovement, DemoState } from './domain/types';
@@ -36,8 +22,15 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'];
 
-export function App() {
-  const [state, setState] = useState<DemoState>(() => loadDemoState());
+export function App({ shared, onSwitchMode, sharedNotice }: {
+  shared?: SharedWorkspace;
+  onSwitchMode?: () => void;
+  sharedNotice?: string;
+}) {
+  const [localState, setState] = useState<DemoState>(() => loadDemoState());
+  const [selectedBranch, setSelectedBranch] = useState(shared?.state.activeBranchId);
+  const state = shared?.state ?? localState;
+  const visibleBranches = shared ? BRANCHES.filter((branch) => shared.roles[branch.id]) : BRANCHES;
   const [activeTab, setActiveTab] = useState<TabId>('inicio');
   const [orderFilter, setOrderFilter] = useState('todas');
   const [orderQuery, setOrderQuery] = useState('');
@@ -46,10 +39,12 @@ export function App() {
   const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
-    saveDemoState(state);
-  }, [state]);
+    if (!shared) saveDemoState(localState);
+  }, [localState, Boolean(shared)]);
 
-  const activeBranchId = state.activeBranchId;
+  const activeBranchId = shared
+    ? visibleBranches.find((branch) => branch.id === selectedBranch)?.id ?? state.activeBranchId
+    : state.activeBranchId;
   const openShift = getOpenShift(state, activeBranchId);
 
   function navigate(tab: TabId) {
@@ -68,7 +63,8 @@ export function App() {
   }
 
   function handleSelectBranch(branchId: BranchId) {
-    setState((prev) => ({ ...prev, activeBranchId: branchId }));
+    if (shared) setSelectedBranch(branchId);
+    else setState((prev) => ({ ...prev, activeBranchId: branchId }));
   }
 
   function handleResetDemo() {
@@ -80,67 +76,49 @@ export function App() {
     setConfirmReset(false);
   }
 
-  function handleCreateOrder(input: CreateOrderInput) {
-    const res = createOrder(state, input);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true, order: res.data };
+  async function run(branch: BranchId, operation: Operation) {
+    if (shared) return shared.execute(branch, operation);
+    const result = operate(localState, branch, operation);
+    if (result.ok) setState(result.state);
+    return result;
+  }
+
+  function handleCreateOrder({ branchId, ...input }: CreateOrderInput) {
+    return run(branchId, { action: 'create', input });
   }
 
   function handleCapturePayment(orderId: string, lines: PaymentInputLine[]) {
-    const res = captureEncargoPayment(state, orderId, lines);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true, order: res.data };
+    return run(activeBranchId, { action: 'capture', orderId, lines });
   }
 
   function handleConfirmPaymentLine(lineId: string) {
-    const res = confirmPaymentLine(state, lineId);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true };
+    return run(activeBranchId, { action: 'confirm', lineId });
   }
 
   function handleAdvanceEncargo(orderId: string) {
-    const res = advanceEncargoStage(state, orderId);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true };
+    return run(activeBranchId, { action: 'advance', orderId });
   }
 
   function handleDeliverEncargo(orderId: string) {
-    const res = deliverEncargoOrder(state, orderId);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true };
+    return run(activeBranchId, { action: 'deliver', orderId });
   }
 
   function handleEmitTicket(orderId: string, simulateFailure: boolean) {
-    const res = emitTicket(state, orderId, { simulateFailure });
-    if (res.ok) {
-      setState(res.state);
-    }
+    const order = state.orders.find((item) => item.id === orderId);
+    if (!order) return Promise.resolve({ ok: false, error: 'No encontramos el folio.' });
+    return run(order.branchId, { action: 'emit', orderId, simulateFailure });
   }
 
-  function handleCloseShift(branchId: BranchId, countedCashCents: number) {
-    const res = closeShift(state, branchId, countedCashCents);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true };
+  function handleCloseShift(branch: BranchId, amount: number) {
+    return run(branch, { action: 'closeShift', amount });
   }
 
-  function handleMovement(branchId: BranchId, kind: CashMovement['kind'], amount: number, reason: string) {
-    const res = recordCashMovement(state, branchId, kind, amount, reason);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true };
+  function handleMovement(branch: BranchId, kind: CashMovement['kind'], amount: number, reason: string) {
+    return run(branch, { action: 'movement', kind, amount, reason });
   }
 
-  function handleOpenNewShift(branchId: BranchId, openingCashCents: number) {
-    const res = openNewShift(state, branchId, undefined, openingCashCents);
-    if (!res.ok) return { ok: false, error: res.error };
-    setState(res.state);
-    return { ok: true };
+  function handleOpenNewShift(branch: BranchId, amount: number) {
+    return run(branch, { action: 'openShift', amount });
   }
 
   const ticketOrder = ticketOrderId ? state.orders.find((o) => o.id === ticketOrderId) : null;
@@ -162,31 +140,35 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="demo-status"><i aria-hidden="true" /> Modo demo</div>
-          {confirmReset ? <div className="reset-actions">
+          <div className="demo-status"><i aria-hidden="true" /> {shared ? 'Demo compartida' : 'Demo local'}</div>
+          {onSwitchMode && <button className="reset-button" onClick={onSwitchMode}>{shared ? 'Ir a demo local' : 'Abrir demo compartida'}</button>}
+          {shared && <button className="reset-button" onClick={shared.signOut}>Cerrar sesión</button>}
+          {!shared && (confirmReset ? <div className="reset-actions">
             <button className="btn btn-danger btn-sm" onClick={handleResetDemo}>Confirmar reinicio</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setConfirmReset(false)}>Cancelar</button>
-          </div> : <button className="reset-button" onClick={() => setConfirmReset(true)}><RotateCcw size={16} aria-hidden="true" /> Reiniciar datos</button>}
+          </div> : <button className="reset-button" onClick={() => setConfirmReset(true)}><RotateCcw size={16} aria-hidden="true" /> Reiniciar datos</button>)}
         </div>
       </aside>
       <div className="workspace">
         <header className="workspace-header">
           <div className="breadcrumb">Operación <span>/</span> <strong>{navigation.find((entry) => entry.id === activeTab)?.label}</strong></div>
           <div className="workspace-actions">
+            {shared && <button className="btn btn-secondary btn-sm" onClick={() => void shared.reload()}>Actualizar</button>}
             <span className={'shift-pill' + (openShift ? ' open' : '')}><i aria-hidden="true" />{openShift ? 'Turno ' + openShift.number + ' abierto' : 'Caja cerrada'}</span>
             <label className="branch-select"><MapPin size={17} aria-hidden="true" /><span className="sr-only">Sucursal</span>
               <select value={activeBranchId} onChange={(event) => handleSelectBranch(event.target.value as BranchId)}>
-                {BRANCHES.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                {visibleBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
               </select><ChevronDown size={15} aria-hidden="true" />
             </label>
           </div>
         </header>
       <main className="main-content">
+        {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
         {activeTab === 'inicio' && <Overview state={state} branchId={activeBranchId}
-          onNew={() => navigate('mostrador')} onOrders={showOrders} canLoadExamples={hasPristineDemo(state)}
+          onNew={() => navigate('mostrador')} onOrders={showOrders} canLoadExamples={!shared && hasPristineDemo(state)}
           onLoadExamples={() => setState((current) => hasPristineDemo(current) ? { ...createExampleState(), activeBranchId } : current)} />}
         {activeTab !== 'inicio' && <div className="page-intro">
-          <div><h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1><p>{activeTab === 'admin' ? 'Consolidado de las tres sucursales' : getBranchInfo(activeBranchId).name}</p></div>
+          <div><h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1><p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : getBranchInfo(activeBranchId).name}</p></div>
           {activeTab === 'ordenes' && <button className="btn btn-primary" onClick={() => navigate('mostrador')}><Plus size={17} /> Nueva orden</button>}
         </div>}
         {(activeTab === 'mostrador' || activeTab === 'ordenes') && (
@@ -211,13 +193,14 @@ export function App() {
             key={activeBranchId}
             state={state}
             branchId={activeBranchId}
+            canManage={!shared || shared.roles[activeBranchId] === 'supervisor'}
             onCloseShift={handleCloseShift}
             onOpenNewShift={handleOpenNewShift}
             onMovement={handleMovement}
           />
         )}
 
-        {activeTab === 'admin' && <AdminView state={state} />}
+        {activeTab === 'admin' && <AdminView state={state} branches={visibleBranches.map((branch) => branch.id)} />}
       </main>
       </div>
 

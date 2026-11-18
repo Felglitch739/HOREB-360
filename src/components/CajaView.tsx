@@ -6,13 +6,14 @@ import type { BranchId, CashMovement, DemoState } from '../domain/types';
 
 interface CajaViewProps {
   state: DemoState;
+  canManage: boolean;
   branchId: BranchId;
-  onCloseShift: (branchId: BranchId, countedCashCents: number) => { ok: boolean; error?: string };
-  onOpenNewShift: (branchId: BranchId, openingCashCents: number) => { ok: boolean; error?: string };
-  onMovement: (branchId: BranchId, kind: CashMovement['kind'], amount: number, reason: string) => { ok: boolean; error?: string };
+  onCloseShift: (branchId: BranchId, countedCashCents: number) => Promise<{ ok: boolean; error?: string }>;
+  onOpenNewShift: (branchId: BranchId, openingCashCents: number) => Promise<{ ok: boolean; error?: string }>;
+  onMovement: (branchId: BranchId, kind: CashMovement['kind'], amount: number, reason: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
-export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMovement }: CajaViewProps) {
+export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewShift, onMovement }: CajaViewProps) {
   const branch = getBranchInfo(branchId);
   const openShift = getOpenShift(state, branchId);
   const branchShifts = state.shifts
@@ -34,7 +35,7 @@ export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMove
     }
   }, [branchId, openShift?.id, openMetrics?.expectedCashCents]);
 
-  function handleClose(e: React.FormEvent) {
+  async function handleClose(e: React.FormEvent) {
     e.preventDefault();
     setFeedback(null);
     const cents = parsePesosToCents(countedCashInput);
@@ -42,7 +43,7 @@ export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMove
       setFeedback({ type: 'error', text: 'Captura un efectivo contado válido en MXN.' });
       return;
     }
-    const res = onCloseShift(branchId, cents);
+    const res = await onCloseShift(branchId, cents);
     if (!res.ok) {
       setFeedback({ type: 'error', text: res.error ?? 'No se pudo cerrar el turno.' });
       return;
@@ -50,10 +51,10 @@ export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMove
     setFeedback({ type: 'success', text: `Corte guardado en ${branch.name}.` });
   }
 
-  function handleMovement(event: React.FormEvent) {
+  async function handleMovement(event: React.FormEvent) {
     event.preventDefault();
     const amount = parsePesosToCents(movementAmount);
-    const result = onMovement(branchId, movementKind, amount ?? 0, movementReason);
+    const result = await onMovement(branchId, movementKind, amount ?? 0, movementReason);
     if (!result.ok) {
       setFeedback({ type: 'error', text: result.error ?? 'No se pudo guardar el movimiento.' });
       return;
@@ -104,7 +105,7 @@ export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMove
               </div>
             </div>
 
-            <form onSubmit={handleClose} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+            {canManage && <form onSubmit={handleClose} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
               <div className="field" style={{ marginBottom: 0, minWidth: 220, flex: '1 1 220px' }}>
                 <label htmlFor="counted-cash">Efectivo contado al cierre (MXN)</label>
                 <input
@@ -118,27 +119,27 @@ export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMove
                 <Lock size={18} />
                 Cerrar Turno #{openShift.number} y guardar corte
               </button>
-            </form>
+            </form>}
           </>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <p className="muted" style={{ margin: 0 }}>
               No hay un turno abierto en <strong>{branch.name}</strong>. Abre un turno nuevo para registrar ventas o confirmar pagos pendientes.
             </p>
-            <div className="cash-controls">
+            {canManage && <div className="cash-controls">
               <label className="field">Fondo inicial (MXN)
                 <input className="input" inputMode="decimal" value={openingCash} onChange={(event) => setOpeningCash(event.target.value)} />
               </label>
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => {
+                onClick={async () => {
                   const amount = parsePesosToCents(openingCash);
                   if (amount === null) {
                     setFeedback({ type: 'error', text: 'Captura el fondo inicial en MXN.' });
                     return;
                   }
-                  const res = onOpenNewShift(branchId, amount);
+                  const res = await onOpenNewShift(branchId, amount);
                   if (!res.ok && res.error) setFeedback({ type: 'error', text: res.error });
                   else setFeedback({ type: 'success', text: `Nuevo turno abierto en ${branch.name}.` });
                 }}
@@ -146,12 +147,12 @@ export function CajaView({ state, branchId, onCloseShift, onOpenNewShift, onMove
                 <PlayCircle size={18} />
                 Abrir turno nuevo en {branch.name}
               </button>
-            </div>
+            </div>}
           </div>
         )}
       </section>
 
-      {openShift && <section className="card">
+      {canManage && openShift && <section className="card">
         <div className="section-head"><div><h2>Movimientos de efectivo</h2><p>Fondo inicial del turno {formatMxn(openShift.openingCashCents ?? 0)}</p></div></div>
         <form className="cash-controls" onSubmit={handleMovement}>
           <label className="field">Movimiento<select className="input" value={movementKind} onChange={(event) => setMovementKind(event.target.value as CashMovement['kind'])}><option value="entrada">Entrada</option><option value="retiro">Retiro</option></select></label>

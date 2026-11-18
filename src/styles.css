@@ -592,3 +592,9 @@ button.stat-card:hover { border-color: #829a85; background: #fcfdfb; }
 .cash-controls .field { margin: 0; flex: 1 1 125px; }
 .cash-records { margin-top: 14px; }
 .cash-records td:last-child { white-space: nowrap; }
+
+.cloud-auth { min-height: 100dvh; display: grid; place-items: center; padding: 22px; background: radial-gradient(ellipse at 20% 5%, #dcebcf, transparent 60%), var(--bg); }
+.cloud-auth-card { width: min(100%, 420px); padding: 26px; display: grid; gap: 12px; }
+.cloud-auth-card h1, .cloud-auth-card p { margin: 0; }
+.cloud-auth-card > p { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
+.cloud-auth-card .field { display: block; }

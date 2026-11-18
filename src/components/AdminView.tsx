@@ -1,14 +1,15 @@
 import { Download } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import { getGlobalAdminTotals } from '../domain/rules';
-import type { DemoState } from '../domain/types';
+import type { BranchId, DemoState } from '../domain/types';
 
 interface AdminViewProps {
   state: DemoState;
+  branches: BranchId[];
 }
 
-export function AdminView({ state }: AdminViewProps) {
-  const { byBranch, totals } = getGlobalAdminTotals(state);
+export function AdminView({ state, branches }: AdminViewProps) {
+  const { byBranch, totals } = getGlobalAdminTotals(state, branches);
 
   function exportReport() {
     const header = 'Sucursal,Folios,Efectivo MXN,Tarjeta MXN,Transferencia MXN,Pendiente MXN,Total confirmado MXN';

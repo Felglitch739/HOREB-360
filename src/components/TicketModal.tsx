@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Printer, RefreshCw, X } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import { getBranchInfo } from '../domain/rules';
@@ -7,7 +8,7 @@ interface TicketModalProps {
   order: Order;
   paymentLines: PaymentLine[];
   ticket: TicketState;
-  onEmit: (orderId: string, simulateFailure: boolean) => void;
+  onEmit: (orderId: string, simulateFailure: boolean) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
 }
 
@@ -25,6 +26,18 @@ export function TicketModal({
   onClose,
 }: TicketModalProps) {
   const branch = getBranchInfo(order.branchId);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function issue(fails: boolean) {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await onEmit(order.id, fails);
+      if (!result.ok) setError(result.error ?? 'No se pudo emitir el comprobante.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="ticket-modal-title">
@@ -113,12 +126,14 @@ export function TicketModal({
         )}
 
         <div className="order-actions">
+          {error && <p className="alert alert-error" role="alert">{error}</p>}
           {ticket.status === 'no_emitido' && (
             <>
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => onEmit(order.id, false)}
+                disabled={busy}
+                onClick={() => void issue(false)}
               >
                 <Printer size={18} />
                 Emitir ticket
@@ -126,7 +141,8 @@ export function TicketModal({
               <button
                 type="button"
                 className="btn btn-warning"
-                onClick={() => onEmit(order.id, true)}
+                disabled={busy}
+                onClick={() => void issue(true)}
               >
                 <AlertTriangle size={18} />
                 Simular falla de emisión
@@ -138,7 +154,8 @@ export function TicketModal({
             <button
               type="button"
               className="btn btn-primary btn-full"
-              onClick={() => onEmit(order.id, false)}
+              disabled={busy}
+                onClick={() => void issue(false)}
             >
               <RefreshCw size={18} />
               Reintentar mismo ticket ({order.folio})
