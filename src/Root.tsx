@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
-import { CheckCircle2, Eye, EyeOff, Lock, ShieldCheck, UserCheck, WashingMachine } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, Lock, WashingMachine } from 'lucide-react';
 import { App } from './App';
 import type { Operation } from './domain/operations';
 import { combineBranches, type BranchRole, type BranchRow } from './domain/sharedState';
@@ -31,23 +31,6 @@ export interface SharedWorkspace {
   reload: () => Promise<void>;
   signOut: () => void;
 }
-
-const QUICK_ACCOUNTS = [
-  {
-    label: 'Supervisión · Carlos',
-    subtitle: '3 sucursales, turnos y cortes',
-    email: 'admin@horeb.mx',
-    password: 'horeb123',
-    role: 'supervisor' as const,
-  },
-  {
-    label: 'Caja · Mostrador Lomas',
-    subtitle: 'Mostrador, órdenes y cobros en Lomas',
-    email: 'caja@horeb.mx',
-    password: 'horeb123',
-    role: 'operator' as const,
-  },
-] as const;
 
 export function Root() {
   const { theme, setTheme } = useBrandTheme();
@@ -299,32 +282,6 @@ export function Root() {
                   {loading ? 'Entrando…' : 'Entrar al panel'}
                 </button>
               </form>
-
-              <div className="quick-login-box">
-                <div className="quick-login-title">Acceso rápido</div>
-                <div className="quick-login-grid">
-                  {QUICK_ACCOUNTS.map((account) => (
-                    <button
-                      key={account.email}
-                      type="button"
-                      className="quick-login-btn"
-                      disabled={loading}
-                      onClick={() => void signInWithCredentials(account.email, account.password)}
-                    >
-                      <span className="quick-login-head">
-                        {account.role === 'supervisor' ? (
-                          <ShieldCheck size={16} aria-hidden="true" />
-                        ) : (
-                          <UserCheck size={16} aria-hidden="true" />
-                        )}
-                        <strong>{account.label}</strong>
-                      </span>
-                      <small>{account.subtitle}</small>
-                      <span className="quick-login-email">{account.email}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </>
           )}
 

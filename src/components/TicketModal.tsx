@@ -3,7 +3,6 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Printer, RefreshCw, SlidersHo
 import { formatMxn } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo } from '../domain/rules';
 import type { BranchSettings, Order, PaymentLine, TicketState } from '../domain/types';
-import { Barcode } from './Barcode';
 
 interface TicketModalProps {
   order: Order;
@@ -280,7 +279,6 @@ export function TicketModal({
           </div>
 
           <div className="ticket-divider" />
-          <Barcode value={order.folio} />
           {footerMessage.trim() && (
             <div className="ticket-footer-msg">{footerMessage.trim()}</div>
           )}
