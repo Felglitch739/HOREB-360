@@ -4,6 +4,17 @@ import { Eye, EyeOff, WashingMachine } from 'lucide-react';
 import { App } from './App';
 import type { Operation } from './domain/operations';
 import {
+  enqueueOfflineOperation,
+  flushOfflineQueue,
+  readOfflineQueue,
+  readOfflineSnapshot,
+  replayOfflineQueue,
+  writeOfflineQueue,
+  writeOfflineSnapshot,
+  type QueuedOperation,
+  type RemoteInvokeOutcome,
+} from './domain/offlineQueue';
+import {
   combineBranches,
   mapDbCustomer,
   mapDbLoyaltyEvent,
@@ -44,11 +55,16 @@ interface OperationResponse {
 export interface SharedWorkspace {
   state: ReturnType<typeof combineBranches>;
   roles: Partial<Record<BranchId, BranchRole>>;
+  isOnline: boolean;
+  pendingSyncCount: number;
+  syncing: boolean;
+  syncWarning?: string;
   execute: (
     branch: BranchId,
     operation: Operation,
   ) => Promise<{ ok: boolean; error?: string; order?: Order; customer?: Customer }>;
   reload: () => Promise<void>;
+  syncNow: () => Promise<void>;
   signOut: () => void;
 }
 
@@ -58,28 +74,36 @@ export function Root() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [rows, setRows] = useState<BranchRow[] | null>(null);
   const [globalRecords, setGlobalRecords] = useState<GlobalRecordsBundle>({});
+  const [pendingQueue, setPendingQueue] = useState<QueuedOperation[]>([]);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [syncing, setSyncing] = useState(false);
+  const [syncWarning, setSyncWarning] = useState('');
   const [errorKind, setErrorKind] = useState<'none' | 'credentials' | 'offline' | 'no-branch'>('none');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const interacting = useRef(false);
+  const syncingRef = useRef(false);
 
-  useEffect(() => {
-    const onOffline = () => {
-      setErrorKind('offline');
-      setError('Sin conexión con el servidor. Revisa tu conexión a internet e intenta de nuevo.');
-    };
-    const onOnline = () => {
-      setErrorKind((prev) => (prev === 'offline' ? 'none' : prev));
-      setError((prev) => (prev.startsWith('Sin conexión') ? '' : prev));
-    };
-    window.addEventListener('offline', onOffline);
-    window.addEventListener('online', onOnline);
-    return () => {
-      window.removeEventListener('offline', onOffline);
-      window.removeEventListener('online', onOnline);
-    };
-  }, []);
+  const persistSnapshot = useCallback(
+    (
+      userId: string,
+      nextMemberships: Membership[],
+      nextRows: BranchRow[],
+      nextGlobal: GlobalRecordsBundle,
+    ) => {
+      writeOfflineSnapshot({
+        userId,
+        cachedAt: new Date().toISOString(),
+        memberships: nextMemberships,
+        rows: nextRows,
+        globalRecords: nextGlobal,
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     const {
@@ -88,8 +112,7 @@ export function Root() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const reload = useCallback(async () => {
-    if (!session?.user.id) return;
+  const fetchRemoteState = useCallback(async () => {
     const [access, data, custRes, loyaltyRes, ticketsRes, drawsRes, ncRes] = await Promise.all([
       client.from('horeb_memberships').select('branch_id,role'),
       client.from('horeb_branch_state').select('branch_id,version,updated_at,state').order('branch_id'),
@@ -100,51 +123,251 @@ export function Root() {
       client.from('horeb_night_closings').select('*').order('closing_date', { ascending: false }),
     ]);
     if (access.error || data.error) {
-      setErrorKind('offline');
-      setError('Sin conexión con el servidor. Revisa tu internet y vuelve a intentar.');
-      return;
+      return null;
     }
-    setError('');
-    setMemberships(access.data as Membership[]);
-    if ((access.data as Membership[]).length === 0) {
-      setErrorKind('no-branch');
-    } else {
-      setErrorKind('none');
-    }
-    setRows((prior) =>
-      (data.data as BranchRow[]).map((fresh) => {
-        const current = prior?.find((row) => row.branch_id === fresh.branch_id);
-        return current && current.version > fresh.version ? current : fresh;
-      }),
-    );
-    setGlobalRecords({
+    const nextMemberships = access.data as Membership[];
+    const nextRows = data.data as BranchRow[];
+    const nextGlobal: GlobalRecordsBundle = {
       customers: custRes.data ? (custRes.data as DbCustomerRow[]).map(mapDbCustomer) : [],
       loyaltyEvents: loyaltyRes.data ? (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent) : [],
       raffleTickets: ticketsRes.data ? (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket) : [],
       raffleDraws: drawsRes.data ? (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw) : [],
       nightClosings: ncRes.data ? (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing) : [],
-    });
-  }, [session?.user.id]);
+    };
+    return { memberships: nextMemberships, rows: nextRows, globalRecords: nextGlobal };
+  }, []);
+
+  const reload = useCallback(async () => {
+    const userId = session?.user.id;
+    if (!userId) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOnline(false);
+      return;
+    }
+    try {
+      const fresh = await fetchRemoteState();
+      if (!fresh) {
+        setIsOnline(false);
+        const cached = readOfflineSnapshot(userId);
+        if (!cached) {
+          setErrorKind('offline');
+          setError('Sin conexión con el servidor. Revisa tu internet y vuelve a intentar.');
+        }
+        return;
+      }
+      setIsOnline(true);
+      setError('');
+      setMemberships(fresh.memberships);
+      if (fresh.memberships.length === 0) {
+        setErrorKind('no-branch');
+      } else {
+        setErrorKind('none');
+      }
+      setRows((prior) =>
+        fresh.rows.map((freshRow) => {
+          const current = prior?.find((row) => row.branch_id === freshRow.branch_id);
+          return current && current.version > freshRow.version ? current : freshRow;
+        }),
+      );
+      setGlobalRecords(fresh.globalRecords);
+      persistSnapshot(userId, fresh.memberships, fresh.rows, fresh.globalRecords);
+    } catch {
+      setIsOnline(false);
+      if (!readOfflineSnapshot(userId)) {
+        setErrorKind('offline');
+        setError('Sin conexión con el servidor. Revisa tu internet y vuelve a intentar.');
+      }
+    }
+  }, [fetchRemoteState, persistSnapshot, session?.user.id]);
+
+  const invokeSingleRemote = useCallback(
+    async (
+      branch: BranchId,
+      version: number,
+      operationId: string,
+      operation: Operation,
+    ): Promise<RemoteInvokeOutcome> => {
+      const body = { branch, version, operationId, operation };
+      try {
+        let response = await client.functions.invoke<OperationResponse>('horeb-operation', { body });
+        if (response.error && !(response.error instanceof FunctionsHttpError)) {
+          response = await client.functions.invoke<OperationResponse>('horeb-operation', { body });
+        }
+        if (response.error instanceof FunctionsHttpError) {
+          const context = response.error.context as Response;
+          const message = (await context.json().catch(() => ({}))) as OperationResponse;
+          if (context.status === 409) {
+            return {
+              status: 'conflict',
+              row: message.row,
+              error: message.error ?? 'La sucursal cambió en otro equipo.',
+            };
+          }
+          return {
+            status: 'rejected',
+            error: message.error ?? 'No se pudo completar la operación en Supabase.',
+          };
+        }
+        if (response.error || !response.data?.row) {
+          return {
+            status: 'network_error',
+            error: 'Sin conexión estable con Supabase.',
+          };
+        }
+        return {
+          status: 'ok',
+          row: response.data.row,
+          order: response.data.order,
+          customer: response.data.customer,
+          global: response.data.global,
+        };
+      } catch {
+        return {
+          status: 'network_error',
+          error: 'Sin conexión con el servidor.',
+        };
+      }
+    },
+    [],
+  );
+
+  const syncNow = useCallback(async () => {
+    const userId = session?.user.id;
+    if (!userId || !rows?.length || syncingRef.current || interacting.current) return;
+    const queue = readOfflineQueue(userId);
+    if (queue.length === 0) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOnline(false);
+      return;
+    }
+
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      const flushed = await flushOfflineQueue({
+        queue,
+        baseRows: rows,
+        baseGlobal: globalRecords,
+        invokeRemote: invokeSingleRemote,
+        reloadRemote: async () => {
+          const fresh = await fetchRemoteState();
+          return fresh ? { rows: fresh.rows, globalRecords: fresh.globalRecords } : null;
+        },
+      });
+      writeOfflineQueue(userId, flushed.queue);
+      setPendingQueue(flushed.queue);
+      setRows(flushed.rows);
+      setGlobalRecords(flushed.globalRecords);
+      persistSnapshot(userId, memberships, flushed.rows, flushed.globalRecords);
+
+      if (flushed.stoppedOffline) {
+        setIsOnline(false);
+      } else {
+        setIsOnline(true);
+      }
+
+      if (flushed.rejected.length > 0) {
+        setSyncWarning(
+          `${flushed.rejected.length} operación(es) local(es) no pudo(ieron) aplicarse al reconectar: ${flushed.rejected[0].error}`,
+        );
+      } else if (flushed.syncedCount > 0) {
+        setSyncWarning('');
+      }
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
+  }, [fetchRemoteState, globalRecords, invokeSingleRemote, memberships, persistSnapshot, rows, session?.user.id]);
+
+  useEffect(() => {
+    const onOffline = () => {
+      setIsOnline(false);
+      if (!rows?.length) {
+        setErrorKind('offline');
+        setError('Sin conexión con el servidor. Revisa tu conexión a internet e intenta de nuevo.');
+      }
+    };
+    const onOnline = () => {
+      setIsOnline(true);
+      setErrorKind((prev) => (prev === 'offline' ? 'none' : prev));
+      setError((prev) => (prev.startsWith('Sin conexión') ? '' : prev));
+      void syncNow().then(() => reload());
+    };
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [reload, rows?.length, syncNow]);
 
   useEffect(() => {
     setRows(null);
     setMemberships([]);
     setGlobalRecords({});
-    if (!session?.user.id) return;
+    setPendingQueue([]);
+    setSyncWarning('');
+    const userId = session?.user.id;
+    if (!userId) return;
+
+    const cachedQueue = readOfflineQueue(userId);
+    setPendingQueue(cachedQueue);
+
+    const cachedSnapshot = readOfflineSnapshot(userId);
+    if (cachedSnapshot && cachedSnapshot.rows.length > 0 && cachedSnapshot.memberships.length > 0) {
+      setMemberships(cachedSnapshot.memberships);
+      setRows(cachedSnapshot.rows);
+      setGlobalRecords(cachedSnapshot.globalRecords);
+      setErrorKind('none');
+      setError('');
+    }
+
     void reload();
     const interval = window.setInterval(() => {
-      if (!interacting.current) void reload();
+      if (interacting.current || syncingRef.current) return;
+      if (readOfflineQueue(userId).length > 0) {
+        void syncNow();
+      } else {
+        void reload();
+      }
     }, 8000);
     return () => window.clearInterval(interval);
-  }, [session?.user.id, reload]);
+  }, [reload, session?.user.id, syncNow]);
 
   function merge(row: BranchRow) {
-    setRows(
-      (prior) =>
+    setRows((prior) => {
+      const next =
         prior?.map((item) =>
           item.branch_id === row.branch_id && item.version <= row.version ? row : item,
-        ) ?? null,
-    );
+        ) ?? null;
+      if (next && session?.user.id) {
+        persistSnapshot(session.user.id, memberships, next, globalRecords);
+      }
+      return next;
+    });
+  }
+
+  function runLocallyOffline(branch: BranchId, operation: Operation, operationId: string) {
+    const userId = session?.user.id;
+    if (!userId || !rows?.length) {
+      return { ok: false, error: 'Sin caché local disponible para operar sin internet.' };
+    }
+    const rolesMap = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
+    const actorLabel = session.user.email ?? userId;
+    const queued = enqueueOfflineOperation({
+      baseRows: rows,
+      baseGlobal: globalRecords,
+      queue: pendingQueue,
+      roles: rolesMap,
+      branchId: branch,
+      operation,
+      operationId,
+      actorLabel,
+    });
+    if (!queued.ok) return queued;
+    writeOfflineQueue(userId, queued.nextQueue);
+    setPendingQueue(queued.nextQueue);
+    return { ok: true, order: queued.order, customer: queued.customer };
   }
 
   async function execute(branch: BranchId, operation: Operation) {
@@ -152,43 +375,51 @@ export function Root() {
     if (!base) return { ok: false, error: 'Esta sucursal no está disponible para tu cuenta.' };
     if (interacting.current) return { ok: false, error: 'Espera a que termine la operación anterior.' };
     interacting.current = true;
-    const body = { branch, version: base.version, operationId: crypto.randomUUID(), operation };
+    const operationId = crypto.randomUUID();
     try {
-      let response = await client.functions.invoke<OperationResponse>('horeb-operation', { body });
-      if (response.error && !(response.error instanceof FunctionsHttpError)) {
-        response = await client.functions.invoke<OperationResponse>('horeb-operation', { body });
+      const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      if (browserOffline || !isOnline || pendingQueue.length > 0) {
+        return runLocallyOffline(branch, operation, operationId);
       }
-      if (response.error instanceof FunctionsHttpError) {
-        const context = response.error.context as Response;
-        const message = (await context.json().catch(() => ({}))) as OperationResponse;
-        if (message.row) merge(message.row);
-        else if (context.status === 409) await reload();
-        return { ok: false, error: message.error ?? 'No se pudo completar la operación en Supabase.' };
+
+      const outcome = await invokeSingleRemote(branch, base.version, operationId, operation);
+      if (outcome.status === 'network_error') {
+        setIsOnline(false);
+        return runLocallyOffline(branch, operation, operationId);
       }
-      if (response.error || !response.data?.row) {
-        await reload();
-        return {
-          ok: false,
-          error: 'No se pudo comprobar el guardado. Revisa el folio o el corte antes de intentar otra vez.',
-        };
+      if (outcome.status === 'conflict') {
+        if (outcome.row) merge(outcome.row);
+        else await reload();
+        return { ok: false, error: outcome.error };
       }
-      merge(response.data.row);
-      if (response.data.global) {
-        setGlobalRecords(response.data.global);
+      if (outcome.status === 'rejected') {
+        return { ok: false, error: outcome.error };
       }
+
+      const nextGlobal = outcome.global ?? globalRecords;
+      if (outcome.global) {
+        setGlobalRecords(outcome.global);
+      }
+      setRows((prior) => {
+        const nextRows =
+          prior?.map((item) =>
+            item.branch_id === outcome.row.branch_id && item.version <= outcome.row.version
+              ? outcome.row
+              : item,
+          ) ?? null;
+        if (nextRows && session?.user.id) {
+          persistSnapshot(session.user.id, memberships, nextRows, nextGlobal);
+        }
+        return nextRows;
+      });
       const order =
-        response.data.order ??
+        outcome.order ??
         (operation.action === 'create'
-          ? response.data.row.state.orders?.find(
+          ? outcome.row.state.orders?.find(
               (item) => item.folio === operation.input.folio?.trim().toUpperCase(),
             )
           : undefined);
-      return { ok: true, order, customer: response.data.customer };
-    } catch {
-      return {
-        ok: false,
-        error: 'No se pudo comprobar el guardado. Actualiza y revisa el folio o corte antes de intentar otra vez.',
-      };
+      return { ok: true, order, customer: outcome.customer };
     } finally {
       interacting.current = false;
     }
@@ -241,10 +472,34 @@ export function Root() {
   }
 
   if (session && rows?.length && memberships.length > 0) {
-    const roles = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
+    const roles: Partial<Record<BranchId, BranchRole>> = Object.fromEntries(
+      memberships.map((entry) => [entry.branch_id, entry.role]),
+    );
+    const effective =
+      pendingQueue.length > 0
+        ? replayOfflineQueue(
+            rows,
+            globalRecords,
+            pendingQueue,
+            roles,
+            session.user.email ?? session.user.id,
+          )
+        : { combinedState: combineBranches(rows, globalRecords) };
+
     return (
       <App
-        shared={{ state: combineBranches(rows, globalRecords), roles, execute, reload, signOut: () => void signOut() }}
+        shared={{
+          state: effective.combinedState,
+          roles,
+          isOnline,
+          pendingSyncCount: pendingQueue.length,
+          syncing,
+          syncWarning: syncWarning || undefined,
+          execute,
+          reload,
+          syncNow,
+          signOut: () => void signOut(),
+        }}
         sharedNotice={error}
         theme={theme}
         onSetTheme={setTheme}

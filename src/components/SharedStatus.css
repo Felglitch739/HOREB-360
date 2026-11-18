@@ -17,6 +17,16 @@
   flex: none;
 }
 
+.shared-status.offline .shared-live-dot,
+.shared-status.syncing .shared-live-dot {
+  background: #f59e0b;
+}
+
+.shared-status.offline {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.14);
+}
+
 .shared-status-text {
   font-size: 0.74rem;
   font-weight: 650;

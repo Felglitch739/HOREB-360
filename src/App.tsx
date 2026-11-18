@@ -219,7 +219,13 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
             </button>
           ))}
         </nav>
-        <SharedStatus branchName={activeBranch.name} role={activeRole} />
+        <SharedStatus
+          branchName={activeBranch.name}
+          role={activeRole}
+          isOnline={shared.isOnline}
+          pendingSyncCount={shared.pendingSyncCount}
+          syncing={shared.syncing}
+        />
         <div className="sidebar-footer">
           <button
             type="button"
@@ -255,6 +261,33 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
         </header>
         <main className="main-content">
           {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
+          {shared.syncWarning && <div className="alert alert-error" role="alert">{shared.syncWarning}</div>}
+          {(!shared.isOnline || shared.pendingSyncCount > 0) && (
+            <div className="alert alert-info offline-sync-bar" role="status">
+              <span>
+                {!shared.isOnline ? (
+                  <>
+                    <strong>Sin internet · Modo local activo.</strong> Órdenes, entregas y efectivo se guardan en este equipo y se sincronizarán al reconectar
+                    {shared.pendingSyncCount > 0 ? ` (${shared.pendingSyncCount} pendiente(s))` : ''}. Terminal y transferencias requieren validación manual.
+                  </>
+                ) : (
+                  <>
+                    <strong>{shared.pendingSyncCount} cambio(s) local(es)</strong> por sincronizar con Supabase.
+                  </>
+                )}
+              </span>
+              {shared.isOnline && shared.pendingSyncCount > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={shared.syncing}
+                  onClick={() => void shared.syncNow()}
+                >
+                  {shared.syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
+                </button>
+              )}
+            </div>
+          )}
           {activeTab === 'inicio' && (
             <Overview
               state={state}
@@ -288,6 +321,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               initialQuery={orderQuery}
               state={state}
               branchId={activeBranchId}
+              isOffline={!shared.isOnline}
               onCreateOrder={handleCreateOrder}
               onCapturePayment={handleCapturePayment}
               onConfirmPaymentLine={handleConfirmPaymentLine}

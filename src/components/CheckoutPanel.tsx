@@ -12,6 +12,7 @@ interface CheckoutPanelProps {
   machines: Machine[];
   customers: Customer[];
   openShift: boolean;
+  isOffline?: boolean;
   suggestedFolio: string;
   checkoutOrder: Order | null;
   feedback: { type: 'error' | 'success'; text: string; orderId?: string } | null;
@@ -38,6 +39,7 @@ export function CheckoutPanel({
   machines,
   customers,
   openShift,
+  isOffline = false,
   suggestedFolio,
   checkoutOrder,
   feedback,
@@ -596,6 +598,11 @@ export function CheckoutPanel({
                   />
                   Marcar transferencia verificada
                 </label>
+                {isOffline && (
+                  <small className="muted" style={{ display: 'block', marginTop: 4 }}>
+                    Sin internet: valida manualmente en terminal o app bancaria antes de confirmar.
+                  </small>
+                )}
                 {confirmTransferNow && (
                   <input
                     className="input input-sm"

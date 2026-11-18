@@ -19,6 +19,7 @@ interface MostradorViewProps {
   state: DemoState;
   branchId: BranchId;
   ordersOnly: boolean;
+  isOffline?: boolean;
   initialFilter: string;
   initialQuery: string;
   onCreateOrder: (input: CreateOrderInput) => Promise<{ ok: boolean; error?: string; order?: Order }>;
@@ -42,6 +43,7 @@ export function MostradorView({
   state,
   branchId,
   ordersOnly,
+  isOffline = false,
   initialFilter,
   initialQuery,
   onCreateOrder,
@@ -247,6 +249,7 @@ export function MostradorView({
           machines={machines}
           customers={customers}
           openShift={openShift}
+          isOffline={isOffline}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}
           feedback={feedback}

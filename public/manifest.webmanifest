@@ -1,0 +1,17 @@
+{
+  "name": "HOREB 360 · Control de Lavandería",
+  "short_name": "HOREB 360",
+  "description": "Sistema POS y administración operativa para Lavandería Horeb con respaldo local sin conexión.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#0f4c81",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "/lavanderia-hero.webp",
+      "sizes": "1024x1024",
+      "type": "image/webp"
+    }
+  ]
+}
