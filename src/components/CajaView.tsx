@@ -3,6 +3,7 @@ import { Lock, PlayCircle } from 'lucide-react';
 import { formatMxn, parsePesosToCents } from '../domain/money';
 import { getBranchInfo, getOpenShift, getShiftMetrics } from '../domain/rules';
 import type { BranchId, CashMovement, DemoState } from '../domain/types';
+import { CustomSelect } from './CustomSelect';
 
 interface CajaViewProps {
   state: DemoState;
@@ -65,7 +66,7 @@ export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewSh
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} data-tour="caja-panel">
       <section className="card">
         <h2 className="card-title">
           <span>
@@ -155,7 +156,19 @@ export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewSh
       {canManage && openShift && <section className="card">
         <div className="section-head"><div><h2>Movimientos de efectivo</h2><p>Fondo inicial del turno {formatMxn(openShift.openingCashCents ?? 0)}</p></div></div>
         <form className="cash-controls" onSubmit={handleMovement}>
-          <label className="field">Movimiento<select className="input" value={movementKind} onChange={(event) => setMovementKind(event.target.value as CashMovement['kind'])}><option value="entrada">Entrada</option><option value="retiro">Retiro</option></select></label>
+          <div className="field">
+            <label htmlFor="movement-kind">Movimiento</label>
+            <CustomSelect
+              id="movement-kind"
+              ariaLabel="Tipo de movimiento"
+              value={movementKind}
+              options={[
+                { value: 'entrada', label: 'Entrada' },
+                { value: 'retiro', label: 'Retiro' },
+              ]}
+              onChange={(val) => setMovementKind(val)}
+            />
+          </div>
           <label className="field">Monto (MXN)<input className="input" inputMode="decimal" value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} required /></label>
           <label className="field">Motivo<input className="input" value={movementReason} onChange={(event) => setMovementReason(event.target.value)} required maxLength={100} /></label>
           <button className="btn btn-primary" type="submit">Registrar movimiento</button>

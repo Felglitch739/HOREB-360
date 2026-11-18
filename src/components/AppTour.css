@@ -1,0 +1,117 @@
+.app-tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: auto;
+}
+
+.app-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.48);
+  pointer-events: auto;
+}
+
+.app-tour-spotlight {
+  position: fixed;
+  z-index: 91;
+  border-radius: 12px;
+  border: 2px solid #cfeaab;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.56);
+  pointer-events: none;
+  transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.app-tour-card {
+  position: fixed;
+  z-index: 92;
+  width: min(390px, calc(100vw - 24px));
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  padding: 16px;
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.28);
+  display: grid;
+  gap: 10px;
+}
+
+.app-tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.app-tour-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.app-tour-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.app-tour-close:hover {
+  background: #edf1eb;
+}
+
+.app-tour-card h3 {
+  margin: 0;
+  font-size: 1.06rem;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.app-tour-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.app-tour-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.app-tour-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.app-tour-dot.active {
+  width: 18px;
+  background: var(--primary);
+}
+
+.app-tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.app-tour-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

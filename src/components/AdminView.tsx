@@ -28,7 +28,7 @@ export function AdminView({ state, branches }: AdminViewProps) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} data-tour="admin-panel">
       <section className="card">
         <h2 className="card-title">
           <span>Cobros por sucursal</span>

@@ -244,15 +244,59 @@ select:focus-visible {
 .checkbox-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: #ffffff;
   font-size: 0.88rem;
-  color: var(--text-muted);
+  font-weight: 600;
+  color: var(--text);
   cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.checkbox-row input {
+.checkbox-row:hover {
+  border-color: #829a85;
+  background: #fcfdfb;
+}
+
+.checkbox-row:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.checkbox-row input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
   width: 20px;
   height: 20px;
+  margin: 0;
+  border-radius: 6px;
+  border: 2px solid var(--border-strong);
+  background: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.checkbox-row input[type='checkbox']:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.checkbox-row input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #ffffff;
+  border-width: 0 2.2px 2.2px 0;
+  transform: rotate(45deg);
 }
 
 .summary-bar {
@@ -398,12 +442,39 @@ th {
 .modal-card {
   background: #ffffff;
   border-radius: var(--radius);
-  max-width: 440px;
+  max-width: 470px;
   width: 100%;
   padding: 18px;
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
-  max-height: 90vh;
+  max-height: 92vh;
   overflow-y: auto;
+}
+
+.ticket-customize {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-alt);
+}
+
+.ticket-customize .field {
+  margin-bottom: 0;
+}
+
+.ticket-width-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ticket-note-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
 }
 
 .ticket-paper {
@@ -412,12 +483,35 @@ th {
   padding: 14px;
   background: #fcfcfd;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.88rem;
-  margin-bottom: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  margin: 0 auto 12px;
+  width: 100%;
+  color: #111827;
+}
+
+.ticket-paper.ticket-80mm {
+  max-width: 310px;
+}
+
+.ticket-paper.ticket-58mm {
+  max-width: 235px;
+  padding: 11px 10px;
+  font-size: 0.78rem;
 }
 
 .ticket-center {
   text-align: center;
+}
+
+.ticket-folio-box {
+  margin: 6px 0 4px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 1.02em;
+  letter-spacing: 0.04em;
 }
 
 .ticket-divider {
@@ -430,6 +524,37 @@ th {
   justify-content: space-between;
   gap: 8px;
   margin: 3px 0;
+}
+
+.ticket-note-block {
+  margin: 4px 0;
+  padding: 5px 6px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.ticket-barcode {
+  margin: 8px auto 4px;
+  height: 22px;
+  width: 82%;
+  background: repeating-linear-gradient(
+    90deg,
+    #111827 0 2px,
+    transparent 2px 4px,
+    #111827 4px 7px,
+    transparent 7px 8px,
+    #111827 8px 9px,
+    transparent 9px 12px
+  );
+  opacity: 0.85;
+}
+
+.ticket-footer-msg {
+  text-align: center;
+  font-size: 0.88em;
+  color: #334155;
+  margin-top: 6px;
 }
 
 .muted {
@@ -548,7 +673,7 @@ button.stat-card:hover { border-color: #829a85; background: #fcfdfb; }
 .search-field:focus-within { outline: 2px solid #47836b; outline-offset: 1px; }
 .search-field input:focus-visible { outline: 0; }
 .orders-page { min-width: 0; }
-.two-col { grid-template-columns: minmax(0,1fr); gap: 15px; }
+.two-col { display: grid; grid-template-columns: minmax(0,1fr); gap: 15px; }
 .two-col > *, .orders-page > * { min-width: 0; }
 .order-card { border-color: var(--border); }
 .card { box-shadow: var(--shadow); }
@@ -594,10 +719,77 @@ button.stat-card:hover { border-color: #829a85; background: #fcfdfb; }
 .cash-records td:last-child { white-space: nowrap; }
 
 .cloud-auth { min-height: 100dvh; display: grid; place-items: center; padding: 22px; background: radial-gradient(ellipse at 20% 5%, #dcebcf, transparent 60%), var(--bg); }
-.cloud-auth-card { width: min(100%, 420px); padding: 26px; display: grid; gap: 12px; }
+.cloud-auth-card { width: min(100%, 440px); padding: 26px; display: grid; gap: 12px; }
 .cloud-auth-card h1, .cloud-auth-card p { margin: 0; }
 .cloud-auth-card > p { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .cloud-auth-card .field { display: block; }
+
+.quick-login-box {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.quick-login-title {
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.quick-login-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.quick-login-btn {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-alt);
+  color: var(--text);
+  display: grid;
+  gap: 3px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.quick-login-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.quick-login-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.quick-login-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--primary);
+}
+
+.quick-login-btn small {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.quick-login-btn code {
+  font-size: 0.78rem;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  width: fit-content;
+}
 
 /* Quick combo presets & encargo stepper */
 .combo-presets {
@@ -686,28 +878,44 @@ button.stat-card:hover { border-color: #829a85; background: #fcfdfb; }
   }
 }
 
+@page {
+  size: 80mm auto;
+  margin: 0;
+}
+
 @media print {
-  body * {
-    visibility: hidden;
+  html,
+  body {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  .modal-backdrop,
-  .modal-card,
-  .ticket-paper,
-  .ticket-paper * {
-    visibility: visible;
+  .app-shell {
+    display: block !important;
+    min-height: 0 !important;
+  }
+
+  .sidebar,
+  .workspace,
+  .app-tour-overlay {
+    display: none !important;
   }
 
   .modal-backdrop {
-    position: static;
-    background: transparent;
-    padding: 0;
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    padding: 0 !important;
   }
 
   .modal-card {
-    box-shadow: none;
-    max-height: none;
-    padding: 0;
+    box-shadow: none !important;
+    max-width: none !important;
+    max-height: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
   }
 
   .modal-card > :not(.ticket-paper) {
@@ -715,7 +923,24 @@ button.stat-card:hover { border-color: #829a85; background: #fcfdfb; }
   }
 
   .ticket-paper {
-    border: 0;
-    margin: 0;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    margin: 0 auto !important;
+    padding: 3mm 4mm !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+
+  .ticket-paper.ticket-80mm {
+    width: 76mm !important;
+    max-width: none !important;
+    font-size: 11px !important;
+  }
+
+  .ticket-paper.ticket-58mm {
+    width: 54mm !important;
+    max-width: none !important;
+    font-size: 10px !important;
   }
 }

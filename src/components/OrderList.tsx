@@ -6,6 +6,7 @@ import {
   getOrderPendingCents,
 } from '../domain/rules';
 import type { DemoState, Order } from '../domain/types';
+import { CustomSelect } from './CustomSelect';
 import { OrderCard } from './OrderCard';
 
 interface OrderListProps {
@@ -45,8 +46,15 @@ export function OrderList({
   onAdvanceEncargo,
   onDeliverEncargo,
 }: OrderListProps) {
+  const filterOptions = [
+    { value: 'todas', label: 'Todas las órdenes' },
+    { value: 'pendientes', label: 'Por cobrar' },
+    { value: 'autoservicio', label: 'Autoservicio' },
+    ...ENCARGO_STAGES.map((stage) => ({ value: stage.id, label: stage.label })),
+  ];
+
   return (
-    <section className="card" aria-label="Órdenes registradas">
+    <section className="card" aria-label="Órdenes registradas" data-tour="orders-panel">
       <h2 className="card-title">
         <span>{ordersOnly ? 'Seguimiento' : 'Órdenes de la sucursal'}</span>
         <span className="badge badge-info">
@@ -64,21 +72,12 @@ export function OrderList({
             placeholder="Buscar por folio o cliente"
           />
         </label>
-        <select
-          className="input"
-          aria-label="Filtrar órdenes"
+        <CustomSelect
+          ariaLabel="Filtrar órdenes"
           value={filter}
-          onChange={(event) => onFilterChange(event.target.value)}
-        >
-          <option value="todas">Todas las órdenes</option>
-          <option value="pendientes">Por cobrar</option>
-          <option value="autoservicio">Autoservicio</option>
-          {ENCARGO_STAGES.map((stage) => (
-            <option key={stage.id} value={stage.id}>
-              {stage.label}
-            </option>
-          ))}
-        </select>
+          options={filterOptions}
+          onChange={onFilterChange}
+        />
       </div>
 
       {showFeedback && feedback && (

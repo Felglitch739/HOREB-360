@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react';
-import { BarChart3, ChevronDown, ClipboardList, LayoutDashboard, MapPin, Plus, RotateCcw, Store, Wallet, WashingMachine } from 'lucide-react';
+import { useState } from 'react';
+import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Plus, Store, Wallet, WashingMachine } from 'lucide-react';
 import { AdminView } from './components/AdminView';
+import { AppTour, type TourTabId } from './components/AppTour';
 import { CajaView } from './components/CajaView';
+import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
 import { Overview } from './components/Overview';
 import { SharedStatus } from './components/SharedStatus';
 import { TicketModal } from './components/TicketModal';
 import { BRANCHES, getBranchInfo, getOpenShift, getOrderPaymentLines, type CreateOrderInput, type PaymentInputLine } from './domain/rules';
-import { operate, type Operation } from './domain/operations';
+import { type Operation } from './domain/operations';
 import type { SharedWorkspace } from './Root';
-import { createExampleState, hasPristineDemo } from './domain/examples';
-import { clearDemoState, loadDemoState, saveDemoState } from './domain/storage';
-import type { BranchId, CashMovement, DemoState } from './domain/types';
+import type { BranchId, CashMovement } from './domain/types';
 
 const navigation = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
@@ -23,29 +23,23 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'];
 
-export function App({ shared, onSwitchMode, sharedNotice }: {
-  shared?: SharedWorkspace;
-  onSwitchMode?: () => void;
+export function App({ shared, sharedNotice }: {
+  shared: SharedWorkspace;
   sharedNotice?: string;
 }) {
-  const [localState, setState] = useState<DemoState>(() => loadDemoState());
-  const [selectedBranch, setSelectedBranch] = useState(shared?.state.activeBranchId);
-  const state = shared?.state ?? localState;
-  const visibleBranches = shared ? BRANCHES.filter((branch) => shared.roles[branch.id]) : BRANCHES;
+  const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
+  const state = shared.state;
+  const visibleBranches = BRANCHES.filter((branch) => shared.roles[branch.id]);
   const [activeTab, setActiveTab] = useState<TabId>('inicio');
   const [orderFilter, setOrderFilter] = useState('todas');
   const [orderQuery, setOrderQuery] = useState('');
-  const [formKey, setFormKey] = useState(0);
   const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
 
-  useEffect(() => {
-    if (!shared) saveDemoState(localState);
-  }, [localState, Boolean(shared)]);
-
-  const activeBranchId = shared
-    ? visibleBranches.find((branch) => branch.id === selectedBranch)?.id ?? state.activeBranchId
-    : state.activeBranchId;
+  const activeBranchId =
+    visibleBranches.find((branch) => branch.id === selectedBranch)?.id ??
+    visibleBranches[0]?.id ??
+    state.activeBranchId;
   const openShift = getOpenShift(state, activeBranchId);
 
   function navigate(tab: TabId) {
@@ -63,25 +57,8 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
     setOrderQuery(query);
   }
 
-  function handleSelectBranch(branchId: BranchId) {
-    if (shared) setSelectedBranch(branchId);
-    else setState((prev) => ({ ...prev, activeBranchId: branchId }));
-  }
-
-  function handleResetDemo() {
-    const fresh = clearDemoState();
-    setState(fresh);
-    setFormKey((value) => value + 1);
-    navigate('inicio');
-    setTicketOrderId(null);
-    setConfirmReset(false);
-  }
-
-  async function run(branch: BranchId, operation: Operation) {
-    if (shared) return shared.execute(branch, operation);
-    const result = operate(localState, branch, operation);
-    if (result.ok) setState(result.state);
-    return result;
+  function run(branch: BranchId, operation: Operation) {
+    return shared.execute(branch, operation);
   }
 
   function handleCreateOrder({ branchId, ...input }: CreateOrderInput) {
@@ -141,46 +118,54 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="demo-status"><i aria-hidden="true" /> {shared ? 'En línea · Sucursales' : 'Sesión local'}</div>
-          {onSwitchMode && <button className="reset-button" onClick={onSwitchMode}>{shared ? 'Cambiar a sesión local' : 'Conectar en línea'}</button>}
-          {!shared && (confirmReset ? <div className="reset-actions">
-            <button className="btn btn-danger btn-sm" onClick={handleResetDemo}>Confirmar reinicio</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setConfirmReset(false)}>Cancelar</button>
-          </div> : <button className="reset-button" onClick={() => setConfirmReset(true)}><RotateCcw size={16} aria-hidden="true" /> Reiniciar datos</button>)}
+          <div className="demo-status"><i aria-hidden="true" /> En línea · Sucursales</div>
+          <button type="button" className="reset-button" onClick={() => setTourOpen(true)}>
+            <Compass size={16} aria-hidden="true" /> Guía interactiva
+          </button>
         </div>
       </aside>
       <div className="workspace">
         <header className="workspace-header">
           <div className="breadcrumb">Operación <span>/</span> <strong>{navigation.find((entry) => entry.id === activeTab)?.label}</strong></div>
-          <div className="workspace-actions">
+          <div className="workspace-actions" data-tour="branch-bar">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
+              <Compass size={15} aria-hidden="true" /> Guía interactiva
+            </button>
             <span className={'shift-pill' + (openShift ? ' open' : '')}><i aria-hidden="true" />{openShift ? 'Turno ' + openShift.number + ' abierto' : 'Caja cerrada'}</span>
-            <label className="branch-select"><MapPin size={17} aria-hidden="true" /><span className="sr-only">Sucursal</span>
-              <select value={activeBranchId} onChange={(event) => handleSelectBranch(event.target.value as BranchId)}>
-                {visibleBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select><ChevronDown size={15} aria-hidden="true" />
-            </label>
+            <CustomSelect
+              ariaLabel="Sucursal"
+              compact
+              icon={<MapPin size={16} aria-hidden="true" />}
+              value={activeBranchId}
+              options={visibleBranches.map((branch) => ({ value: branch.id, label: branch.name }))}
+              onChange={(value) => setSelectedBranch(value)}
+            />
           </div>
         </header>
       <main className="main-content">
-        {shared && (
-          <SharedStatus
-            branchName={getBranchInfo(activeBranchId).name}
-            role={shared.roles[activeBranchId] ?? 'operator'}
-            onReload={shared.reload}
-            onSignOut={shared.signOut}
+        <SharedStatus
+          branchName={getBranchInfo(activeBranchId).name}
+          role={shared.roles[activeBranchId] ?? 'operator'}
+          onReload={shared.reload}
+          onSignOut={shared.signOut}
+        />
+        {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
+        {activeTab === 'inicio' && (
+          <Overview
+            state={state}
+            branchId={activeBranchId}
+            onNew={() => navigate('mostrador')}
+            onOrders={showOrders}
+            onStartTour={() => setTourOpen(true)}
           />
         )}
-        {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
-        {activeTab === 'inicio' && <Overview state={state} branchId={activeBranchId}
-          onNew={() => navigate('mostrador')} onOrders={showOrders} canLoadExamples={!shared && hasPristineDemo(state)}
-          onLoadExamples={() => setState((current) => hasPristineDemo(current) ? { ...createExampleState(), activeBranchId } : current)} />}
         {activeTab !== 'inicio' && <div className="page-intro">
           <div><h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1><p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : getBranchInfo(activeBranchId).name}</p></div>
-          {activeTab === 'ordenes' && <button className="btn btn-primary" onClick={() => navigate('mostrador')}><Plus size={17} /> Nueva orden</button>}
+          {activeTab === 'ordenes' && <button type="button" className="btn btn-primary" onClick={() => navigate('mostrador')}><Plus size={17} /> Nueva orden</button>}
         </div>}
         {(activeTab === 'mostrador' || activeTab === 'ordenes') && (
           <MostradorView
-            key={activeBranchId + activeTab + formKey}
+            key={activeBranchId + activeTab}
             ordersOnly={activeTab === 'ordenes'}
             initialFilter={orderFilter}
             initialQuery={orderQuery}
@@ -200,7 +185,7 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
             key={activeBranchId}
             state={state}
             branchId={activeBranchId}
-            canManage={!shared || shared.roles[activeBranchId] === 'supervisor'}
+            canManage={shared.roles[activeBranchId] === 'supervisor'}
             onCloseShift={handleCloseShift}
             onOpenNewShift={handleOpenNewShift}
             onMovement={handleMovement}
@@ -220,6 +205,12 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
           onClose={() => setTicketOrderId(null)}
         />
       )}
+
+      <AppTour
+        open={tourOpen}
+        onNavigate={(tab: TourTabId) => navigate(tab)}
+        onClose={() => setTourOpen(false)}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { ArrowRight, ArrowUpRight, Banknote, CalendarDays, CircleDollarSign, Clock3, PackageCheck, Plus, ScrollText, WashingMachine } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Banknote, CalendarDays, CircleDollarSign, Clock3, Compass, PackageCheck, Plus, ScrollText, WashingMachine } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo, getBranchSummary, getOrderPendingCents } from '../domain/rules';
 import type { BranchId, DemoState } from '../domain/types';
@@ -11,11 +11,10 @@ interface Props {
   branchId: BranchId;
   onNew: () => void;
   onOrders: (filter?: string, query?: string) => void;
-  onLoadExamples: () => void;
-  canLoadExamples: boolean;
+  onStartTour?: () => void;
 }
 
-export function Overview({ state, branchId, onNew, onOrders, onLoadExamples, canLoadExamples }: Props) {
+export function Overview({ state, branchId, onNew, onOrders, onStartTour }: Props) {
   const branch = getBranchInfo(branchId);
   const summary = getBranchSummary(state, branchId);
   const orders = state.orders.filter((order) => order.branchId === branchId);
@@ -49,16 +48,20 @@ export function Overview({ state, branchId, onNew, onOrders, onLoadExamples, can
         <h2>Tu lavandería, al día.</h2>
         <p>Registra órdenes y da seguimiento a los encargos de la sucursal.</p>
         <div className="welcome-actions">
-          <button className="btn hero-primary" onClick={onNew}><Plus size={17} /> Nueva orden</button>
-          {canLoadExamples && <button className="btn hero-secondary" onClick={onLoadExamples}>Cargar ejemplos</button>}
+          <button type="button" className="btn hero-primary" onClick={onNew}><Plus size={17} /> Nueva orden</button>
+          {onStartTour && (
+            <button type="button" className="btn hero-secondary" onClick={onStartTour}>
+              <Compass size={17} /> Guía interactiva
+            </button>
+          )}
         </div>
       </div>
     </section>
 
-    <div className="stat-grid">
+    <div className="stat-grid" data-tour="overview-stats">
       {stats.map(({ label, value, icon: Icon, tone, note, filter }) => {
         const content = <><div className="stat-top"><span className={'stat-icon ' + tone}><Icon size={19} aria-hidden="true" /></span>{filter && <ArrowUpRight size={16} className="stat-arrow" aria-hidden="true" />}</div><span className="stat-label">{label}</span><strong>{value}</strong><small>{note}</small></>;
-        return filter ? <button key={label} className="stat-card" onClick={() => onOrders(filter)}>{content}</button> : <div key={label} className="stat-card">{content}</div>;
+        return filter ? <button type="button" key={label} className="stat-card" onClick={() => onOrders(filter)}>{content}</button> : <div key={label} className="stat-card">{content}</div>;
       })}
     </div>
 
@@ -76,7 +79,7 @@ export function Overview({ state, branchId, onNew, onOrders, onLoadExamples, can
       <section className="card insight-card">
         <div className="section-head"><div><h2>Encargos por etapa</h2><p>Órdenes activas de {branch.name}</p></div><WashingMachine size={20} aria-hidden="true" /></div>
         <div className="stage-list">{ENCARGO_STAGES.filter((stage) => stage.id !== 'entregado').map((stage) => (
-          <button key={stage.id} className="stage-row" onClick={() => onOrders(stage.id)}>
+          <button type="button" key={stage.id} className="stage-row" onClick={() => onOrders(stage.id)}>
             <span className={'stage-dot ' + stage.id} /><span>{stage.label}</span><strong>{orders.filter((order) => order.encargoStage === stage.id).length}</strong><ArrowRight size={15} aria-hidden="true" />
           </button>
         ))}</div>
@@ -84,12 +87,12 @@ export function Overview({ state, branchId, onNew, onOrders, onLoadExamples, can
     </div>
 
     <section className="card insight-card">
-      <div className="section-head"><div><h2>Órdenes recientes</h2><p>Últimos movimientos de {branch.name}</p></div><button className="btn btn-secondary btn-sm" onClick={() => onOrders()}>Ver órdenes <ArrowRight size={15} /></button></div>
+      <div className="section-head"><div><h2>Órdenes recientes</h2><p>Últimos movimientos de {branch.name}</p></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => onOrders()}>Ver órdenes <ArrowRight size={15} /></button></div>
       {orders.length === 0 ? <p className="empty-section">Aún no hay órdenes en esta sucursal.</p> : <div className="recent-list">
         {orders.slice(0, 5).map((order) => {
           const balance = getOrderPendingCents(state, order.id);
           const stage = ENCARGO_STAGES.find((item) => item.id === order.encargoStage)?.label ?? 'Autoservicio';
-          return <button key={order.id} className="recent-row" onClick={() => onOrders('todas', order.folio)}>
+          return <button type="button" key={order.id} className="recent-row" onClick={() => onOrders('todas', order.folio)}>
             <span className="stat-icon green"><ScrollText size={17} /></span><span><strong>{order.folio}</strong><small>{order.customerAlias}</small></span><span className="recent-stage">{stage}</span><span><strong>{formatMxn(order.totalCents)}</strong><small>{balance ? formatMxn(balance) + ' pendientes' : 'Pagado'}</small></span><ArrowRight size={15} />
           </button>;
         })}
