@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Palette, Plus, Store, Wallet, WashingMachine } from 'lucide-react';
+import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Palette, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
 import { AdminView } from './components/AdminView';
+import { AjustesView } from './components/AjustesView';
 import { AppTour, type TourTabId } from './components/AppTour';
 import { CajaView } from './components/CajaView';
 import { CustomSelect } from './components/CustomSelect';
@@ -8,10 +9,18 @@ import { MostradorView } from './components/MostradorView';
 import { Overview } from './components/Overview';
 import { SharedStatus } from './components/SharedStatus';
 import { TicketModal } from './components/TicketModal';
-import { BRANCHES, getBranchInfo, getOpenShift, getOrderPaymentLines, type CreateOrderInput, type PaymentInputLine } from './domain/rules';
+import {
+  BRANCHES,
+  getBranchInfo,
+  getBranchSettings,
+  getOpenShift,
+  getOrderPaymentLines,
+  type CreateOrderInput,
+  type PaymentInputLine,
+} from './domain/rules';
 import { type Operation } from './domain/operations';
 import type { SharedWorkspace } from './Root';
-import type { BranchId, CashMovement } from './domain/types';
+import type { BranchId, BranchSettings, CashMovement } from './domain/types';
 import type { BrandTheme } from './theme';
 
 const navigation = [
@@ -20,14 +29,16 @@ const navigation = [
   { id: 'ordenes', label: 'Órdenes', icon: ClipboardList },
   { id: 'caja', label: 'Caja', icon: Wallet },
   { id: 'admin', label: 'Reportes', icon: BarChart3 },
+  { id: 'ajustes', label: 'Ajustes', icon: Settings },
 ] as const;
 
 type TabId = (typeof navigation)[number]['id'];
 
-export function App({ shared, sharedNotice, theme, onToggleTheme }: {
+export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: {
   shared: SharedWorkspace;
   sharedNotice?: string;
   theme: BrandTheme;
+  onSetTheme: (theme: BrandTheme) => void;
   onToggleTheme: () => void;
 }) {
   const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
@@ -43,6 +54,9 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
     visibleBranches.find((branch) => branch.id === selectedBranch)?.id ??
     visibleBranches[0]?.id ??
     state.activeBranchId;
+  const activeBranch = getBranchInfo(activeBranchId);
+  const activeRole = shared.roles[activeBranchId] ?? 'operator';
+  const activeSettings = getBranchSettings(state, activeBranchId);
   const openShift = getOpenShift(state, activeBranchId);
 
   function navigate(tab: TabId) {
@@ -102,6 +116,10 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
     return run(branch, { action: 'openShift', amount });
   }
 
+  function handleSaveSettings(branch: BranchId, settings: Partial<BranchSettings>) {
+    return run(branch, { action: 'updateSettings', settings });
+  }
+
   const ticketOrder = ticketOrderId ? state.orders.find((o) => o.id === ticketOrderId) : null;
   const ticketState = ticketOrderId ? state.tickets[ticketOrderId] : null;
 
@@ -120,12 +138,7 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
             </button>
           ))}
         </nav>
-        <SharedStatus
-          branchName={getBranchInfo(activeBranchId).name}
-          role={shared.roles[activeBranchId] ?? 'operator'}
-          onReload={shared.reload}
-          onSignOut={shared.signOut}
-        />
+        <SharedStatus branchName={activeBranch.name} role={activeRole} />
         <div className="sidebar-footer">
           <button type="button" className="reset-button" onClick={() => setTourOpen(true)}>
             <Compass size={16} aria-hidden="true" /> Guía interactiva
@@ -167,7 +180,10 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
           />
         )}
         {activeTab !== 'inicio' && <div className="page-intro">
-          <div><h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1><p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : getBranchInfo(activeBranchId).name}</p></div>
+          <div>
+            <h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1>
+            <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranch.name}</p>
+          </div>
           {activeTab === 'ordenes' && <button type="button" className="btn btn-primary" onClick={() => navigate('mostrador')}><Plus size={17} /> Nueva orden</button>}
         </div>}
         {(activeTab === 'mostrador' || activeTab === 'ordenes') && (
@@ -192,7 +208,7 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
             key={activeBranchId}
             state={state}
             branchId={activeBranchId}
-            canManage={shared.roles[activeBranchId] === 'supervisor'}
+            canManage={activeRole === 'supervisor'}
             onCloseShift={handleCloseShift}
             onOpenNewShift={handleOpenNewShift}
             onMovement={handleMovement}
@@ -200,6 +216,20 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
         )}
 
         {activeTab === 'admin' && <AdminView state={state} branches={visibleBranches.map((branch) => branch.id)} />}
+
+        {activeTab === 'ajustes' && (
+          <AjustesView
+            branchId={activeBranchId}
+            branchName={activeBranch.name}
+            role={activeRole}
+            settings={activeSettings}
+            theme={theme}
+            onSetTheme={onSetTheme}
+            onSaveSettings={handleSaveSettings}
+            onReload={shared.reload}
+            onSignOut={shared.signOut}
+          />
+        )}
       </main>
       </div>
 
@@ -208,6 +238,7 @@ export function App({ shared, sharedNotice, theme, onToggleTheme }: {
           order={ticketOrder}
           paymentLines={getOrderPaymentLines(state, ticketOrder.id)}
           ticket={ticketState}
+          branchSettings={getBranchSettings(state, ticketOrder.branchId)}
           onEmit={handleEmitTicket}
           onClose={() => setTicketOrderId(null)}
         />

@@ -31,5 +31,5 @@ export function useBrandTheme() {
 
   const toggleTheme = () => setTheme((prev) => (prev === 'green' ? 'blue' : 'green'));
 
-  return { theme, toggleTheme };
+  return { theme, setTheme, toggleTheme };
 }

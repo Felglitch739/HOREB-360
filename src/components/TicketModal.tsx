@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Printer, RefreshCw, X } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo } from '../domain/rules';
-import type { Order, PaymentLine, TicketState } from '../domain/types';
+import type { BranchSettings, Order, PaymentLine, TicketState } from '../domain/types';
 import { Barcode } from './Barcode';
 
 interface TicketModalProps {
   order: Order;
   paymentLines: PaymentLine[];
   ticket: TicketState;
+  branchSettings: BranchSettings;
   onEmit: (orderId: string, simulateFailure: boolean) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
 }
@@ -33,15 +34,18 @@ export function TicketModal({
   order,
   paymentLines,
   ticket,
+  branchSettings,
   onEmit,
   onClose,
 }: TicketModalProps) {
   const branch = getBranchInfo(order.branchId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>('80mm');
+  const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>(branchSettings.defaultPaperWidth);
   const [careNote, setCareNote] = useState('');
-  const [footerMessage, setFooterMessage] = useState(DEFAULT_FOOTER);
+  const [footerMessage, setFooterMessage] = useState(
+    branchSettings.ticketFooter || DEFAULT_FOOTER,
+  );
 
   const stageLabel = order.encargoStage
     ? ENCARGO_STAGES.find((stage) => stage.id === order.encargoStage)?.label
@@ -152,10 +156,11 @@ export function TicketModal({
 
         <div className={`ticket-paper ticket-${paperWidth}`}>
           <div className="ticket-center">
-            <strong>LAVANDERÍA HOREB</strong>
+            <strong>{branchSettings.businessName}</strong>
             <div>HOREB 360 · Comprobante de servicio</div>
             <div>Sucursal: {branch.name}</div>
-            <div>Horario: Lun–Sáb 8:00 a 20:00</div>
+            {branchSettings.branchPhone && <div>Tel: {branchSettings.branchPhone}</div>}
+            {branchSettings.scheduleText && <div>Horario: {branchSettings.scheduleText}</div>}
             <div className="ticket-folio-box">FOLIO {order.folio}</div>
             <div>Fecha: {new Date(order.createdAt).toLocaleString('es-MX')}</div>
           </div>

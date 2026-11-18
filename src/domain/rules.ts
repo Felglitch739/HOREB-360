@@ -2,6 +2,7 @@ import { COMBO_PRICE_CENTS, formatMxn } from './money.ts';
 import type {
   BranchId,
   BranchInfo,
+  BranchSettings,
   CashMovement,
   DemoState,
   EncargoStage,
@@ -71,6 +72,63 @@ export function createInitialState(now = new Date().toISOString()): DemoState {
       trevino: 1,
       'sucursal-3': 1,
     },
+  };
+}
+
+export const DEFAULT_BRANCH_SETTINGS: BranchSettings = {
+  comboPriceCents: COMBO_PRICE_CENTS,
+  businessName: 'LAVANDERÍA HOREB',
+  branchPhone: '',
+  scheduleText: 'Lun–Sáb 8:00 a 20:00',
+  ticketFooter: '¡Gracias por su preferencia! Conserve este comprobante para recoger su encargo.',
+  defaultPaperWidth: '80mm',
+};
+
+export function getBranchSettings(state: DemoState, branchId: BranchId): BranchSettings {
+  return {
+    ...DEFAULT_BRANCH_SETTINGS,
+    ...(state.settings?.[branchId] ?? {}),
+  };
+}
+
+export function updateBranchSettings(
+  state: DemoState,
+  branchId: BranchId,
+  patch: Partial<BranchSettings>,
+): DomainResult<BranchSettings> {
+  const current = getBranchSettings(state, branchId);
+  const comboPriceCents = patch.comboPriceCents ?? current.comboPriceCents;
+  if (!Number.isSafeInteger(comboPriceCents) || comboPriceCents < 100 || comboPriceCents > 10_000_000) {
+    return { ok: false, error: 'El precio del combo debe ser al menos $1.00 MXN.' };
+  }
+  const businessName = (patch.businessName ?? current.businessName).trim();
+  if (!businessName) {
+    return { ok: false, error: 'Captura el nombre comercial para el comprobante.' };
+  }
+  const defaultPaperWidth = patch.defaultPaperWidth ?? current.defaultPaperWidth;
+  if (defaultPaperWidth !== '80mm' && defaultPaperWidth !== '58mm') {
+    return { ok: false, error: 'Selecciona un tamaño de papel válido (80mm o 58mm).' };
+  }
+
+  const next: BranchSettings = {
+    comboPriceCents,
+    businessName: businessName.slice(0, 80),
+    branchPhone: (patch.branchPhone ?? current.branchPhone).trim().slice(0, 40),
+    scheduleText: (patch.scheduleText ?? current.scheduleText).trim().slice(0, 80),
+    ticketFooter: (patch.ticketFooter ?? current.ticketFooter).trim().slice(0, 160),
+    defaultPaperWidth,
+  };
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      settings: {
+        ...(state.settings ?? {}),
+        [branchId]: next,
+      },
+    },
+    data: next,
   };
 }
 
@@ -258,12 +316,13 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     };
   }
 
+  const unitPriceCents = getBranchSettings(state, input.branchId).comboPriceCents;
   const comboCount = input.comboCount ?? 1;
-  if (!Number.isSafeInteger(comboCount * COMBO_PRICE_CENTS) || !Number.isInteger(comboCount) || comboCount < 1) {
+  if (!Number.isSafeInteger(comboCount * unitPriceCents) || !Number.isInteger(comboCount) || comboCount < 1) {
     return { ok: false, error: 'La cantidad de combos debe ser al menos 1.' };
   }
 
-  const totalCents = comboCount * COMBO_PRICE_CENTS;
+  const totalCents = comboCount * unitPriceCents;
 
   const nextFolio = suggestNextFolio(state, input.branchId);
   const folio = (input.folio?.trim() || nextFolio).toUpperCase();
@@ -296,7 +355,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     serviceType: input.serviceType,
     customerAlias,
     comboCount,
-    unitPriceCents: COMBO_PRICE_CENTS,
+    unitPriceCents,
     totalCents,
     encargoStage: input.serviceType === 'encargo' ? 'recibido' : null,
     orderStatus: 'en_proceso',

@@ -38,6 +38,17 @@ const requestSchema = z.object({
     z.object({ action: z.literal('openShift'), amount }),
     z.object({ action: z.literal('closeShift'), amount }),
     z.object({ action: z.literal('movement'), kind: z.enum(['entrada','retiro']), amount: amount.positive(), reason: z.string().trim().min(1).max(100) }),
+    z.object({
+      action: z.literal('updateSettings'),
+      settings: z.object({
+        comboPriceCents: amount.min(100).max(10_000_000).optional(),
+        businessName: z.string().trim().min(1).max(80).optional(),
+        branchPhone: z.string().trim().max(40).optional(),
+        scheduleText: z.string().trim().max(80).optional(),
+        ticketFooter: z.string().trim().max(160).optional(),
+        defaultPaperWidth: z.enum(['80mm', '58mm']).optional(),
+      }),
+    }),
   ]),
 });
 

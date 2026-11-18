@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   getBranchInfo,
+  getBranchSettings,
   getOpenShift,
   getOrderPendingCents,
   suggestNextFolio,
@@ -43,6 +44,7 @@ export function MostradorView({
   onOpenTicket,
 }: MostradorViewProps) {
   const branch = getBranchInfo(branchId);
+  const branchSettings = getBranchSettings(state, branchId);
   const openShift = Boolean(getOpenShift(state, branchId));
 
   const [query, setQuery] = useState(initialQuery);
@@ -83,6 +85,7 @@ export function MostradorView({
       {(!ordersOnly || checkoutOrder) && (
         <CheckoutPanel
           branchName={branch.name}
+          comboPriceCents={branchSettings.comboPriceCents}
           openShift={openShift}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}

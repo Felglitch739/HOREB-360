@@ -1,9 +1,9 @@
 import {
   advanceEncargoStage, captureEncargoPayment, closeShift, confirmPaymentLine, createOrder,
-  deliverEncargoOrder, emitTicket, openNewShift, recordCashMovement,
+  deliverEncargoOrder, emitTicket, openNewShift, recordCashMovement, updateBranchSettings,
   type CreateOrderInput, type PaymentInputLine,
 } from './rules.ts';
-import type { BranchId, CashMovement, DemoState, Order } from './types.ts';
+import type { BranchId, BranchSettings, CashMovement, DemoState, Order } from './types.ts';
 
 export type Operation =
   | { action: 'create'; input: Omit<CreateOrderInput, 'branchId' | 'now'> }
@@ -12,14 +12,15 @@ export type Operation =
   | { action: 'advance' | 'deliver'; orderId: string }
   | { action: 'emit'; orderId: string; simulateFailure: boolean }
   | { action: 'closeShift' | 'openShift'; amount: number }
-  | { action: 'movement'; kind: CashMovement['kind']; amount: number; reason: string };
+  | { action: 'movement'; kind: CashMovement['kind']; amount: number; reason: string }
+  | { action: 'updateSettings'; settings: Partial<BranchSettings> };
 
 export type OperationResult =
   | { ok: true; state: DemoState; order?: Order }
   | { ok: false; error: string };
 
 export function requiresSupervisor(action: Operation['action']) {
-  return action === 'closeShift' || action === 'openShift' || action === 'movement';
+  return action === 'closeShift' || action === 'openShift' || action === 'movement' || action === 'updateSettings';
 }
 
 export function operate(state: DemoState, branch: BranchId, operation: Operation): OperationResult {
@@ -40,5 +41,6 @@ export function operate(state: DemoState, branch: BranchId, operation: Operation
     case 'closeShift': return closeShift(state, branch, operation.amount);
     case 'openShift': return openNewShift(state, branch, undefined, operation.amount);
     case 'movement': return recordCashMovement(state, branch, operation.kind, operation.amount, operation.reason);
+    case 'updateSettings': return updateBranchSettings(state, branch, operation.settings);
   }
 }

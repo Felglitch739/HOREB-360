@@ -50,7 +50,7 @@ const QUICK_ACCOUNTS = [
 ] as const;
 
 export function Root() {
-  const { theme, toggleTheme } = useBrandTheme();
+  const { theme, setTheme, toggleTheme } = useBrandTheme();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [rows, setRows] = useState<BranchRow[] | null>(null);
@@ -186,6 +186,7 @@ export function Root() {
         shared={{ state: combineBranches(rows), roles, execute, reload, signOut: () => void signOut() }}
         sharedNotice={error}
         theme={theme}
+        onSetTheme={setTheme}
         onToggleTheme={toggleTheme}
       />
     );

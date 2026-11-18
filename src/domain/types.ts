@@ -92,6 +92,15 @@ export interface Shift {
   cashMovements?: CashMovement[];
 }
 
+export interface BranchSettings {
+  comboPriceCents: number;
+  businessName: string;
+  branchPhone: string;
+  scheduleText: string;
+  ticketFooter: string;
+  defaultPaperWidth: '80mm' | '58mm';
+}
+
 export interface DemoState {
   activeBranchId: BranchId;
   orders: Order[];
@@ -99,4 +108,5 @@ export interface DemoState {
   tickets: Record<string, TicketState>;
   shifts: Shift[];
   nextFolioSeq: Record<BranchId, number>;
+  settings?: Partial<Record<BranchId, BranchSettings>>;
 }

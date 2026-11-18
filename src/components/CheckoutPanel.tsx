@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { COMBO_PRICE_CENTS, calculateTender, formatMxn } from '../domain/money';
+import { calculateTender, formatMxn } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
 import type { Order, ServiceType } from '../domain/types';
 
 interface CheckoutPanelProps {
   branchName: string;
+  comboPriceCents: number;
   openShift: boolean;
   suggestedFolio: string;
   checkoutOrder: Order | null;
@@ -25,6 +26,7 @@ const COMBO_PRESETS = [1, 2, 3, 5] as const;
 
 export function CheckoutPanel({
   branchName,
+  comboPriceCents,
   openShift,
   suggestedFolio,
   checkoutOrder,
@@ -62,7 +64,7 @@ export function CheckoutPanel({
   }, [checkoutOrder?.id]);
 
   const deferPayment = !checkoutOrder && serviceType === 'encargo' && payAtPickup;
-  const totalCents = checkoutOrder?.totalCents ?? comboCount * COMBO_PRICE_CENTS;
+  const totalCents = checkoutOrder?.totalCents ?? comboCount * comboPriceCents;
   const tender = calculateTender(totalCents, cashInput, cardInput, transferInput);
 
   function resetPaymentInputs() {
@@ -163,7 +165,7 @@ export function CheckoutPanel({
     <section id="checkout-form" className="card" aria-label="Registrar orden en mostrador">
       <h2 className="card-title">
         <span>{checkoutOrder ? `Cobrar ${checkoutOrder.folio}` : `Mostrador · ${branchName}`}</span>
-        <span className="badge badge-info">Combo {formatMxn(COMBO_PRICE_CENTS)}</span>
+        <span className="badge badge-info">Combo {formatMxn(comboPriceCents)}</span>
       </h2>
 
       {!openShift && (
@@ -225,7 +227,7 @@ export function CheckoutPanel({
 
             <div className="field">
               <label htmlFor="combo-count">
-                Combo Lavado + Secado ({formatMxn(COMBO_PRICE_CENTS)} c/u)
+                Combo Lavado + Secado ({formatMxn(comboPriceCents)} c/u)
               </label>
               <div className="combo-presets" role="group" aria-label="Cantidad rápida de combos">
                 {COMBO_PRESETS.map((preset) => (

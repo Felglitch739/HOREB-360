@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createExampleState, hasPristineDemo } from './examples';
 import { calculateTender, parsePesosToCents } from './money';
-import { closeShift, createInitialState, createOrder, emitTicket, getShiftMetrics, openNewShift, recordCashMovement, suggestNextFolio } from './rules';
+import { closeShift, createInitialState, createOrder, emitTicket, getBranchSettings, getShiftMetrics, openNewShift, recordCashMovement, suggestNextFolio, updateBranchSettings } from './rules';
 
 it('respeta la coma decimal y los separadores de miles válidos', () => {
   expect(parsePesosToCents('30,50')).toBe(3050);
@@ -72,4 +72,35 @@ it('calcula el cambio y registra solo lo aplicado, aunque se dejen métodos vac�
   if (!sale.ok) throw new Error(sale.error);
   expect(sale.state.paymentLines[0]).toMatchObject({ amountCents: 7000, cashReceivedCents: 10000 });
   expect(getShiftMetrics(sale.state, 'shift-lomas-1').expectedCashCents).toBe(7000);
+});
+
+it('permite actualizar precio y datos del ticket por sucursal sin alterar órdenes previas', () => {
+  const initial = createInitialState();
+  const prevSale = createOrder(initial, {
+    branchId: 'lomas',
+    serviceType: 'autoservicio',
+    paymentLines: [{ method: 'efectivo', amountCents: 7000 }],
+  });
+  if (!prevSale.ok) throw new Error(prevSale.error);
+
+  const updated = updateBranchSettings(prevSale.state, 'lomas', {
+    comboPriceCents: 8000,
+    businessName: 'LAVANDERÍA HOREB LOMAS',
+    defaultPaperWidth: '58mm',
+  });
+  if (!updated.ok) throw new Error(updated.error);
+  expect(getBranchSettings(updated.state, 'lomas')).toMatchObject({
+    comboPriceCents: 8000,
+    businessName: 'LAVANDERÍA HOREB LOMAS',
+    defaultPaperWidth: '58mm',
+  });
+
+  const nextSale = createOrder(updated.state, {
+    branchId: 'lomas',
+    serviceType: 'autoservicio',
+    paymentLines: [{ method: 'efectivo', amountCents: 8000 }],
+  });
+  if (!nextSale.ok) throw new Error(nextSale.error);
+  expect(nextSale.data.totalCents).toBe(8000);
+  expect(nextSale.state.orders.find((o) => o.id === prevSale.data.id)?.totalCents).toBe(7000);
 });

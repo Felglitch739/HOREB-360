@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Compass, X } from 'lucide-react';
 import './AppTour.css';
 
-export type TourTabId = 'inicio' | 'mostrador' | 'ordenes' | 'caja' | 'admin';
+export type TourTabId = 'inicio' | 'mostrador' | 'ordenes' | 'caja' | 'admin' | 'ajustes';
 
 interface TourStep {
   title: string;
@@ -60,6 +60,13 @@ const TOUR_STEPS: TourStep[] = [
       'Consolida en vivo el efectivo, tarjeta, transferencia y saldo pendiente de todas tus sucursales habilitadas, y descarga el reporte en CSV para Excel.',
     selector: '[data-tour="admin-panel"]',
     tab: 'admin',
+  },
+  {
+    title: 'Ajustes para Supervisión y Sesión',
+    description:
+      'En Ajustes los dueños o supervisores pueden modificar el precio del combo, personalizar el teléfono, horario y pie del ticket térmico, cambiar el color de marca (Verde/Azul), actualizar datos o cerrar sesión.',
+    selector: '[data-tour="settings-panel"]',
+    tab: 'ajustes',
   },
 ];
 
