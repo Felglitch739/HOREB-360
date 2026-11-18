@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Printer, RefreshCw, X } from 'lucide-react
 import { formatMxn } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo } from '../domain/rules';
 import type { Order, PaymentLine, TicketState } from '../domain/types';
+import { Barcode } from './Barcode';
 
 interface TicketModalProps {
   order: Order;
@@ -225,8 +226,7 @@ export function TicketModal({
           </div>
 
           <div className="ticket-divider" />
-          <div className="ticket-barcode" aria-hidden="true" />
-          <div className="ticket-center" style={{ fontSize: '0.8em' }}>*{order.folio}*</div>
+          <Barcode value={order.folio} />
           {footerMessage.trim() && (
             <div className="ticket-footer-msg">{footerMessage.trim()}</div>
           )}

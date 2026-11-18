@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Plus, Store, Wallet, WashingMachine } from 'lucide-react';
+import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Palette, Plus, Store, Wallet, WashingMachine } from 'lucide-react';
 import { AdminView } from './components/AdminView';
 import { AppTour, type TourTabId } from './components/AppTour';
 import { CajaView } from './components/CajaView';
@@ -12,6 +12,7 @@ import { BRANCHES, getBranchInfo, getOpenShift, getOrderPaymentLines, type Creat
 import { type Operation } from './domain/operations';
 import type { SharedWorkspace } from './Root';
 import type { BranchId, CashMovement } from './domain/types';
+import type { BrandTheme } from './theme';
 
 const navigation = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
@@ -23,9 +24,11 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'];
 
-export function App({ shared, sharedNotice }: {
+export function App({ shared, sharedNotice, theme, onToggleTheme }: {
   shared: SharedWorkspace;
   sharedNotice?: string;
+  theme: BrandTheme;
+  onToggleTheme: () => void;
 }) {
   const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
   const state = shared.state;
@@ -117,8 +120,13 @@ export function App({ shared, sharedNotice }: {
             </button>
           ))}
         </nav>
+        <SharedStatus
+          branchName={getBranchInfo(activeBranchId).name}
+          role={shared.roles[activeBranchId] ?? 'operator'}
+          onReload={shared.reload}
+          onSignOut={shared.signOut}
+        />
         <div className="sidebar-footer">
-          <div className="demo-status"><i aria-hidden="true" /> En línea · Sucursales</div>
           <button type="button" className="reset-button" onClick={() => setTourOpen(true)}>
             <Compass size={16} aria-hidden="true" /> Guía interactiva
           </button>
@@ -128,6 +136,11 @@ export function App({ shared, sharedNotice }: {
         <header className="workspace-header">
           <div className="breadcrumb">Operación <span>/</span> <strong>{navigation.find((entry) => entry.id === activeTab)?.label}</strong></div>
           <div className="workspace-actions" data-tour="branch-bar">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onToggleTheme} title="Cambiar color del tema">
+              <Palette size={15} aria-hidden="true" />
+              <span className={`theme-swatch ${theme === 'blue' ? 'green' : 'blue'}`} aria-hidden="true" />
+              {theme === 'blue' ? 'Color verde' : 'Color azul'}
+            </button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
               <Compass size={15} aria-hidden="true" /> Guía interactiva
             </button>
@@ -143,12 +156,6 @@ export function App({ shared, sharedNotice }: {
           </div>
         </header>
       <main className="main-content">
-        <SharedStatus
-          branchName={getBranchInfo(activeBranchId).name}
-          role={shared.roles[activeBranchId] ?? 'operator'}
-          onReload={shared.reload}
-          onSignOut={shared.signOut}
-        />
         {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
         {activeTab === 'inicio' && (
           <Overview

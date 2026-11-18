@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cloud, LogOut, MapPin, RefreshCw, ShieldCheck, UserCheck } from 'lucide-react';
+import { LogOut, RefreshCw, ShieldCheck, UserCheck } from 'lucide-react';
 import type { BranchRole } from '../domain/sharedState';
 import './SharedStatus.css';
 
@@ -13,7 +13,6 @@ interface SharedStatusProps {
 export function SharedStatus({ branchName, role, onReload, onSignOut }: SharedStatusProps) {
   const [reloading, setReloading] = useState(false);
   const isSupervisor = role === 'supervisor';
-  const roleLabel = isSupervisor ? 'Supervisión' : 'Caja';
 
   async function handleReload() {
     if (reloading) return;
@@ -27,31 +26,25 @@ export function SharedStatus({ branchName, role, onReload, onSignOut }: SharedSt
 
   return (
     <section className="shared-status" aria-label="Estado de la sesión en línea">
-      <div className="shared-status-info">
-        <div className="shared-status-tags">
-          <span className="shared-status-badge mode">
-            <Cloud size={14} aria-hidden="true" />
-            En línea · Sincronizado
-          </span>
-          <span className="shared-status-badge branch">
-            <MapPin size={14} aria-hidden="true" />
-            Sucursal: {branchName}
-          </span>
-          <span
-            className={`shared-status-badge ${isSupervisor ? 'role-supervisor' : 'role-operator'}`}
-          >
-            {isSupervisor ? (
-              <ShieldCheck size={14} aria-hidden="true" />
-            ) : (
-              <UserCheck size={14} aria-hidden="true" />
-            )}
-            Rol: {roleLabel}
-          </span>
+      <div className="shared-status-meta">
+        <span className={`shared-status-role ${isSupervisor ? 'supervisor' : 'operator'}`}>
+          {isSupervisor ? (
+            <ShieldCheck size={13} aria-hidden="true" />
+          ) : (
+            <UserCheck size={13} aria-hidden="true" />
+          )}
+          {isSupervisor ? 'Supervisión · Carlos' : 'Caja · Empleado'}
+        </span>
+
+        <div className="shared-status-line">
+          <i className="shared-live-dot" aria-hidden="true" />
+          <span>En línea · {branchName}</span>
         </div>
+
         <p className="shared-status-note">
           {isSupervisor
-            ? 'Supervisión gestiona turnos y cortes; Caja opera su sucursal.'
-            : 'Caja opera su sucursal en mostrador, órdenes y cobros; Supervisión gestiona turnos y cortes.'}
+            ? 'Dueños / gerencia: turnos y cortes. Caja opera su sucursal.'
+            : 'Caja opera su sucursal en mostrador, órdenes y cobros.'}
         </p>
       </div>
 
@@ -62,17 +55,24 @@ export function SharedStatus({ branchName, role, onReload, onSignOut }: SharedSt
           onClick={() => void handleReload()}
           disabled={reloading}
           aria-busy={reloading}
+          title="Actualizar datos"
         >
           <RefreshCw
-            size={15}
+            size={14}
             aria-hidden="true"
             className={reloading ? 'shared-status-spin' : undefined}
           />
           Actualizar
         </button>
-        <button type="button" className="shared-status-btn" onClick={onSignOut}>
-          <LogOut size={15} aria-hidden="true" />
-          Cerrar sesión
+        <button
+          type="button"
+          className="shared-status-btn"
+          onClick={onSignOut}
+          title="Cerrar sesión"
+          aria-label="Cerrar sesión"
+        >
+          <LogOut size={14} aria-hidden="true" />
+          Salir
         </button>
       </div>
     </section>

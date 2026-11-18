@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
-import { Cloud, ShieldCheck, UserCheck, WashingMachine } from 'lucide-react';
+import { Cloud, Palette, ShieldCheck, UserCheck, WashingMachine } from 'lucide-react';
 import { App } from './App';
 import type { Operation } from './domain/operations';
 import { combineBranches, type BranchRole, type BranchRow } from './domain/sharedState';
 import type { BranchId, Order } from './domain/types';
+import { useBrandTheme } from './theme';
 
 const url = import.meta.env.VITE_SUPABASE_URL || 'https://mekjctargwhadpyezqjc.supabase.co';
 const key =
@@ -49,6 +50,7 @@ const QUICK_ACCOUNTS = [
 ] as const;
 
 export function Root() {
+  const { theme, toggleTheme } = useBrandTheme();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [rows, setRows] = useState<BranchRow[] | null>(null);
@@ -183,6 +185,8 @@ export function Root() {
       <App
         shared={{ state: combineBranches(rows), roles, execute, reload, signOut: () => void signOut() }}
         sharedNotice={error}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
     );
   }
@@ -190,9 +194,20 @@ export function Root() {
   return (
     <main className="cloud-auth">
       <section className="card cloud-auth-card">
-        <span className="brand-mark">
-          <WashingMachine size={24} aria-hidden="true" />
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span className="brand-mark">
+            <WashingMachine size={24} aria-hidden="true" />
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={toggleTheme}
+          >
+            <Palette size={15} aria-hidden="true" />
+            <span className={`theme-swatch ${theme === 'blue' ? 'green' : 'blue'}`} aria-hidden="true" />
+            {theme === 'blue' ? 'Color verde' : 'Color azul'}
+          </button>
+        </div>
         <h1>HOREB 360</h1>
         <p>
           <Cloud size={16} aria-hidden="true" /> Acceso en línea por sucursal
