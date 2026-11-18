@@ -4,6 +4,8 @@ Demostración web en español (tablet y escritorio) para **HOREB 360**, con dato
 
 ## Arranque rápido
 
+Usa Node.js 22.12 o una versión LTS posterior.
+
 ```powershell
 npm.cmd ci
 npm.cmd run dev
