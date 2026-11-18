@@ -26,12 +26,12 @@ export function SharedStatus({ branchName, role, onReload, onSignOut }: SharedSt
   }
 
   return (
-    <section className="shared-status" aria-label="Estado de la sesión compartida">
+    <section className="shared-status" aria-label="Estado de la sesión en línea">
       <div className="shared-status-info">
         <div className="shared-status-tags">
           <span className="shared-status-badge mode">
             <Cloud size={14} aria-hidden="true" />
-            Demo compartida
+            En línea · Sincronizado
           </span>
           <span className="shared-status-badge branch">
             <MapPin size={14} aria-hidden="true" />

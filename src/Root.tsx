@@ -142,7 +142,7 @@ function ConnectedWorkspace({ onLocal }: { onLocal: () => void }) {
   return <main className="cloud-auth">
     <section className="card cloud-auth-card">
       <span className="brand-mark"><WashingMachine size={24} aria-hidden="true" /></span>
-      <h1>HOREB 360</h1><p><Cloud size={16} aria-hidden="true" /> Demo compartida</p>
+      <h1>HOREB 360</h1><p><Cloud size={16} aria-hidden="true" /> Acceso en línea por sucursal</p>
       {error && <div className="alert alert-error" role="alert">{error}</div>}
       {!session && session !== undefined && <form onSubmit={signIn}>
         <label className="field">Correo <input name="email" className="input" type="email" autoComplete="username" required /></label>
@@ -156,7 +156,7 @@ function ConnectedWorkspace({ onLocal }: { onLocal: () => void }) {
         <button className="btn btn-secondary" onClick={() => void reload()}>Actualizar</button>
         <button className="btn btn-secondary" onClick={() => void signOut()}>Cerrar sesión</button>
       </div>}
-      <button className="btn btn-secondary btn-full" onClick={onLocal}><ArrowLeft size={16} /> Demo local</button>
+      <button className="btn btn-secondary btn-full" onClick={onLocal}><ArrowLeft size={16} /> Volver a sesión local</button>
     </section>
   </main>;
 }

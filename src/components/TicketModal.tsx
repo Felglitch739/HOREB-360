@@ -14,8 +14,8 @@ interface TicketModalProps {
 
 const METHOD_LABEL: Record<PaymentLine['method'], string> = {
   efectivo: 'Efectivo',
-  tarjeta: 'Tarjeta (sim.)',
-  transferencia: 'Transferencia (sim.)',
+  tarjeta: 'Tarjeta',
+  transferencia: 'Transferencia',
 };
 
 export function TicketModal({
@@ -55,12 +55,12 @@ export function TicketModal({
         </div>
 
         <div className="alert alert-info">
-          Comprobante simulado en pantalla (sin validez fiscal). Folio y pago permanecen guardados aunque falle la emisión.
+          Comprobante de servicio. Folio y cobro permanecen resguardados ante cualquier falla de impresión.
         </div>
 
         <div className="ticket-paper">
           <div className="ticket-center">
-            <strong>HOREB 360 · COMPROBANTE SIMULADO</strong>
+            <strong>HOREB 360 · COMPROBANTE DE SERVICIO</strong>
             <div>Sucursal: {branch.name}</div>
             <div>Folio: {order.folio}</div>
             <div>Fecha: {new Date(order.createdAt).toLocaleString('es-MX')}</div>
@@ -103,10 +103,10 @@ export function TicketModal({
             <span>Estado ticket:</span>
             <span>
               {ticket.status === 'emitido'
-                ? 'EMITIDO (SIMULADO)'
+                ? 'EMITIDO'
                 : ticket.status === 'fallo'
-                  ? `FALLA (intentos: ${ticket.attempts})`
-                  : 'NO EMITIDO'}
+                  ? `FALLA DE IMPRESIÓN (intentos: ${ticket.attempts})`
+                  : 'PENDIENTE DE EMISIÓN'}
             </span>
           </div>
         </div>
@@ -145,7 +145,7 @@ export function TicketModal({
                 onClick={() => void issue(true)}
               >
                 <AlertTriangle size={18} />
-                Simular falla de emisión
+                Reportar falla de impresora
               </button>
             </>
           )}
@@ -163,13 +163,25 @@ export function TicketModal({
           )}
 
           {ticket.status === 'emitido' && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-full"
-              onClick={onClose}
-            >
-              Listo
-            </button>
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: '1 1 160px' }}
+                onClick={() => window.print()}
+              >
+                <Printer size={18} />
+                Imprimir
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ flex: '1 1 120px' }}
+                onClick={onClose}
+              >
+                Listo
+              </button>
+            </>
           )}
         </div>
       </div>

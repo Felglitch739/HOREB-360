@@ -22,7 +22,7 @@ export function AdminView({ state, branches }: AdminViewProps) {
     const url = URL.createObjectURL(csv);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = 'horeb360-reporte-demo.csv';
+    anchor.download = `horeb360-reporte-${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -78,8 +78,7 @@ export function AdminView({ state, branches }: AdminViewProps) {
               {byBranch.map((row) => (
                 <tr key={row.branch.id}>
                   <td>
-                    <strong>{row.branch.name}</strong>{' '}
-                    {row.branch.provisional && <span className="muted">(nombre provisional)</span>}
+                    <strong>{row.branch.name}</strong>
                   </td>
                   <td>
                     {row.openShiftNumber ? (

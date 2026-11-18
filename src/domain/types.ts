@@ -50,7 +50,7 @@ export interface Order {
   branchId: BranchId;
   shiftId: string;
   serviceType: ServiceType;
-  /** Alias ficticio para encargos */
+  /** Nombre o referencia del cliente para encargos */
   customerAlias: string;
   comboCount: number;
   /** Precio unitario en centavos enteros (7000 = $70.00) */

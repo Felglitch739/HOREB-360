@@ -16,7 +16,7 @@ import type {
 export const BRANCHES: BranchInfo[] = [
   { id: 'lomas', name: 'Lomas', folioPrefix: 'LOM' },
   { id: 'trevino', name: 'Treviño', folioPrefix: 'TRE' },
-  { id: 'sucursal-3', name: 'Sucursal 3', folioPrefix: 'S3', provisional: true },
+  { id: 'sucursal-3', name: 'Sucursal 3', folioPrefix: 'S3' },
 ];
 
 export const ENCARGO_STAGES: { id: EncargoStage; label: string }[] = [
@@ -31,7 +31,7 @@ export interface PaymentInputLine {
   method: PaymentMethod;
   amountCents: number;
   cashReceivedCents?: number;
-  /** En modo demo, efectivo siempre inicia confirmado; tarjeta/transferencia pueden iniciar pendientes o confirmados. */
+  /** Efectivo siempre inicia confirmado; tarjeta/transferencia pueden iniciar pendientes o confirmados. */
   confirmImmediately?: boolean;
 }
 
@@ -270,7 +270,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
   if (state.orders.some((o) => o.folio === folio)) {
     return {
       ok: false,
-      error: `El folio ${folio} ya existe. Usa otro folio de prueba.`,
+      error: `El folio ${folio} ya existe. Usa otro folio.`,
     };
   }
 
@@ -282,7 +282,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
   if (input.serviceType === 'encargo' && !customerAlias) {
     return {
       ok: false,
-      error: 'Captura un alias ficticio del cliente para registrar el encargo.',
+      error: 'Captura el nombre o referencia del cliente para registrar el encargo.',
     };
   }
 
@@ -500,7 +500,7 @@ export function canDeliverOrder(state: DemoState, orderId: string): {
   }
   const ticket = state.tickets[orderId];
   if (!ticket || ticket.status !== 'emitido') {
-    return { allowed: false, reason: 'Emite el ticket simulado antes de entregar.' };
+    return { allowed: false, reason: 'Emite el comprobante antes de entregar.' };
   }
   return { allowed: true };
 }
@@ -557,7 +557,7 @@ export function emitTicket(
       status: 'fallo',
       attempts,
       lastAttemptAt: now,
-      lastError: 'Error simulado de impresora/emisión. El folio y el pago siguen guardados.',
+      lastError: 'No se pudo imprimir el comprobante. El folio y el pago siguen guardados.',
     };
     return {
       ok: true,

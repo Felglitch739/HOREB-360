@@ -141,8 +141,8 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="demo-status"><i aria-hidden="true" /> {shared ? 'Demo compartida' : 'Demo local'}</div>
-          {onSwitchMode && <button className="reset-button" onClick={onSwitchMode}>{shared ? 'Ir a demo local' : 'Abrir demo compartida'}</button>}
+          <div className="demo-status"><i aria-hidden="true" /> {shared ? 'En línea · Sucursales' : 'Sesión local'}</div>
+          {onSwitchMode && <button className="reset-button" onClick={onSwitchMode}>{shared ? 'Cambiar a sesión local' : 'Conectar en línea'}</button>}
           {!shared && (confirmReset ? <div className="reset-actions">
             <button className="btn btn-danger btn-sm" onClick={handleResetDemo}>Confirmar reinicio</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setConfirmReset(false)}>Cancelar</button>

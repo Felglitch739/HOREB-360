@@ -51,7 +51,7 @@ export function createExampleState(base = new Date()): DemoState {
 
   add('lomas', 6, 9, 'efectivo', 3);
   add('lomas', 5, 12, 'tarjeta', 5);
-  add('lomas', 4, 10, 'transferencia', 4, 'Cliente Demo Iris', 4);
+  add('lomas', 4, 10, 'transferencia', 4, 'Sofía Ramírez', 4);
   add('lomas', 3, 13, 'efectivo', 8);
   add('lomas', 2, 15, 'tarjeta', 5);
   add('lomas', 1, 11, 'efectivo', 6);
@@ -60,14 +60,14 @@ export function createExampleState(base = new Date()): DemoState {
     const next = openNewShift(closed.state, 'lomas', time(base, 0, 8));
     if (next.ok) state = next.state;
   }
-  add('lomas', 0, 9, 'efectivo', 2, 'Cliente Demo Luz', 3, true);
-  add('lomas', 0, 10, 'tarjeta', 3, 'Cliente Demo Mar', 2);
-  add('lomas', 0, 11, 'efectivo', 1, 'Cliente Demo Sol', 1);
-  add('lomas', 0, 12, 'transferencia', 2, 'Cliente Demo Nube', 0, true);
+  add('lomas', 0, 9, 'efectivo', 2, 'Lucía Vargas', 3, true);
+  add('lomas', 0, 10, 'tarjeta', 3, 'Carlos Mendoza', 2);
+  add('lomas', 0, 11, 'efectivo', 1, 'Elena Torres', 1);
+  add('lomas', 0, 12, 'transferencia', 2, 'Andrea Morales', 0, true);
   add('lomas', 0, 13, 'efectivo', 2);
-  add('trevino', 0, 10, 'tarjeta', 4, 'Cliente Demo Alba', 3);
-  add('trevino', 0, 11, 'efectivo', 2, 'Cliente Demo Río', 2, true);
+  add('trevino', 0, 10, 'tarjeta', 4, 'Mateo Castillo', 3);
+  add('trevino', 0, 11, 'efectivo', 2, 'Valeria Ortiz', 2, true);
   add('sucursal-3', 0, 10, 'transferencia', 3);
-  add('sucursal-3', 0, 12, 'efectivo', 2, 'Cliente Demo Luna', 3);
+  add('sucursal-3', 0, 12, 'efectivo', 2, 'Sofía Herrera', 3);
   return state;
 }
