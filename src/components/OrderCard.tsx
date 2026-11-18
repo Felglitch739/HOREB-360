@@ -22,7 +22,8 @@ interface OrderCardProps {
   pendingCents: number;
   deliverCheck: { allowed: boolean; reason?: string };
   hasOpenShift: boolean;
-  onStartCheckout: (order: Order) => void;
+  activeCheckout?: boolean;
+  onStartCheckout: (order: Order, sourceElement?: HTMLElement | null) => void;
   onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
   onAdvanceEncargo: (orderId: string, machineIds?: string[]) => Promise<void>;
@@ -55,6 +56,7 @@ export function OrderCard({
   pendingCents,
   deliverCheck,
   hasOpenShift,
+  activeCheckout = false,
   onStartCheckout,
   onConfirmPaymentLine,
   onOpenTicket,
@@ -112,7 +114,7 @@ export function OrderCard({
           type="button"
           className="btn btn-primary btn-sm"
           disabled={!hasOpenShift}
-          onClick={() => onStartCheckout(order)}
+          onClick={(event) => onStartCheckout(order, event.currentTarget.closest<HTMLElement>('.order-card'))}
         >
           Cobrar
         </button>
@@ -181,7 +183,11 @@ export function OrderCard({
   });
 
   return (
-    <article className={`order-card ${expanded ? 'expanded' : 'collapsed'} ${isFinished ? 'finished' : ''}`}>
+    <article
+      className={`order-card ${expanded ? 'expanded' : 'collapsed'} ${isFinished ? 'finished' : ''} ${
+        activeCheckout ? 'charging' : ''
+      }`}
+    >
       <div className="order-summary-row">
         <button
           type="button"
@@ -439,7 +445,7 @@ export function OrderCard({
                 type="button"
                 className="btn btn-primary btn-sm"
                 disabled={!hasOpenShift}
-                onClick={() => onStartCheckout(order)}
+                onClick={(event) => onStartCheckout(order, event.currentTarget.closest<HTMLElement>('.order-card'))}
               >
                 Cobrar encargo
               </button>

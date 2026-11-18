@@ -350,6 +350,42 @@ select:focus-visible {
   border-color: var(--border-strong);
 }
 
+.order-card.charging {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.checkout-flight-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+  will-change: transform, opacity;
+}
+
+.checkout-flight-ghost span {
+  opacity: 0.92;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-card {
+    transition: none;
+  }
+}
+
 .order-card.finished:not(.expanded) {
   opacity: 0.88;
 }

@@ -20,9 +20,10 @@ interface OrderListProps {
   onQueryChange: (value: string) => void;
   onFilterChange: (value: string) => void;
   hasOpenShift: boolean;
+  activeCheckoutId?: string | null;
   feedback: { type: 'error' | 'success'; text: string } | null;
   showFeedback: boolean;
-  onStartCheckout: (order: Order) => void;
+  onStartCheckout: (order: Order, sourceElement?: HTMLElement | null) => void;
   onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
   onAdvanceEncargo: (orderId: string, machineIds?: string[]) => Promise<void>;
@@ -40,6 +41,7 @@ export function OrderList({
   onQueryChange,
   onFilterChange,
   hasOpenShift,
+  activeCheckoutId = null,
   feedback,
   showFeedback,
   onStartCheckout,
@@ -120,6 +122,7 @@ export function OrderList({
                 pendingCents={getOrderPendingCents(state, order.id)}
                 deliverCheck={canDeliverOrder(state, order.id)}
                 hasOpenShift={hasOpenShift}
+                activeCheckout={activeCheckoutId === order.id}
                 onStartCheckout={onStartCheckout}
                 onConfirmPaymentLine={onConfirmPaymentLine}
                 onOpenTicket={onOpenTicket}

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { formatMxn } from '../domain/money';
 import {
   getBranchCatalog,
   getBranchInfo,
@@ -62,8 +63,94 @@ export function MostradorView({
   const [filter, setFilter] = useState(initialFilter);
   const [checkoutId, setCheckoutId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string; orderId?: string } | null>(null);
+  const pendingFlightRef = useRef<{
+    orderId: string;
+    folio: string;
+    totalText: string;
+    fromRect: DOMRect;
+  } | null>(null);
+  const activeGhostRef = useRef<HTMLDivElement | null>(null);
 
   const checkoutOrder = state.orders.find((order) => order.id === checkoutId) ?? null;
+
+  useLayoutEffect(() => {
+    activeGhostRef.current?.remove();
+    activeGhostRef.current = null;
+
+    if (!checkoutOrder) return;
+    const targetEl = document.getElementById('checkout-form');
+    if (!targetEl) return;
+
+    const reducedMotion =
+      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const targetRect = targetEl.getBoundingClientRect();
+
+    if (targetRect.top < 12 || targetRect.top > window.innerHeight * 0.55) {
+      targetEl.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+    }
+
+    const pending = pendingFlightRef.current;
+    if (!pending || pending.orderId !== checkoutOrder.id) return;
+    pendingFlightRef.current = null;
+
+    if (reducedMotion || typeof targetEl.animate !== 'function') return;
+
+    targetEl.animate(
+      [
+        { opacity: 0.72, transform: 'translate3d(14px, 0, 0) scale(0.985)' },
+        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
+      ],
+      { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    );
+
+    const startX = pending.fromRect.left + 16;
+    const startY = pending.fromRect.top + 12;
+    const endX = targetRect.left + 20;
+    const endY = Math.max(12, targetRect.top + 18);
+
+    const ghost = document.createElement('div');
+    ghost.className = 'checkout-flight-ghost';
+    ghost.setAttribute('aria-hidden', 'true');
+    const folioSpan = document.createElement('strong');
+    folioSpan.textContent = pending.folio;
+    const amountSpan = document.createElement('span');
+    amountSpan.textContent = pending.totalText;
+    ghost.append(folioSpan, amountSpan);
+    document.body.appendChild(ghost);
+    activeGhostRef.current = ghost;
+
+    const flightAnim = ghost.animate(
+      [
+        {
+          opacity: 0.98,
+          transform: `translate3d(${startX}px, ${startY}px, 0) scale(1)`,
+        },
+        {
+          opacity: 1,
+          transform: `translate3d(${(startX + endX) / 2}px, ${Math.min(startY, endY) - 10}px, 0) scale(1.03)`,
+          offset: 0.45,
+        },
+        {
+          opacity: 0,
+          transform: `translate3d(${endX}px, ${endY}px, 0) scale(0.92)`,
+        },
+      ],
+      { duration: 240, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
+    );
+
+    flightAnim.finished
+      .catch(() => {})
+      .finally(() => {
+        if (activeGhostRef.current === ghost) activeGhostRef.current = null;
+        ghost.remove();
+      });
+
+    return () => {
+      flightAnim.cancel();
+      if (activeGhostRef.current === ghost) activeGhostRef.current = null;
+      ghost.remove();
+    };
+  }, [checkoutOrder?.id]);
   const suggestedFolio = suggestNextFolio(state, branchId);
 
   const term = normalizeSearch(query.trim());
@@ -128,14 +215,22 @@ export function MostradorView({
         onQueryChange={setQuery}
         onFilterChange={setFilter}
         hasOpenShift={openShift}
+        activeCheckoutId={checkoutId}
         feedback={feedback}
         showFeedback={ordersOnly && !checkoutOrder}
-        onStartCheckout={(order) => {
+        onStartCheckout={(order, sourceElement) => {
+          const fromRect = sourceElement?.getBoundingClientRect();
+          pendingFlightRef.current =
+            fromRect && fromRect.width > 0 && fromRect.height > 0
+              ? {
+                  orderId: order.id,
+                  folio: order.folio,
+                  totalText: formatMxn(order.totalCents),
+                  fromRect,
+                }
+              : null;
           setCheckoutId(order.id);
           setFeedback(null);
-          requestAnimationFrame(() =>
-            document.getElementById('checkout-form')?.scrollIntoView({ block: 'start' }),
-          );
         }}
         onConfirmPaymentLine={handleConfirmPaymentLine}
         onOpenTicket={onOpenTicket}
