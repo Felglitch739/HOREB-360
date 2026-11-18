@@ -62,12 +62,15 @@ export function MostradorView({
   const [query, setQuery] = useState(initialQuery);
   const [filter, setFilter] = useState(initialFilter);
   const [checkoutId, setCheckoutId] = useState<string | null>(null);
+  const [flightNonce, setFlightNonce] = useState(0);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string; orderId?: string } | null>(null);
   const pendingFlightRef = useRef<{
+    key: number;
     orderId: string;
     folio: string;
     totalText: string;
     fromRect: DOMRect;
+    sourceCard?: HTMLElement | null;
   } | null>(null);
   const activeGhostRef = useRef<HTMLDivElement | null>(null);
 
@@ -91,66 +94,117 @@ export function MostradorView({
 
     const pending = pendingFlightRef.current;
     if (!pending || pending.orderId !== checkoutOrder.id) return;
-    pendingFlightRef.current = null;
 
-    if (reducedMotion || typeof targetEl.animate !== 'function') return;
+    // Clear only after paint starts so React StrictMode's synchronous double-invoke does not drop the flight.
+    const clearTimer = requestAnimationFrame(() => {
+      if (pendingFlightRef.current?.key === pending.key) {
+        pendingFlightRef.current = null;
+      }
+    });
 
-    targetEl.animate(
-      [
-        { opacity: 0.72, transform: 'translate3d(14px, 0, 0) scale(0.985)' },
-        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
-      ],
-      { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    if (typeof targetEl.animate !== 'function') {
+      return () => cancelAnimationFrame(clearTimer);
+    }
+
+    const cleanups: Array<() => void> = [() => cancelAnimationFrame(clearTimer)];
+
+    const halo = document.createElement('div');
+    halo.className = 'checkout-receive-halo';
+    halo.setAttribute('aria-hidden', 'true');
+    targetEl.appendChild(halo);
+    const haloAnim = halo.animate(
+      reducedMotion
+        ? [{ opacity: 0.85 }, { opacity: 0 }]
+        : [
+            { opacity: 0.92, transform: 'scale(0.988)' },
+            { opacity: 0, transform: 'scale(1.015)' },
+          ],
+      { duration: reducedMotion ? 220 : 380, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
     );
+    haloAnim.finished.catch(() => {}).finally(() => halo.remove());
+    cleanups.push(() => {
+      haloAnim.cancel();
+      halo.remove();
+    });
 
-    const startX = pending.fromRect.left + 16;
-    const startY = pending.fromRect.top + 12;
-    const endX = targetRect.left + 20;
-    const endY = Math.max(12, targetRect.top + 18);
+    if (!reducedMotion) {
+      if (pending.sourceCard && typeof pending.sourceCard.animate === 'function') {
+        const cardAnim = pending.sourceCard.animate(
+          [
+            { transform: 'scale(0.985)' },
+            { transform: 'scale(1)' },
+          ],
+          { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        );
+        cleanups.push(() => cardAnim.cancel());
+      }
 
-    const ghost = document.createElement('div');
-    ghost.className = 'checkout-flight-ghost';
-    ghost.setAttribute('aria-hidden', 'true');
-    const folioSpan = document.createElement('strong');
-    folioSpan.textContent = pending.folio;
-    const amountSpan = document.createElement('span');
-    amountSpan.textContent = pending.totalText;
-    ghost.append(folioSpan, amountSpan);
-    document.body.appendChild(ghost);
-    activeGhostRef.current = ghost;
+      const panelAnim = targetEl.animate(
+        [
+          { opacity: 0.72, transform: 'translate3d(24px, 0, 0) scale(0.985)' },
+          { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
+        ],
+        { duration: 300, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+      );
+      cleanups.push(() => panelAnim.cancel());
 
-    const flightAnim = ghost.animate(
-      [
-        {
-          opacity: 0.98,
-          transform: `translate3d(${startX}px, ${startY}px, 0) scale(1)`,
-        },
-        {
-          opacity: 1,
-          transform: `translate3d(${(startX + endX) / 2}px, ${Math.min(startY, endY) - 10}px, 0) scale(1.03)`,
-          offset: 0.45,
-        },
-        {
-          opacity: 0,
-          transform: `translate3d(${endX}px, ${endY}px, 0) scale(0.92)`,
-        },
-      ],
-      { duration: 240, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
-    );
+      const startX = pending.fromRect.left;
+      const startY = pending.fromRect.top;
+      const badgeEl = targetEl.querySelector('.card-title .badge') as HTMLElement | null;
+      const destRect = badgeEl?.getBoundingClientRect() ?? targetRect;
+      const endX = badgeEl ? destRect.left : targetRect.left + 20;
+      const endY = Math.max(14, badgeEl ? destRect.top : targetRect.top + 18);
 
-    flightAnim.finished
-      .catch(() => {})
-      .finally(() => {
+      const ghost = document.createElement('div');
+      ghost.className = 'checkout-flight-ghost';
+      ghost.setAttribute('aria-hidden', 'true');
+      const folioSpan = document.createElement('strong');
+      folioSpan.textContent = pending.folio;
+      const amountSpan = document.createElement('span');
+      amountSpan.textContent = `${pending.totalText} → Cobrar`;
+      ghost.append(folioSpan, amountSpan);
+      document.body.appendChild(ghost);
+      activeGhostRef.current = ghost;
+
+      const midX = (startX + endX) / 2;
+      const midY = Math.min(startY, endY) - 18;
+      const flightAnim = ghost.animate(
+        [
+          {
+            opacity: 0.96,
+            transform: `translate3d(${startX}px, ${startY}px, 0) scale(0.96)`,
+          },
+          {
+            opacity: 1,
+            transform: `translate3d(${midX}px, ${midY}px, 0) scale(1.06)`,
+            offset: 0.45,
+          },
+          {
+            opacity: 0,
+            transform: `translate3d(${endX}px, ${endY}px, 0) scale(0.92)`,
+          },
+        ],
+        { duration: 340, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' },
+      );
+
+      flightAnim.finished
+        .catch(() => {})
+        .finally(() => {
+          if (activeGhostRef.current === ghost) activeGhostRef.current = null;
+          ghost.remove();
+        });
+
+      cleanups.push(() => {
+        flightAnim.cancel();
         if (activeGhostRef.current === ghost) activeGhostRef.current = null;
         ghost.remove();
       });
+    }
 
     return () => {
-      flightAnim.cancel();
-      if (activeGhostRef.current === ghost) activeGhostRef.current = null;
-      ghost.remove();
+      for (const cleanup of cleanups) cleanup();
     };
-  }, [checkoutOrder?.id]);
+  }, [checkoutOrder?.id, flightNonce]);
   const suggestedFolio = suggestNextFolio(state, branchId);
 
   const term = normalizeSearch(query.trim());
@@ -220,15 +274,20 @@ export function MostradorView({
         showFeedback={ordersOnly && !checkoutOrder}
         onStartCheckout={(order, sourceElement) => {
           const fromRect = sourceElement?.getBoundingClientRect();
+          const sourceCard = sourceElement?.closest<HTMLElement>('.order-card') ?? null;
+          const nextNonce = flightNonce + 1;
           pendingFlightRef.current =
             fromRect && fromRect.width > 0 && fromRect.height > 0
               ? {
+                  key: nextNonce,
                   orderId: order.id,
                   folio: order.folio,
                   totalText: formatMxn(order.totalCents),
                   fromRect,
+                  sourceCard,
                 }
               : null;
+          setFlightNonce(nextNonce);
           setCheckoutId(order.id);
           setFeedback(null);
         }}

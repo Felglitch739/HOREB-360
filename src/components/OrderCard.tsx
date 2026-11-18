@@ -114,7 +114,7 @@ export function OrderCard({
           type="button"
           className="btn btn-primary btn-sm"
           disabled={!hasOpenShift}
-          onClick={(event) => onStartCheckout(order, event.currentTarget.closest<HTMLElement>('.order-card'))}
+          onClick={(event) => onStartCheckout(order, event.currentTarget)}
         >
           Cobrar
         </button>
@@ -445,7 +445,7 @@ export function OrderCard({
                 type="button"
                 className="btn btn-primary btn-sm"
                 disabled={!hasOpenShift}
-                onClick={(event) => onStartCheckout(order, event.currentTarget.closest<HTMLElement>('.order-card'))}
+                onClick={(event) => onStartCheckout(order, event.currentTarget)}
               >
                 Cobrar encargo
               </button>
