@@ -2069,6 +2069,100 @@ th {
   color: var(--text);
 }
 
+.loyalty-inline-pill {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 0.84rem;
+}
+
+.quick-customer-box {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  display: grid;
+  gap: 8px;
+}
+
+.customer-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.customer-list {
+  display: grid;
+  gap: 7px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.customer-row {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.customer-row.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.customer-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.customer-row-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.customer-detail {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.customer-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.customer-detail-head h3 {
+  margin: 0;
+  font-size: 1.04rem;
+}
+
+.raffle-winner-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 11px;
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+}
+
 @page {
   size: 80mm auto;
   margin: 0;

@@ -3,13 +3,14 @@ import {
   getBranchCatalog,
   getBranchInfo,
   getBranchMachines,
+  getCustomers,
   getOpenShift,
   getOrderPendingCents,
   suggestNextFolio,
   type CreateOrderInput,
   type PaymentInputLine,
 } from '../domain/rules';
-import type { BranchId, DemoState, Order } from '../domain/types';
+import type { BranchId, Customer, DemoState, Order } from '../domain/types';
 import { CheckoutPanel } from './CheckoutPanel';
 import { OrderList } from './OrderList';
 
@@ -25,6 +26,10 @@ interface MostradorViewProps {
   onAdvanceEncargo: (orderId: string, machineIds?: string[]) => Promise<{ ok: boolean; error?: string }>;
   onDeliverEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
   onRecordWhatsappSent: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
+  onUpsertCustomer: (
+    branchId: BranchId,
+    customer: { id?: string; name: string; phone: string; contactConsent: boolean },
+  ) => Promise<{ ok: boolean; error?: string; customer?: Customer }>;
   onOpenTicket: (orderId: string) => void;
 }
 
@@ -44,11 +49,13 @@ export function MostradorView({
   onAdvanceEncargo,
   onDeliverEncargo,
   onRecordWhatsappSent,
+  onUpsertCustomer,
   onOpenTicket,
 }: MostradorViewProps) {
   const branch = getBranchInfo(branchId);
   const catalog = getBranchCatalog(state, branchId);
   const machines = getBranchMachines(state, branchId);
+  const customers = getCustomers(state);
   const openShift = Boolean(getOpenShift(state, branchId));
 
   const [query, setQuery] = useState(initialQuery);
@@ -93,9 +100,11 @@ export function MostradorView({
     <div className={ordersOnly && !checkoutOrder ? 'orders-page' : 'two-col'}>
       {(!ordersOnly || checkoutOrder) && (
         <CheckoutPanel
+          branchId={branchId}
           branchName={branch.name}
           catalog={catalog}
           machines={machines}
+          customers={customers}
           openShift={openShift}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}
@@ -104,6 +113,7 @@ export function MostradorView({
           onCancelCheckout={() => setCheckoutId(null)}
           onCreateOrder={(input) => onCreateOrder({ ...input, branchId })}
           onCapturePayment={onCapturePayment}
+          onUpsertCustomer={onUpsertCustomer}
           onOpenTicket={onOpenTicket}
         />
       )}

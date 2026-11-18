@@ -1,14 +1,15 @@
 import {
   advanceEncargoStage, assignOrderMachines, captureEncargoPayment, closeShift, confirmPaymentLine,
   createOrder, deleteMachine, deliverEncargoOrder, emitTicket, openNewShift, recordCashMovement,
-  recordOrderWhatsappSent, reprintTicket, seedSampleMachinesForBranch, setMachineStatus,
-  updateBranchSettings, upsertMachine,
+  recordOrderWhatsappSent, reprintTicket, runManualRaffleDraw, seedSampleCustomersForTesting,
+  seedSampleMachinesForBranch, setMachineStatus, updateBranchSettings, upsertCustomer, upsertMachine,
   type CreateOrderInput, type PaymentInputLine,
 } from './rules.ts';
 import type {
   BranchId,
   BranchSettings,
   CashMovement,
+  Customer,
   DemoState,
   MachineKind,
   MachineStatus,
@@ -31,10 +32,13 @@ export type Operation =
   | { action: 'seedSampleMachines' }
   | { action: 'setMachineStatus'; machineId: string; status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>; reason?: string }
   | { action: 'assignMachines'; orderId: string; machineIds: string[] }
-  | { action: 'recordWhatsappSent'; orderId: string };
+  | { action: 'recordWhatsappSent'; orderId: string }
+  | { action: 'upsertCustomer'; customer: { id?: string; name: string; phone: string; contactConsent: boolean } }
+  | { action: 'runRaffleDraw'; year?: number; notes?: string; winnerTicketId?: string }
+  | { action: 'seedSampleCustomers' };
 
 export type OperationResult =
-  | { ok: true; state: DemoState; order?: Order }
+  | { ok: true; state: DemoState; order?: Order; customer?: Customer }
   | { ok: false; error: string };
 
 export interface OperationContext {
@@ -50,7 +54,9 @@ export function requiresSupervisor(action: Operation['action']) {
     action === 'updateSettings' ||
     action === 'upsertMachine' ||
     action === 'deleteMachine' ||
-    action === 'seedSampleMachines'
+    action === 'seedSampleMachines' ||
+    action === 'runRaffleDraw' ||
+    action === 'seedSampleCustomers'
   );
 }
 
@@ -105,5 +111,18 @@ export function operate(
       const result = recordOrderWhatsappSent(state, operation.orderId, actorLabel);
       return result.ok ? { ...result, order: result.data } : result;
     }
+    case 'upsertCustomer': {
+      const result = upsertCustomer(state, branch, operation.customer, actorLabel);
+      return result.ok ? { ...result, customer: result.data } : result;
+    }
+    case 'runRaffleDraw':
+      return runManualRaffleDraw(state, branch, {
+        year: operation.year,
+        notes: operation.notes,
+        winnerTicketId: operation.winnerTicketId,
+        actorLabel,
+      });
+    case 'seedSampleCustomers':
+      return seedSampleCustomersForTesting(state, branch, actorLabel);
   }
 }

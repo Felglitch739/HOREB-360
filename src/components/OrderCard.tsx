@@ -84,7 +84,10 @@ export function OrderCard({
   const whatsappMessage =
     order.whatsappMessage ??
     buildOrderReadyWhatsappMessage(order, getBranchInfo(order.branchId).name, pendingCents);
-  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMessage)}`;
+  const waDigits = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
+  const whatsappUrl = waDigits
+    ? `https://wa.me/52${waDigits}?text=${encodeURIComponent(whatsappMessage)}`
+    : `https://wa.me/?text=${encodeURIComponent(whatsappMessage)}`;
 
   const firstPendingLine = paymentLines.find((line) => line.status === 'pendiente');
   const nextStageLabel = order.encargoStage ? NEXT_STAGE_LABEL[order.encargoStage] : undefined;
@@ -103,7 +106,7 @@ export function OrderCard({
   }
 
   function renderQuickAction() {
-    if (paymentLines.length === 0 && order.serviceType === 'encargo') {
+    if (paymentLines.length === 0 && order.serviceType === 'encargo' && order.totalCents > 0) {
       return (
         <button
           type="button"
@@ -431,7 +434,7 @@ export function OrderCard({
           )}
 
           <div className="order-actions">
-            {paymentLines.length === 0 && order.serviceType === 'encargo' && (
+            {paymentLines.length === 0 && order.serviceType === 'encargo' && order.totalCents > 0 && (
               <button
                 type="button"
                 className="btn btn-primary btn-sm"

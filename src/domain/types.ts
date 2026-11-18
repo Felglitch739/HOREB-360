@@ -95,6 +95,63 @@ export interface Machine {
   updatedBy?: string | null;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  contactConsent: boolean;
+  /** Avance actual de combos pagados y completados hacia el 10° combo gratis (0..9+) */
+  combosTowardFree: number;
+  /** Combos gratis habilitados por cada 10 combos pagados y completados */
+  freeCombosAvailable: number;
+  createdAt: string;
+  createdBranchId?: BranchId;
+}
+
+export type LoyaltyEventType =
+  | 'combos_earned'
+  | 'free_combo_unlocked'
+  | 'free_combo_redeemed'
+  | 'raffle_ticket_issued';
+
+export interface LoyaltyEvent {
+  id: string;
+  customerId: string;
+  orderId: string;
+  branchId: BranchId;
+  eventType: LoyaltyEventType;
+  delta: number;
+  createdAt: string;
+  note?: string;
+}
+
+export interface RaffleTicket {
+  id: string;
+  ticketCode: string;
+  year: number;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  orderId: string;
+  orderFolio: string;
+  branchId: BranchId;
+  issuedAt: string;
+}
+
+export interface RaffleDraw {
+  id: string;
+  year: number;
+  drawnAt: string;
+  drawnBy: string;
+  winnerTicketId: string;
+  winnerTicketCode: string;
+  winnerCustomerId: string;
+  winnerCustomerName: string;
+  winnerCustomerPhone: string;
+  eligibleTicketsCount: number;
+  notes?: string;
+}
+
 export interface Order {
   id: string;
   folio: string;
@@ -103,11 +160,19 @@ export interface Order {
   serviceType: ServiceType;
   /** Nombre o referencia del cliente para encargos */
   customerAlias: string;
+  customerId?: string | null;
+  customerPhone?: string | null;
   comboCount: number;
   /** Precio unitario en centavos enteros (7000 = $70.00) */
   unitPriceCents: number;
   /** Partidas con precio unitario congelado al momento de guardar */
   items?: OrderLineItem[];
+  /** Cantidad de combos gratis canjeados en esta orden */
+  freeCombosRedeemed?: number;
+  /** Descuento aplicado por lealtad en centavos */
+  loyaltyDiscountCents?: number;
+  /** Marca cuando esta orden ya otorgó sus puntos / recompensa / boleto (evita duplicados) */
+  loyaltyProcessedAt?: string | null;
   /** Total en centavos enteros */
   totalCents: number;
   encargoStage: EncargoStage | null;
@@ -125,7 +190,7 @@ export interface Order {
 export interface BranchAuditEntry {
   id: string;
   branchId: BranchId;
-  category: 'precio' | 'pago' | 'ticket' | 'caja' | 'equipo' | 'aviso';
+  category: 'precio' | 'pago' | 'ticket' | 'caja' | 'equipo' | 'aviso' | 'lealtad' | 'rifa';
   message: string;
   actor: string;
   createdAt: string;
@@ -184,5 +249,9 @@ export interface DemoState {
   nextFolioSeq: Record<BranchId, number>;
   settings?: Partial<Record<BranchId, BranchSettings>>;
   machines?: Machine[];
+  customers?: Customer[];
+  loyaltyEvents?: LoyaltyEvent[];
+  raffleTickets?: RaffleTicket[];
+  raffleDraws?: RaffleDraw[];
   auditLogs?: BranchAuditEntry[];
 }

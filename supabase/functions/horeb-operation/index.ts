@@ -1,7 +1,18 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
 import { z } from 'npm:zod@4.1.13';
 import { operate, requiresSupervisor } from '../../../src/domain/operations.ts';
-import { combineBranches, type BranchRow } from '../../../src/domain/sharedState.ts';
+import {
+  combineBranches,
+  mapDbCustomer,
+  mapDbLoyaltyEvent,
+  mapDbRaffleDraw,
+  mapDbRaffleTicket,
+  type BranchRow,
+  type DbCustomerRow,
+  type DbLoyaltyEventRow,
+  type DbRaffleDrawRow,
+  type DbRaffleTicketRow,
+} from '../../../src/domain/sharedState.ts';
 import { canReprintTicket, getBranchInfo } from '../../../src/domain/rules.ts';
 
 const headers = {
@@ -52,6 +63,8 @@ const requestSchema = z.object({
         serviceType: z.enum(['autoservicio', 'encargo']),
         folio: z.string().trim().max(30).optional(),
         customerAlias: z.string().trim().max(100).optional(),
+        customerId: z.string().trim().max(120).optional(),
+        redeemFreeCombo: z.boolean().optional(),
         comboCount: z.number().int().min(1).max(100).optional(),
         items: orderItemsSchema.optional(),
         machineIds: machineIdsSchema.optional(),
@@ -83,6 +96,22 @@ const requestSchema = z.object({
     }),
     z.object({ action: z.literal('assignMachines'), orderId: id, machineIds: machineIdsSchema }),
     z.object({ action: z.literal('recordWhatsappSent'), orderId: id }),
+    z.object({
+      action: z.literal('upsertCustomer'),
+      customer: z.object({
+        id: id.optional(),
+        name: z.string().trim().min(1).max(80),
+        phone: z.string().trim().min(8).max(20),
+        contactConsent: z.boolean(),
+      }),
+    }),
+    z.object({
+      action: z.literal('runRaffleDraw'),
+      year: z.number().int().min(2025).max(2100).optional(),
+      notes: z.string().trim().max(140).optional(),
+      winnerTicketId: id.optional(),
+    }),
+    z.object({ action: z.literal('seedSampleCustomers') }),
     z.object({ action: z.literal('openShift'), amount }),
     z.object({ action: z.literal('closeShift'), amount }),
     z.object({
@@ -136,15 +165,35 @@ Deno.serve(async (request) => {
     return reply({ error: 'Tu cuenta no puede realizar esta operación en la sucursal.' }, 403);
   }
 
-  const { data: previous, error: eventError } = await admin.from('horeb_operations')
-    .select('operation_id').eq('operation_id', operationId).eq('branch_id', branch).eq('actor_id', actor).maybeSingle();
-  const { data: current, error: readError } = await admin.from('horeb_branch_state')
-    .select('branch_id,version,updated_at,state').eq('branch_id', branch).single();
-  if (!current || readError || eventError) return reply({ error: 'No se pudo cargar la sucursal.' }, 503);
-  if (previous) return reply({ row: current });
-  if (current.version !== version) return reply({ row: current, error: 'Otro equipo actualizó la sucursal. Revisa el estado y vuelve a intentar.' }, 409);
+  const [previousRes, currentRes, custRes, loyaltyRes, ticketsRes, drawsRes] = await Promise.all([
+    admin.from('horeb_operations').select('operation_id').eq('operation_id', operationId).eq('branch_id', branch).eq('actor_id', actor).maybeSingle(),
+    admin.from('horeb_branch_state').select('branch_id,version,updated_at,state').eq('branch_id', branch).single(),
+    admin.from('horeb_customers').select('*'),
+    admin.from('horeb_loyalty_events').select('*'),
+    admin.from('horeb_raffle_tickets').select('*'),
+    admin.from('horeb_raffle_draws').select('*').order('drawn_at', { ascending: false }),
+  ]);
 
-  const combined = combineBranches([current as BranchRow]);
+  const current = currentRes.data;
+  if (!current || currentRes.error || previousRes.error || custRes.error || loyaltyRes.error || ticketsRes.error || drawsRes.error) {
+    return reply({ error: 'No se pudo cargar la sucursal.' }, 503);
+  }
+  if (previousRes.data) return reply({ row: current });
+  if (current.version !== version) {
+    return reply({ row: current, error: 'Otro equipo actualizó la sucursal. Revisa el estado y vuelve a intentar.' }, 409);
+  }
+
+  const prevCustomers = (custRes.data as DbCustomerRow[]).map(mapDbCustomer);
+  const prevLoyalty = (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent);
+  const prevTickets = (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket);
+  const prevDraws = (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw);
+
+  const combined = combineBranches([current as BranchRow], {
+    customers: prevCustomers,
+    loyaltyEvents: prevLoyalty,
+    raffleTickets: prevTickets,
+    raffleDraws: prevDraws,
+  });
 
   if (operation.action === 'reprint') {
     const targetOrder = combined.orders.find((o) => o.id === operation.orderId);
@@ -167,16 +216,103 @@ Deno.serve(async (request) => {
   });
   if (!result.ok) return reply(result, 422);
 
+  // Guardamos solo estado propio de la sucursal en JSONB; clientes, lealtad y rifa viven en sus tablas globales
+  const {
+    customers: nextCustomers = [],
+    loyaltyEvents: nextLoyalty = [],
+    raffleTickets: nextTickets = [],
+    raffleDraws: nextDraws = [],
+    ...branchOnlyState
+  } = result.state;
+
   const { data, error } = await admin.rpc('horeb_commit_operation', {
     p_branch_id: branch,
     p_expected_version: version,
-    p_state: result.state,
+    p_state: branchOnlyState,
     p_operation_id: operationId,
     p_actor_id: actor,
     p_action: operation.action,
   }).maybeSingle();
   if (error) return reply({ error: 'No se pudo guardar la operación.' }, 503);
   if (!data) return reply({ error: 'La sucursal cambió antes de guardar. Actualiza y vuelve a intentar.' }, 409);
+
+  // Persistir cambios globales con restricciones idempotentes en BD
+  const prevCustMap = new Map(prevCustomers.map((c) => [c.id, JSON.stringify(c)]));
+  const changedCustomers = nextCustomers.filter((c) => prevCustMap.get(c.id) !== JSON.stringify(c));
+  if (changedCustomers.length > 0) {
+    await admin.from('horeb_customers').upsert(
+      changedCustomers.map((c) => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        contact_consent: c.contactConsent,
+        combos_toward_free: c.combosTowardFree,
+        free_combos_available: c.freeCombosAvailable,
+        created_branch_id: c.createdBranchId ?? branch,
+        created_at: c.createdAt,
+        updated_at: new Date().toISOString(),
+      })),
+    );
+  }
+
+  const prevEventIds = new Set(prevLoyalty.map((e) => e.id));
+  const addedEvents = nextLoyalty.filter((e) => !prevEventIds.has(e.id));
+  if (addedEvents.length > 0) {
+    await admin.from('horeb_loyalty_events').upsert(
+      addedEvents.map((e) => ({
+        id: e.id,
+        customer_id: e.customerId,
+        order_id: e.orderId,
+        branch_id: e.branchId,
+        event_type: e.eventType,
+        delta: e.delta,
+        note: e.note ?? null,
+        created_at: e.createdAt,
+      })),
+      { onConflict: 'order_id,event_type', ignoreDuplicates: true },
+    );
+  }
+
+  const prevTicketIds = new Set(prevTickets.map((t) => t.id));
+  const addedTickets = nextTickets.filter((t) => !prevTicketIds.has(t.id));
+  if (addedTickets.length > 0) {
+    await admin.from('horeb_raffle_tickets').upsert(
+      addedTickets.map((t) => ({
+        id: t.id,
+        ticket_code: t.ticketCode,
+        year: t.year,
+        customer_id: t.customerId,
+        customer_name: t.customerName,
+        customer_phone: t.customerPhone,
+        order_id: t.orderId,
+        order_folio: t.orderFolio,
+        branch_id: t.branchId,
+        issued_at: t.issuedAt,
+      })),
+      { onConflict: 'order_id', ignoreDuplicates: true },
+    );
+  }
+
+  const prevDrawIds = new Set(prevDraws.map((d) => d.id));
+  const addedDraws = nextDraws.filter((d) => !prevDrawIds.has(d.id));
+  if (addedDraws.length > 0) {
+    await admin.from('horeb_raffle_draws').insert(
+      addedDraws.map((d) => ({
+        id: d.id,
+        year: d.year,
+        drawn_at: d.drawnAt,
+        drawn_by: d.drawnBy,
+        winner_ticket_id: d.winnerTicketId,
+        winner_ticket_code: d.winnerTicketCode,
+        winner_customer_id: d.winnerCustomerId,
+        winner_customer_name: d.winnerCustomerName,
+        winner_customer_phone: d.winnerCustomerPhone,
+        eligible_tickets_count: d.eligibleTicketsCount,
+        notes: d.notes ?? null,
+      })),
+    );
+  }
+
   const persisted = data as BranchRow;
   const order = result.order && persisted.state.orders?.find((item) => item.folio === result.order?.folio);
 
@@ -193,6 +329,8 @@ Deno.serve(async (request) => {
       'setMachineStatus',
       'assignMachines',
       'recordWhatsappSent',
+      'upsertCustomer',
+      'runRaffleDraw',
     ].includes(operation.action)
   ) {
     const latestAudit = persisted.state.auditLogs?.[0];
@@ -207,5 +345,15 @@ Deno.serve(async (request) => {
     }).catch(() => {});
   }
 
-  return reply({ row: persisted, order });
+  return reply({
+    row: persisted,
+    order,
+    customer: result.customer,
+    global: {
+      customers: nextCustomers,
+      loyaltyEvents: nextLoyalty,
+      raffleTickets: nextTickets,
+      raffleDraws: nextDraws,
+    },
+  });
 });

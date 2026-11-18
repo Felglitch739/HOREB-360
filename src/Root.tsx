@@ -3,8 +3,21 @@ import { createClient, FunctionsHttpError, type Session } from '@supabase/supaba
 import { CheckCircle2, Eye, EyeOff, Lock, WashingMachine } from 'lucide-react';
 import { App } from './App';
 import type { Operation } from './domain/operations';
-import { combineBranches, type BranchRole, type BranchRow } from './domain/sharedState';
-import type { BranchId, Order } from './domain/types';
+import {
+  combineBranches,
+  mapDbCustomer,
+  mapDbLoyaltyEvent,
+  mapDbRaffleDraw,
+  mapDbRaffleTicket,
+  type BranchRole,
+  type BranchRow,
+  type DbCustomerRow,
+  type DbLoyaltyEventRow,
+  type DbRaffleDrawRow,
+  type DbRaffleTicketRow,
+  type GlobalRecordsBundle,
+} from './domain/sharedState';
+import type { BranchId, Customer, Order } from './domain/types';
 import { useBrandTheme } from './theme';
 
 const url = import.meta.env.VITE_SUPABASE_URL || 'https://mekjctargwhadpyezqjc.supabase.co';
@@ -21,13 +34,18 @@ interface Membership {
 interface OperationResponse {
   row?: BranchRow;
   order?: Order;
+  customer?: Customer;
+  global?: GlobalRecordsBundle;
   error?: string;
 }
 
 export interface SharedWorkspace {
   state: ReturnType<typeof combineBranches>;
   roles: Partial<Record<BranchId, BranchRole>>;
-  execute: (branch: BranchId, operation: Operation) => Promise<{ ok: boolean; error?: string; order?: Order }>;
+  execute: (
+    branch: BranchId,
+    operation: Operation,
+  ) => Promise<{ ok: boolean; error?: string; order?: Order; customer?: Customer }>;
   reload: () => Promise<void>;
   signOut: () => void;
 }
@@ -37,6 +55,7 @@ export function Root() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [rows, setRows] = useState<BranchRow[] | null>(null);
+  const [globalRecords, setGlobalRecords] = useState<GlobalRecordsBundle>({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -51,9 +70,13 @@ export function Root() {
 
   const reload = useCallback(async () => {
     if (!session?.user.id) return;
-    const [access, data] = await Promise.all([
+    const [access, data, custRes, loyaltyRes, ticketsRes, drawsRes] = await Promise.all([
       client.from('horeb_memberships').select('branch_id,role'),
       client.from('horeb_branch_state').select('branch_id,version,updated_at,state').order('branch_id'),
+      client.from('horeb_customers').select('*').order('name'),
+      client.from('horeb_loyalty_events').select('*').order('created_at', { ascending: false }).limit(400),
+      client.from('horeb_raffle_tickets').select('*').order('issued_at', { ascending: false }),
+      client.from('horeb_raffle_draws').select('*').order('drawn_at', { ascending: false }),
     ]);
     if (access.error || data.error) {
       setError('No se pudo cargar Supabase. Revisa la conexión y vuelve a intentar.');
@@ -67,11 +90,18 @@ export function Root() {
         return current && current.version > fresh.version ? current : fresh;
       }),
     );
+    setGlobalRecords({
+      customers: custRes.data ? (custRes.data as DbCustomerRow[]).map(mapDbCustomer) : [],
+      loyaltyEvents: loyaltyRes.data ? (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent) : [],
+      raffleTickets: ticketsRes.data ? (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket) : [],
+      raffleDraws: drawsRes.data ? (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw) : [],
+    });
   }, [session?.user.id]);
 
   useEffect(() => {
     setRows(null);
     setMemberships([]);
+    setGlobalRecords({});
     if (!session?.user.id) return;
     void reload();
     const interval = window.setInterval(() => {
@@ -115,6 +145,9 @@ export function Root() {
         };
       }
       merge(response.data.row);
+      if (response.data.global) {
+        setGlobalRecords(response.data.global);
+      }
       const order =
         response.data.order ??
         (operation.action === 'create'
@@ -122,7 +155,7 @@ export function Root() {
               (item) => item.folio === operation.input.folio?.trim().toUpperCase(),
             )
           : undefined);
-      return { ok: true, order };
+      return { ok: true, order, customer: response.data.customer };
     } catch {
       return {
         ok: false,
@@ -167,7 +200,7 @@ export function Root() {
     const roles = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
     return (
       <App
-        shared={{ state: combineBranches(rows), roles, execute, reload, signOut: () => void signOut() }}
+        shared={{ state: combineBranches(rows, globalRecords), roles, execute, reload, signOut: () => void signOut() }}
         sharedNotice={error}
         theme={theme}
         onSetTheme={setTheme}

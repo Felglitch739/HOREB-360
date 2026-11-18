@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react';
-import { BarChart3, ClipboardList, LayoutDashboard, MapPin, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
+import { BarChart3, ClipboardList, LayoutDashboard, MapPin, Plus, Settings, Store, Users, Wallet, WashingMachine } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -24,6 +24,7 @@ const AdminView = lazy(() => import('./components/AdminView').then((m) => ({ def
 const AjustesView = lazy(() => import('./components/AjustesView').then((m) => ({ default: m.AjustesView })));
 const AppTour = lazy(() => import('./components/AppTour').then((m) => ({ default: m.AppTour })));
 const CajaView = lazy(() => import('./components/CajaView').then((m) => ({ default: m.CajaView })));
+const ClientesView = lazy(() => import('./components/ClientesView').then((m) => ({ default: m.ClientesView })));
 const EquiposView = lazy(() => import('./components/EquiposView').then((m) => ({ default: m.EquiposView })));
 const TicketModal = lazy(() => import('./components/TicketModal').then((m) => ({ default: m.TicketModal })));
 
@@ -32,6 +33,7 @@ const navigation = [
   { id: 'mostrador', label: 'Mostrador', icon: Store },
   { id: 'ordenes', label: 'Órdenes', icon: ClipboardList },
   { id: 'equipos', label: 'Equipos', icon: WashingMachine },
+  { id: 'clientes', label: 'Clientes', icon: Users },
   { id: 'caja', label: 'Caja', icon: Wallet },
   { id: 'admin', label: 'Reportes', icon: BarChart3 },
 ] as const;
@@ -133,6 +135,24 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
     reason?: string,
   ) {
     return run(branch, { action: 'setMachineStatus', machineId, status, reason });
+  }
+
+  function handleUpsertCustomer(
+    branch: BranchId,
+    customer: { id?: string; name: string; phone: string; contactConsent: boolean },
+  ) {
+    return run(branch, { action: 'upsertCustomer', customer });
+  }
+
+  function handleSeedSampleCustomers(branch: BranchId) {
+    return run(branch, { action: 'seedSampleCustomers' });
+  }
+
+  function handleRunRaffleDraw(
+    branch: BranchId,
+    options: { year?: number; notes?: string },
+  ) {
+    return run(branch, { action: 'runRaffleDraw', year: options.year, notes: options.notes });
   }
 
   function handleEmitTicket(orderId: string, simulateFailure: boolean) {
@@ -256,6 +276,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               onAdvanceEncargo={handleAdvanceEncargo}
               onDeliverEncargo={handleDeliverEncargo}
               onRecordWhatsappSent={handleRecordWhatsappSent}
+              onUpsertCustomer={handleUpsertCustomer}
               onOpenTicket={(id) => setTicketOrderId(id)}
             />
           )}
@@ -274,6 +295,16 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               />
             )}
 
+            {activeTab === 'clientes' && (
+              <ClientesView
+                state={state}
+                branchId={activeBranchId}
+                role={activeRole}
+                onUpsertCustomer={handleUpsertCustomer}
+                onSeedSampleCustomers={handleSeedSampleCustomers}
+              />
+            )}
+
             {activeTab === 'caja' && (
               <CajaView
                 key={activeBranchId}
@@ -286,7 +317,15 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               />
             )}
 
-            {activeTab === 'admin' && <AdminView state={state} branches={visibleBranches.map((branch) => branch.id)} />}
+            {activeTab === 'admin' && (
+              <AdminView
+                state={state}
+                branches={visibleBranches.map((branch) => branch.id)}
+                activeBranchId={activeBranchId}
+                role={activeRole}
+                onRunRaffleDraw={handleRunRaffleDraw}
+              />
+            )}
 
             {activeTab === 'ajustes' && (
               <AjustesView

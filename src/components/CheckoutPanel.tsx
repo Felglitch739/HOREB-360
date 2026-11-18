@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Minus, Plus, Receipt } from 'lucide-react';
+import { Gift, Minus, Plus, Receipt, UserPlus } from 'lucide-react';
 import { calculateTender, formatMxn } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
-import type { CatalogItem, Machine, Order, ServiceType } from '../domain/types';
+import type { BranchId, CatalogItem, Customer, Machine, Order, ServiceType } from '../domain/types';
+import { CustomSelect } from './CustomSelect';
 
 interface CheckoutPanelProps {
+  branchId: BranchId;
   branchName: string;
   catalog: CatalogItem[];
   machines: Machine[];
+  customers: Customer[];
   openShift: boolean;
   suggestedFolio: string;
   checkoutOrder: Order | null;
@@ -21,13 +24,19 @@ interface CheckoutPanelProps {
     orderId: string,
     lines: PaymentInputLine[],
   ) => Promise<{ ok: boolean; error?: string; order?: Order }>;
+  onUpsertCustomer: (
+    branchId: BranchId,
+    customer: { id?: string; name: string; phone: string; contactConsent: boolean },
+  ) => Promise<{ ok: boolean; error?: string; customer?: Customer }>;
   onOpenTicket: (orderId: string) => void;
 }
 
 export function CheckoutPanel({
+  branchId,
   branchName,
   catalog,
   machines,
+  customers,
   openShift,
   suggestedFolio,
   checkoutOrder,
@@ -36,14 +45,23 @@ export function CheckoutPanel({
   onCancelCheckout,
   onCreateOrder,
   onCapturePayment,
+  onUpsertCustomer,
   onOpenTicket,
 }: CheckoutPanelProps) {
   const activeCatalog = catalog.filter((item) => item.active);
   const [serviceType, setServiceType] = useState<ServiceType>('autoservicio');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustConsent, setNewCustConsent] = useState(true);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+
   const [customerAlias, setCustomerAlias] = useState('');
   const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
     [activeCatalog[0]?.id ?? 'combo']: 1,
   }));
+  const [redeemFreeCombo, setRedeemFreeCombo] = useState(false);
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
   const [payAtPickup, setPayAtPickup] = useState(true);
 
@@ -55,6 +73,8 @@ export function CheckoutPanel({
   const [confirmTransferNow, setConfirmTransferNow] = useState(false);
   const [transferReference, setTransferReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) ?? null;
 
   useEffect(() => {
     if (checkoutOrder) {
@@ -72,13 +92,24 @@ export function CheckoutPanel({
     .map((item) => ({ item, quantity: quantities[item.id] ?? 0 }))
     .filter((entry) => entry.quantity > 0);
 
-  const cartTotalCents = selectedItems.reduce(
-    (sum, entry) => sum + entry.item.priceCents * entry.quantity,
+  const comboEntry = selectedItems.find((entry) => (entry.item.loyaltyCredits ?? 0) > 0);
+  const canRedeemFreeCombo =
+    Boolean(selectedCustomer && selectedCustomer.freeCombosAvailable >= 1 && comboEntry);
+
+  const loyaltyDiscountCents =
+    !checkoutOrder && redeemFreeCombo && canRedeemFreeCombo && comboEntry
+      ? comboEntry.item.priceCents
+      : 0;
+
+  const cartTotalCents = Math.max(
     0,
+    selectedItems.reduce((sum, entry) => sum + entry.item.priceCents * entry.quantity, 0) -
+      loyaltyDiscountCents,
   );
 
-  const deferPayment = !checkoutOrder && serviceType === 'encargo' && payAtPickup;
+  const deferPayment = !checkoutOrder && serviceType === 'encargo' && payAtPickup && cartTotalCents > 0;
   const totalCents = checkoutOrder?.totalCents ?? cartTotalCents;
+  const freeCoverAll = !checkoutOrder && cartTotalCents === 0 && loyaltyDiscountCents > 0;
   const tender = calculateTender(totalCents, cashInput, cardInput, transferInput);
 
   function resetPaymentInputs() {
@@ -130,7 +161,7 @@ export function CheckoutPanel({
     const paymentLines: PaymentInputLine[] = [];
     let change = 0;
 
-    if (!deferPayment) {
+    if (!deferPayment && !freeCoverAll) {
       if (!tender.ok) {
         onFeedback({ type: 'error', text: tender.error });
         return;
@@ -174,13 +205,15 @@ export function CheckoutPanel({
         ? await onCapturePayment(checkoutOrder.id, paymentLines)
         : await onCreateOrder({
             serviceType,
-            customerAlias,
+            customerAlias: customerAlias.trim() || selectedCustomer?.name,
+            customerId: selectedCustomer?.id,
+            redeemFreeCombo: Boolean(canRedeemFreeCombo && redeemFreeCombo),
             items: selectedItems.map(({ item, quantity }) => ({
               itemId: item.id,
               quantity,
             })),
             machineIds: needsMachine && selectedMachineIds.length > 0 ? selectedMachineIds : undefined,
-            paymentLines: deferPayment ? [] : paymentLines,
+            paymentLines: deferPayment || freeCoverAll ? [] : paymentLines,
           });
 
       if (!res.ok) {
@@ -201,6 +234,8 @@ export function CheckoutPanel({
       });
       if (checkoutOrder) onCancelCheckout();
       setCustomerAlias('');
+      setSelectedCustomerId('');
+      setRedeemFreeCombo(false);
       setQuantities({ [activeCatalog[0]?.id ?? 'combo']: 1 });
       setSelectedMachineIds([]);
       resetPaymentInputs();
@@ -251,46 +286,111 @@ export function CheckoutPanel({
               </div>
             </div>
 
-            {needsMachine && washers.length > 0 && (
-              <div className="field">
-                <label>Asignar lavadora (opcional)</label>
-                <div className="machine-picker" role="group" aria-label="Lavadoras de la sucursal">
-                  {washers.map((machine) => {
-                    const available = machine.status === 'disponible';
-                    const active = selectedMachineIds.includes(machine.id);
-                    return (
-                      <button
-                        key={machine.id}
-                        type="button"
-                        disabled={!available}
-                        aria-pressed={active}
-                        className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
-                        onClick={() => toggleMachine(machine.id)}
-                      >
-                        <strong>{machine.code}</strong>
-                        <small>
-                          {machine.status === 'disponible'
-                            ? 'Disponible'
-                            : machine.status === 'en_uso'
-                              ? `En uso (${machine.currentOrderFolio ?? ''})`
-                              : 'Fuera de serv.'}
-                        </small>
-                      </button>
-                    );
-                  })}
-                </div>
+            <div className="field">
+              <div className="catalog-head-row">
+                <label style={{ marginBottom: 0 }}>Cliente / Lealtad</label>
+                <button
+                  type="button"
+                  className="ticket-fallback-link"
+                  style={{ padding: 0 }}
+                  onClick={() => setShowNewCustomer((prev) => !prev)}
+                >
+                  <UserPlus size={13} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />
+                  {showNewCustomer ? 'Cerrar alta' : '+ Nuevo cliente'}
+                </button>
               </div>
-            )}
+
+              <CustomSelect
+                ariaLabel="Cliente para la orden"
+                value={selectedCustomerId}
+                options={[
+                  { value: '', label: 'Cobro rápido (sin ficha de cliente)' },
+                  ...customers.map((c) => ({
+                    value: c.id,
+                    label: `${c.name} (${c.combosTowardFree}/10${c.freeCombosAvailable > 0 ? ` · ${c.freeCombosAvailable} gratis` : ''})`,
+                  })),
+                ]}
+                onChange={(val) => {
+                  setSelectedCustomerId(val);
+                  setRedeemFreeCombo(false);
+                }}
+              />
+
+              {selectedCustomer && (
+                <div className="loyalty-inline-pill">
+                  <span>
+                    Lealtad: <strong>{selectedCustomer.combosTowardFree}/10 combos</strong>
+                    {selectedCustomer.freeCombosAvailable > 0
+                      ? ` · ¡Tiene ${selectedCustomer.freeCombosAvailable} combo(s) gratis!`
+                      : ''}
+                  </span>
+                </div>
+              )}
+
+              {showNewCustomer && (
+                <div className="quick-customer-box">
+                  <input
+                    className="input input-sm"
+                    placeholder="Nombre del cliente *"
+                    value={newCustName}
+                    onChange={(e) => setNewCustName(e.target.value)}
+                    maxLength={80}
+                  />
+                  <input
+                    className="input input-sm"
+                    type="tel"
+                    placeholder="Teléfono 10 dígitos *"
+                    value={newCustPhone}
+                    onChange={(e) => setNewCustPhone(e.target.value)}
+                    maxLength={20}
+                  />
+                  <label className="checkbox-row" style={{ minHeight: 34, padding: '4px 8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={newCustConsent}
+                      onChange={(e) => setNewCustConsent(e.target.checked)}
+                    />
+                    Autoriza avisos por WhatsApp
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={savingCustomer}
+                    onClick={async () => {
+                      setSavingCustomer(true);
+                      const res = await onUpsertCustomer(branchId, {
+                        name: newCustName,
+                        phone: newCustPhone,
+                        contactConsent: newCustConsent,
+                      });
+                      setSavingCustomer(false);
+                      if (!res.ok) {
+                        onFeedback({ type: 'error', text: res.error ?? 'No se pudo registrar el cliente.' });
+                        return;
+                      }
+                      if (res.customer) {
+                        setSelectedCustomerId(res.customer.id);
+                      }
+                      setNewCustName('');
+                      setNewCustPhone('');
+                      setShowNewCustomer(false);
+                    }}
+                  >
+                    Guardar ficha y seleccionar
+                  </button>
+                </div>
+              )}
+            </div>
 
             {serviceType === 'encargo' && (
               <div className="field">
-                <label htmlFor="alias-input">Cliente / referencia</label>
+                <label htmlFor="alias-input">Referencia de encargo</label>
                 <input
                   id="alias-input"
                   className="input"
                   value={customerAlias}
                   onChange={(e) => setCustomerAlias(e.target.value)}
-                  placeholder="Ej. María López"
+                  placeholder={selectedCustomer ? selectedCustomer.name : 'Ej. María López'}
                 />
               </div>
             )}
@@ -341,6 +441,18 @@ export function CheckoutPanel({
               </div>
             </div>
 
+            {canRedeemFreeCombo && comboEntry && (
+              <label className="checkbox-row field" style={{ border: '1px solid var(--success-border)', background: 'var(--success-soft)' }}>
+                <input
+                  type="checkbox"
+                  checked={redeemFreeCombo}
+                  onChange={(event) => setRedeemFreeCombo(event.target.checked)}
+                />
+                <Gift size={16} aria-hidden="true" />
+                Aplicar 1 combo gratis disponible (-{formatMxn(comboEntry.item.priceCents)}) y generar boleto rifa al completar
+              </label>
+            )}
+
             {needsMachine && washers.length > 0 && (
               <div className="field">
                 <label>Asignar lavadora (opcional)</label>
@@ -388,6 +500,10 @@ export function CheckoutPanel({
         {deferPayment ? (
           <div className="alert alert-info">
             El encargo se registrará con saldo pendiente ({formatMxn(totalCents)}) para cobrarse al entregar.
+          </div>
+        ) : freeCoverAll ? (
+          <div className="alert alert-success">
+            Orden cubierta al 100% con <strong>1 combo gratis de lealtad ($0.00)</strong>. Al completar la orden se emitirá su boleto de rifa.
           </div>
         ) : (
           <>
@@ -530,7 +646,7 @@ export function CheckoutPanel({
         <button
           type="submit"
           className="btn btn-primary btn-full checkout-submit-btn"
-          disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0)}
+          disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
         >
           <Plus size={18} />
           {checkoutOrder

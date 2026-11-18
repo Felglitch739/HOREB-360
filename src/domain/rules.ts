@@ -6,8 +6,10 @@ import type {
   BranchSettings,
   CashMovement,
   CatalogItem,
+  Customer,
   DemoState,
   EncargoStage,
+  LoyaltyEvent,
   Machine,
   MachineKind,
   MachineStatus,
@@ -15,6 +17,8 @@ import type {
   OrderLineItem,
   PaymentLine,
   PaymentMethod,
+  RaffleDraw,
+  RaffleTicket,
   Shift,
   ShiftClosingSummary,
   TicketState,
@@ -93,6 +97,8 @@ export interface CreateOrderInput {
   serviceType: 'autoservicio' | 'encargo';
   folio?: string;
   customerAlias?: string;
+  customerId?: string;
+  redeemFreeCombo?: boolean;
   comboCount?: number;
   items?: OrderItemInput[];
   machineIds?: string[];
@@ -600,7 +606,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     ];
   }
 
-  const totalCents = orderItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const rawTotalCents = orderItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
   const comboCount = Math.max(
     1,
     orderItems
@@ -610,6 +616,31 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
   );
   const comboLine = orderItems.find((item) => item.itemId === 'combo');
   const unitPriceCents = comboLine?.unitPriceCents ?? orderItems[0]?.unitPriceCents ?? getBranchSettings(state, input.branchId).comboPriceCents;
+
+  const customer = input.customerId
+    ? (state.customers ?? []).find((c) => c.id === input.customerId)
+    : undefined;
+  if (input.customerId && !customer) {
+    return { ok: false, error: 'Cliente no encontrado en el catálogo.' };
+  }
+
+  let freeCombosRedeemed = 0;
+  let loyaltyDiscountCents = 0;
+  if (input.redeemFreeCombo) {
+    if (!customer) {
+      return { ok: false, error: 'Selecciona la ficha del cliente para canjear el combo gratis.' };
+    }
+    if (customer.freeCombosAvailable < 1) {
+      return { ok: false, error: 'Este cliente aún no tiene combos gratis habilitados.' };
+    }
+    if (!comboLine || comboLine.quantity < 1) {
+      return { ok: false, error: 'Agrega al menos 1 Combo Lavado + Secado para canjear el premio.' };
+    }
+    freeCombosRedeemed = 1;
+    loyaltyDiscountCents = comboLine.unitPriceCents;
+  }
+
+  const totalCents = Math.max(0, rawTotalCents - loyaltyDiscountCents);
 
   const nextFolio = suggestNextFolio(state, input.branchId);
   const folio = (input.folio?.trim() || nextFolio).toUpperCase();
@@ -622,8 +653,8 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
 
   const customerAlias =
     input.serviceType === 'encargo'
-      ? input.customerAlias?.trim() || ''
-      : 'Autoservicio';
+      ? input.customerAlias?.trim() || customer?.name || ''
+      : customer?.name || 'Autoservicio';
 
   if (input.serviceType === 'encargo' && !customerAlias) {
     return {
@@ -664,9 +695,14 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     shiftId: openShift.id,
     serviceType: input.serviceType,
     customerAlias,
+    customerId: customer?.id ?? null,
+    customerPhone: customer?.phone ?? null,
     comboCount,
     unitPriceCents,
     items: orderItems,
+    freeCombosRedeemed,
+    loyaltyDiscountCents,
+    loyaltyProcessedAt: null,
     totalCents,
     encargoStage: input.serviceType === 'encargo' ? 'recibido' : null,
     orderStatus: 'en_proceso',
@@ -676,10 +712,46 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     deliveredAt: null,
   };
 
-  const payment = input.serviceType === 'encargo' && input.paymentLines.length === 0
+  const payment = (input.serviceType === 'encargo' && input.paymentLines.length === 0 && totalCents > 0) ||
+    (totalCents === 0 && input.paymentLines.length === 0)
     ? null
     : buildPaymentLines(order, input.paymentLines, openShift, now, input.actorLabel);
   if (payment && !payment.ok) return payment;
+
+  let nextCustomers = state.customers ?? [];
+  let nextLoyaltyEvents = state.loyaltyEvents ?? [];
+  let auditLogs = state.auditLogs ?? [];
+
+  if (freeCombosRedeemed > 0 && customer) {
+    nextCustomers = nextCustomers.map((c) =>
+      c.id === customer.id
+        ? { ...c, freeCombosAvailable: Math.max(0, c.freeCombosAvailable - freeCombosRedeemed) }
+        : c,
+    );
+    nextLoyaltyEvents = [
+      ...nextLoyaltyEvents,
+      {
+        id: `ley-${orderId}-redeem`,
+        customerId: customer.id,
+        orderId,
+        branchId: input.branchId,
+        eventType: 'free_combo_redeemed',
+        delta: -freeCombosRedeemed,
+        createdAt: now,
+        note: `Combo gratis canjeado en ${folio}`,
+      },
+    ];
+    auditLogs = appendAudit(
+      { ...state, auditLogs },
+      {
+        branchId: input.branchId,
+        category: 'lealtad',
+        message: `${customer.name} aplicó 1 combo gratis en ${folio} (-${formatMxn(loyaltyDiscountCents)})`,
+        actor: input.actorLabel ?? 'Mostrador',
+        createdAt: now,
+      },
+    );
+  }
 
   const ticket: TicketState = {
     orderId,
@@ -695,7 +767,6 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     simulated: true,
   };
 
-  let auditLogs = state.auditLogs ?? [];
   for (const line of payment?.lines ?? []) {
     if (line.status === 'confirmado' && line.method !== 'efectivo') {
       auditLogs = appendAudit(
@@ -723,6 +794,8 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
       [orderId]: ticket,
     },
     machines: nextMachines,
+    customers: nextCustomers,
+    loyaltyEvents: nextLoyaltyEvents,
     nextFolioSeq: folio === nextFolio
       ? { ...state.nextFolioSeq, [input.branchId]: Number(nextFolio.split('-').at(-1)) + 1 }
       : state.nextFolioSeq,
@@ -872,13 +945,15 @@ export function confirmPaymentLine(
     createdAt: now,
   });
 
+  const withConfirmation: DemoState = {
+    ...state,
+    paymentLines: state.paymentLines.map((p) => (p.id === paymentLineId ? updated : p)),
+    auditLogs,
+  };
+
   return {
     ok: true,
-    state: {
-      ...state,
-      paymentLines: state.paymentLines.map((p) => (p.id === paymentLineId ? updated : p)),
-      auditLogs,
-    },
+    state: evaluateOrderLoyalty(withConfirmation, order.id, now),
     data: updated,
   };
 }
@@ -1354,13 +1429,16 @@ export function deliverEncargoOrder(
     orderStatus: 'entregado',
     deliveredAt: now,
   };
+  const nextState: DemoState = {
+    ...state,
+    orders: state.orders.map((o) => (o.id === orderId ? updated : o)),
+    machines: releaseMachinesForOrder(state.machines ?? [], orderId, { incrementCycles: false, now }),
+  };
+  const withLoyalty = evaluateOrderLoyalty(nextState, orderId, now);
   return {
     ok: true,
-    state: {
-      ...state,
-      orders: state.orders.map((o) => (o.id === orderId ? updated : o)),
-    },
-    data: updated,
+    state: withLoyalty,
+    data: withLoyalty.orders.find((o) => o.id === orderId)!,
   };
 }
 
@@ -1378,7 +1456,8 @@ export function emitTicket(
     return { ok: false, error: 'Confirma el pago completo antes de emitir el ticket.' };
   }
   if (ticket.status === 'emitido') {
-    return { ok: true, state, data: ticket };
+    const evaluated = evaluateOrderLoyalty(state, orderId, options.now ?? ticket.issuedAt ?? new Date().toISOString());
+    return { ok: true, state: evaluated, data: evaluated.tickets[orderId] ?? ticket };
   }
 
   const now = options.now ?? new Date().toISOString();
@@ -1412,16 +1491,347 @@ export function emitTicket(
     reprintCount: ticket.reprintCount ?? 0,
   };
 
+  const nextState: DemoState = {
+    ...state,
+    orders: order.serviceType === 'autoservicio'
+      ? state.orders.map((item) => item.id === orderId ? { ...item, orderStatus: 'completado' } : item)
+      : state.orders,
+    tickets: { ...state.tickets, [orderId]: issued },
+  };
+
+  const withLoyalty = evaluateOrderLoyalty(nextState, orderId, now);
+
+  return {
+    ok: true,
+    state: withLoyalty,
+    data: issued,
+  };
+}
+
+export function getCustomers(state: DemoState): Customer[] {
+  return [...(state.customers ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'es-MX'));
+}
+
+export function getCustomerOrders(state: DemoState, customerId: string): Order[] {
+  return state.orders
+    .filter((o) => o.customerId === customerId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function upsertCustomer(
+  state: DemoState,
+  branchId: BranchId,
+  input: { id?: string; name: string; phone: string; contactConsent: boolean },
+  actorLabel = 'Mostrador',
+  now = new Date().toISOString(),
+): DomainResult<Customer> {
+  const name = input.name.trim().slice(0, 80);
+  const digits = input.phone.replace(/\D/g, '').slice(0, 15);
+  if (!name) {
+    return { ok: false, error: 'Captura el nombre completo del cliente.' };
+  }
+  if (digits.length < 8) {
+    return { ok: false, error: 'Captura un teléfono de al menos 8 dígitos.' };
+  }
+
+  const existingList = state.customers ?? [];
+  const duplicatePhone = existingList.find((c) => c.phone.replace(/\D/g, '') === digits && c.id !== input.id);
+  if (duplicatePhone) {
+    return {
+      ok: false,
+      error: `Ya existe un cliente registrado con el teléfono ${digits} (${duplicatePhone.name}).`,
+    };
+  }
+
+  const target = input.id ? existingList.find((c) => c.id === input.id) : undefined;
+  const saved: Customer = target
+    ? { ...target, name, phone: digits, contactConsent: input.contactConsent }
+    : {
+        id: `cust-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        phone: digits,
+        contactConsent: input.contactConsent,
+        combosTowardFree: 0,
+        freeCombosAvailable: 0,
+        createdAt: now,
+        createdBranchId: branchId,
+      };
+
+  const nextCustomers = target
+    ? existingList.map((c) => (c.id === saved.id ? saved : c))
+    : [saved, ...existingList];
+
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'lealtad',
+    message: target ? `Ficha de cliente actualizada: ${saved.name}` : `Cliente registrado: ${saved.name} (${saved.phone})`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+
+  return { ok: true, state: { ...state, customers: nextCustomers, auditLogs }, data: saved };
+}
+
+export function isOrderCompletedAndPaid(state: DemoState, orderId: string): boolean {
+  const order = state.orders.find((o) => o.id === orderId);
+  if (!order) return false;
+  if (!isOrderFullyPaid(state, orderId)) return false;
+  const ticket = state.tickets[orderId];
+  if (!ticket || ticket.status !== 'emitido') return false;
+  if (order.serviceType === 'autoservicio') {
+    return order.orderStatus === 'completado';
+  }
+  return order.encargoStage === 'entregado';
+}
+
+export function evaluateOrderLoyalty(
+  state: DemoState,
+  orderId: string,
+  now = new Date().toISOString(),
+): DemoState {
+  const order = state.orders.find((o) => o.id === orderId);
+  if (!order || !order.customerId) return state;
+  if (order.loyaltyProcessedAt) return state;
+
+  const existingEvents = state.loyaltyEvents ?? [];
+  if (
+    existingEvents.some(
+      (ev) =>
+        ev.orderId === orderId &&
+        (ev.eventType === 'combos_earned' || ev.eventType === 'raffle_ticket_issued'),
+    )
+  ) {
+    return state;
+  }
+
+  if (!isOrderCompletedAndPaid(state, orderId)) return state;
+
+  const customer = (state.customers ?? []).find((c) => c.id === order.customerId);
+  if (!customer) return state;
+
+  const totalLoyaltyCombos = getOrderLineItems(order).reduce(
+    (sum, item) => sum + (item.loyaltyCredits ?? 0) * item.quantity,
+    0,
+  );
+  const freeRedeemed = order.freeCombosRedeemed ?? 0;
+  const paidCombos = Math.max(0, totalLoyaltyCombos - freeRedeemed);
+
+  const combinedProgress = customer.combosTowardFree + paidCombos;
+  const unlockedFree = Math.floor(combinedProgress / 10);
+  const nextProgress = combinedProgress % 10;
+  const nextFreeAvailable = customer.freeCombosAvailable + unlockedFree;
+
+  const newEvents: LoyaltyEvent[] = [];
+  if (paidCombos > 0) {
+    newEvents.push({
+      id: `ley-${orderId}-earned`,
+      customerId: customer.id,
+      orderId,
+      branchId: order.branchId,
+      eventType: 'combos_earned',
+      delta: paidCombos,
+      createdAt: now,
+      note: `${paidCombos} combo(s) pagado(s) y completado(s) en ${order.folio}`,
+    });
+  }
+  if (unlockedFree > 0) {
+    newEvents.push({
+      id: `ley-${orderId}-unlocked`,
+      customerId: customer.id,
+      orderId,
+      branchId: order.branchId,
+      eventType: 'free_combo_unlocked',
+      delta: unlockedFree,
+      createdAt: now,
+      note: `10 combos alcanzados en ${order.folio}: ${unlockedFree} combo gratis habilitado`,
+    });
+  }
+
+  const existingTickets = state.raffleTickets ?? [];
+  const nextTickets = [...existingTickets];
+  let auditLogs = state.auditLogs ?? [];
+
+  if (freeRedeemed > 0 && !existingTickets.some((t) => t.orderId === orderId)) {
+    const year = new Date(now).getFullYear();
+    const countYear = nextTickets.filter((t) => t.year === year).length;
+    const ticketCode = `RIFA-${year}-${String(countYear + 1).padStart(4, '0')}`;
+    const raffleTicket: RaffleTicket = {
+      id: `rt-${orderId}`,
+      ticketCode,
+      year,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerPhone: customer.phone,
+      orderId,
+      orderFolio: order.folio,
+      branchId: order.branchId,
+      issuedAt: now,
+    };
+    nextTickets.push(raffleTicket);
+    newEvents.push({
+      id: `ley-${orderId}-raffle`,
+      customerId: customer.id,
+      orderId,
+      branchId: order.branchId,
+      eventType: 'raffle_ticket_issued',
+      delta: 1,
+      createdAt: now,
+      note: `Boleto ${ticketCode} emitido al completar combo gratis (${order.folio})`,
+    });
+    auditLogs = appendAudit(
+      { ...state, auditLogs },
+      {
+        branchId: order.branchId,
+        category: 'rifa',
+        message: `Boleto ${ticketCode} emitido para ${customer.name} al completar ${order.folio}`,
+        actor: 'Sistema lealtad',
+        createdAt: now,
+      },
+    );
+  }
+
+  const nextCustomers = (state.customers ?? []).map((c) =>
+    c.id === customer.id
+      ? {
+          ...c,
+          combosTowardFree: nextProgress,
+          freeCombosAvailable: nextFreeAvailable,
+        }
+      : c,
+  );
+
+  const nextOrders = state.orders.map((o) =>
+    o.id === orderId ? { ...o, loyaltyProcessedAt: now } : o,
+  );
+
+  return {
+    ...state,
+    customers: nextCustomers,
+    orders: nextOrders,
+    loyaltyEvents: [...existingEvents, ...newEvents],
+    raffleTickets: nextTickets,
+    auditLogs,
+  };
+}
+
+export function getEligibleRaffleTickets(state: DemoState, year: number): RaffleTicket[] {
+  const wonIds = new Set((state.raffleDraws ?? []).map((d) => d.winnerTicketId));
+  return (state.raffleTickets ?? []).filter((t) => t.year === year && !wonIds.has(t.id));
+}
+
+export function runManualRaffleDraw(
+  state: DemoState,
+  branchId: BranchId,
+  options: { year?: number; notes?: string; winnerTicketId?: string; actorLabel?: string; now?: string } = {},
+): DomainResult<RaffleDraw> {
+  const now = options.now ?? new Date().toISOString();
+  const year = options.year ?? new Date(now).getFullYear();
+  const eligible = getEligibleRaffleTickets(state, year);
+  if (eligible.length === 0) {
+    return { ok: false, error: `No hay boletos elegibles disponibles para la rifa ${year}.` };
+  }
+
+  const picked = options.winnerTicketId
+    ? eligible.find((t) => t.id === options.winnerTicketId)
+    : eligible[Math.floor(Math.random() * eligible.length)];
+  if (!picked) {
+    return { ok: false, error: 'El boleto seleccionado no es elegible para este sorteo.' };
+  }
+
+  const actorLabel = options.actorLabel?.trim() || 'Supervisión';
+  const draw: RaffleDraw = {
+    id: `draw-${year}-${Date.now().toString(36)}`,
+    year,
+    drawnAt: now,
+    drawnBy: actorLabel,
+    winnerTicketId: picked.id,
+    winnerTicketCode: picked.ticketCode,
+    winnerCustomerId: picked.customerId,
+    winnerCustomerName: picked.customerName,
+    winnerCustomerPhone: picked.customerPhone,
+    eligibleTicketsCount: eligible.length,
+    notes: options.notes?.trim().slice(0, 140) || undefined,
+  };
+
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'rifa',
+    message: `Sorteo ${year} realizado: ganador ${picked.ticketCode} (${picked.customerName}) entre ${eligible.length} boleto(s)`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+
   return {
     ok: true,
     state: {
       ...state,
-      orders: order.serviceType === 'autoservicio'
-        ? state.orders.map((item) => item.id === orderId ? { ...item, orderStatus: 'completado' } : item)
-        : state.orders,
-      tickets: { ...state.tickets, [orderId]: issued },
+      raffleDraws: [draw, ...(state.raffleDraws ?? [])],
+      auditLogs,
     },
-    data: issued,
+    data: draw,
+  };
+}
+
+export function seedSampleCustomersForTesting(
+  state: DemoState,
+  branchId: BranchId,
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<Customer[]> {
+  if ((state.customers ?? []).length > 0) {
+    return { ok: false, error: 'Ya existen clientes registrados.' };
+  }
+  const c1: Customer = {
+    id: 'cust-demo-1',
+    name: 'María Fernanda López',
+    phone: '8681234567',
+    contactConsent: true,
+    combosTowardFree: 9,
+    freeCombosAvailable: 0,
+    createdAt: now,
+    createdBranchId: branchId,
+  };
+  const c2: Customer = {
+    id: 'cust-demo-2',
+    name: 'Carlos Eduardo Garza',
+    phone: '8689876543',
+    contactConsent: true,
+    combosTowardFree: 4,
+    freeCombosAvailable: 1,
+    createdAt: now,
+    createdBranchId: branchId,
+  };
+  const year = new Date(now).getFullYear();
+  const demoTicket: RaffleTicket = {
+    id: 'rt-demo-1',
+    ticketCode: `RIFA-${year}-0001`,
+    year,
+    customerId: c2.id,
+    customerName: c2.name,
+    customerPhone: c2.phone,
+    orderId: 'ord-demo-free',
+    orderFolio: 'LOM-0000',
+    branchId,
+    issuedAt: now,
+  };
+
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'lealtad',
+    message: 'Clientes y boleto ficticios cargados para prueba de lealtad y rifa.',
+    actor: actorLabel,
+    createdAt: now,
+  });
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      customers: [c1, c2],
+      raffleTickets: [demoTicket],
+      auditLogs,
+    },
+    data: [c1, c2],
   };
 }
 
