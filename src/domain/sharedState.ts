@@ -5,6 +5,7 @@ import type {
   Customer,
   DemoState,
   LoyaltyEvent,
+  NightClosingReport,
   RaffleDraw,
   RaffleTicket,
 } from './types.ts';
@@ -17,6 +18,7 @@ export interface GlobalRecordsBundle {
   loyaltyEvents?: LoyaltyEvent[];
   raffleTickets?: RaffleTicket[];
   raffleDraws?: RaffleDraw[];
+  nightClosings?: NightClosingReport[];
 }
 
 export interface DbCustomerRow {
@@ -125,6 +127,50 @@ export function mapDbRaffleDraw(row: DbRaffleDrawRow): RaffleDraw {
   };
 }
 
+export interface DbNightClosingRow {
+  id: string;
+  branch_id: BranchId;
+  closing_date: string;
+  shift_id: string | null;
+  shift_number: number | null;
+  was_auto_closed: boolean;
+  expected_cash_cents: number;
+  counted_cash_cents: number;
+  confirmed_card_cents: number;
+  confirmed_transfer_cents: number;
+  pending_transfer_cents: number;
+  pending_balance_cents: number;
+  pending_delivery_count: number;
+  pending_delivery_amount_cents: number;
+  total_confirmed_cents: number;
+  report_text: string;
+  executed_at: string;
+  executed_by: string;
+}
+
+export function mapDbNightClosing(row: DbNightClosingRow): NightClosingReport {
+  return {
+    id: row.id,
+    branchId: row.branch_id,
+    closingDate: row.closing_date,
+    shiftId: row.shift_id,
+    shiftNumber: row.shift_number,
+    wasAutoClosed: row.was_auto_closed,
+    expectedCashCents: row.expected_cash_cents,
+    countedCashCents: row.counted_cash_cents,
+    confirmedCardCents: row.confirmed_card_cents,
+    confirmedTransferCents: row.confirmed_transfer_cents,
+    pendingTransferCents: row.pending_transfer_cents,
+    pendingBalanceCents: row.pending_balance_cents,
+    pendingDeliveryCount: row.pending_delivery_count,
+    pendingDeliveryAmountCents: row.pending_delivery_amount_cents,
+    totalConfirmedCents: row.total_confirmed_cents,
+    reportText: row.report_text,
+    executedAt: row.executed_at,
+    executedBy: row.executed_by,
+  };
+}
+
 export function combineBranches(rows: BranchRow[], global: GlobalRecordsBundle = {}): DemoState {
   const initial = createInitialState();
   const settings: Partial<Record<BranchId, BranchSettings>> = {};
@@ -138,6 +184,7 @@ export function combineBranches(rows: BranchRow[], global: GlobalRecordsBundle =
     loyaltyEvents: global.loyaltyEvents ? [...global.loyaltyEvents] : [],
     raffleTickets: global.raffleTickets ? [...global.raffleTickets] : [],
     raffleDraws: global.raffleDraws ? [...global.raffleDraws] : [],
+    nightClosings: global.nightClosings ? [...global.nightClosings] : [],
     auditLogs: [],
   };
   for (const { branch_id, updated_at, state: saved } of rows) {

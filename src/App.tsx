@@ -155,6 +155,24 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
     return run(branch, { action: 'runRaffleDraw', year: options.year, notes: options.notes });
   }
 
+  function handleConfirmTransferBatch(
+    branch: BranchId,
+    items: Array<{ lineId: string; reference?: string }>,
+  ) {
+    return run(branch, { action: 'confirmTransferBatch', items });
+  }
+
+  function handleRunNightClosing(
+    branch: BranchId,
+    options: { closingDate?: string; enforce2300Rule?: boolean },
+  ) {
+    return run(branch, {
+      action: 'runNightClosing',
+      closingDate: options.closingDate,
+      enforce2300Rule: options.enforce2300Rule,
+    });
+  }
+
   function handleEmitTicket(orderId: string, simulateFailure: boolean) {
     const order = state.orders.find((item) => item.id === orderId);
     if (!order) return Promise.resolve({ ok: false, error: 'No encontramos el folio.' });
@@ -314,6 +332,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
                 onCloseShift={handleCloseShift}
                 onOpenNewShift={handleOpenNewShift}
                 onMovement={handleMovement}
+                onConfirmPaymentLine={handleConfirmPaymentLine}
+                onConfirmTransferBatch={handleConfirmTransferBatch}
+                onRunNightClosing={handleRunNightClosing}
               />
             )}
 

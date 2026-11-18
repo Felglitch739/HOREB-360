@@ -1,3 +1,4 @@
+import { confirmTransferBatch, runNightClosingForBranch } from './reconciliation.ts';
 import {
   advanceEncargoStage, assignOrderMachines, captureEncargoPayment, closeShift, confirmPaymentLine,
   createOrder, deleteMachine, deliverEncargoOrder, emitTicket, openNewShift, recordCashMovement,
@@ -35,7 +36,9 @@ export type Operation =
   | { action: 'recordWhatsappSent'; orderId: string }
   | { action: 'upsertCustomer'; customer: { id?: string; name: string; phone: string; contactConsent: boolean } }
   | { action: 'runRaffleDraw'; year?: number; notes?: string; winnerTicketId?: string }
-  | { action: 'seedSampleCustomers' };
+  | { action: 'seedSampleCustomers' }
+  | { action: 'runNightClosing'; closingDate?: string; enforce2300Rule?: boolean }
+  | { action: 'confirmTransferBatch'; items: Array<{ lineId: string; reference?: string }> };
 
 export type OperationResult =
   | { ok: true; state: DemoState; order?: Order; customer?: Customer }
@@ -56,7 +59,8 @@ export function requiresSupervisor(action: Operation['action']) {
     action === 'deleteMachine' ||
     action === 'seedSampleMachines' ||
     action === 'runRaffleDraw' ||
-    action === 'seedSampleCustomers'
+    action === 'seedSampleCustomers' ||
+    action === 'runNightClosing'
   );
 }
 
@@ -124,5 +128,13 @@ export function operate(
       });
     case 'seedSampleCustomers':
       return seedSampleCustomersForTesting(state, branch, actorLabel);
+    case 'runNightClosing':
+      return runNightClosingForBranch(state, branch, {
+        closingDate: operation.closingDate,
+        enforce2300Rule: operation.enforce2300Rule,
+        actorLabel,
+      });
+    case 'confirmTransferBatch':
+      return confirmTransferBatch(state, operation.items, actorLabel);
   }
 }

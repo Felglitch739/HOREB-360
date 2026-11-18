@@ -7,12 +7,14 @@ import {
   combineBranches,
   mapDbCustomer,
   mapDbLoyaltyEvent,
+  mapDbNightClosing,
   mapDbRaffleDraw,
   mapDbRaffleTicket,
   type BranchRole,
   type BranchRow,
   type DbCustomerRow,
   type DbLoyaltyEventRow,
+  type DbNightClosingRow,
   type DbRaffleDrawRow,
   type DbRaffleTicketRow,
   type GlobalRecordsBundle,
@@ -70,13 +72,14 @@ export function Root() {
 
   const reload = useCallback(async () => {
     if (!session?.user.id) return;
-    const [access, data, custRes, loyaltyRes, ticketsRes, drawsRes] = await Promise.all([
+    const [access, data, custRes, loyaltyRes, ticketsRes, drawsRes, ncRes] = await Promise.all([
       client.from('horeb_memberships').select('branch_id,role'),
       client.from('horeb_branch_state').select('branch_id,version,updated_at,state').order('branch_id'),
       client.from('horeb_customers').select('*').order('name'),
       client.from('horeb_loyalty_events').select('*').order('created_at', { ascending: false }).limit(400),
       client.from('horeb_raffle_tickets').select('*').order('issued_at', { ascending: false }),
       client.from('horeb_raffle_draws').select('*').order('drawn_at', { ascending: false }),
+      client.from('horeb_night_closings').select('*').order('closing_date', { ascending: false }),
     ]);
     if (access.error || data.error) {
       setError('No se pudo cargar Supabase. Revisa la conexión y vuelve a intentar.');
@@ -95,6 +98,7 @@ export function Root() {
       loyaltyEvents: loyaltyRes.data ? (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent) : [],
       raffleTickets: ticketsRes.data ? (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket) : [],
       raffleDraws: drawsRes.data ? (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw) : [],
+      nightClosings: ncRes.data ? (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing) : [],
     });
   }, [session?.user.id]);
 

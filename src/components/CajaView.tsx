@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Lock, PlayCircle } from 'lucide-react';
+import { Lock, MoonStar, PlayCircle } from 'lucide-react';
 import { formatMxn, parsePesosToCents } from '../domain/money';
 import { getBranchInfo, getOpenShift, getShiftMetrics } from '../domain/rules';
 import type { BranchId, CashMovement, DemoState } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
+import { TransferInboxPanel } from './TransferInboxPanel';
 
 interface CajaViewProps {
   state: DemoState;
@@ -12,14 +13,36 @@ interface CajaViewProps {
   onCloseShift: (branchId: BranchId, countedCashCents: number) => Promise<{ ok: boolean; error?: string }>;
   onOpenNewShift: (branchId: BranchId, openingCashCents: number) => Promise<{ ok: boolean; error?: string }>;
   onMovement: (branchId: BranchId, kind: CashMovement['kind'], amount: number, reason: string) => Promise<{ ok: boolean; error?: string }>;
+  onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<{ ok: boolean; error?: string }>;
+  onConfirmTransferBatch: (
+    branchId: BranchId,
+    items: Array<{ lineId: string; reference?: string }>,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onRunNightClosing: (
+    branchId: BranchId,
+    options: { closingDate?: string; enforce2300Rule?: boolean },
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
-export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewShift, onMovement }: CajaViewProps) {
+export function CajaView({
+  state,
+  branchId,
+  canManage,
+  onCloseShift,
+  onOpenNewShift,
+  onMovement,
+  onConfirmPaymentLine,
+  onConfirmTransferBatch,
+  onRunNightClosing,
+}: CajaViewProps) {
   const branch = getBranchInfo(branchId);
   const openShift = getOpenShift(state, branchId);
   const branchShifts = state.shifts
     .filter((s) => s.branchId === branchId)
     .sort((a, b) => b.number - a.number);
+  const branchNightClosings = (state.nightClosings ?? [])
+    .filter((nc) => nc.branchId === branchId)
+    .sort((a, b) => b.closingDate.localeCompare(a.closingDate));
 
   const openMetrics = openShift ? getShiftMetrics(state, openShift.id) : null;
 
@@ -28,6 +51,9 @@ export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewSh
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
   const [countedCashInput, setCountedCashInput] = useState('0');
+  const [controlledDate, setControlledDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [runningNight, setRunningNight] = useState(false);
+  const [nightFeedback, setNightFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
@@ -244,6 +270,112 @@ export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewSh
             </tbody>
           </table>
         </div>
+      </section>
+
+      <TransferInboxPanel
+        state={state}
+        branchId={branchId}
+        onConfirmPaymentLine={onConfirmPaymentLine}
+        onConfirmTransferBatch={onConfirmTransferBatch}
+      />
+
+      <section className="card">
+        <h2 className="card-title">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <MoonStar size={18} aria-hidden="true" />
+            Cierre nocturno (23:00) y reportes · {branch.name}
+          </span>
+          <span className="badge badge-info">{branchNightClosings.length} reporte(s)</span>
+        </h2>
+
+        <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
+          Registra un único corte nocturno por sucursal y fecha (23:00 hora local). Si el turno sigue abierto, se cierra en automático con el efectivo esperado; si ya se cerró manualmente, se conserva sin duplicar.
+        </p>
+
+        {nightFeedback && (
+          <div className={`alert alert-${nightFeedback.type}`} role={nightFeedback.type === 'error' ? 'alert' : 'status'}>
+            {nightFeedback.text}
+          </div>
+        )}
+
+        {canManage && (
+          <div className="cash-controls" style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={runningNight}
+              onClick={async () => {
+                setRunningNight(true);
+                setNightFeedback(null);
+                const res = await onRunNightClosing(branchId, { enforce2300Rule: true });
+                setRunningNight(false);
+                if (!res.ok) setNightFeedback({ type: 'error', text: res.error ?? 'No se pudo ejecutar el cierre.' });
+                else setNightFeedback({ type: 'success', text: `Cierre nocturno verificado para ${branch.name}.` });
+              }}
+            >
+              <MoonStar size={16} />
+              Ejecutar corte de las 23:00
+            </button>
+
+            {import.meta.env.DEV && (
+              <>
+                <label className="field" style={{ maxWidth: 170 }}>
+                  Fecha controlada (prueba)
+                  <input
+                    type="date"
+                    className="input"
+                    value={controlledDate}
+                    onChange={(e) => setControlledDate(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={runningNight}
+                  onClick={async () => {
+                    setRunningNight(true);
+                    setNightFeedback(null);
+                    const res = await onRunNightClosing(branchId, {
+                      closingDate: controlledDate,
+                      enforce2300Rule: false,
+                    });
+                    setRunningNight(false);
+                    if (!res.ok) setNightFeedback({ type: 'error', text: res.error ?? 'Error en cierre de prueba.' });
+                    else setNightFeedback({ type: 'success', text: `Cierre nocturno (${controlledDate}) ejecutado sin duplicados.` });
+                  }}
+                >
+                  Simular cierre en fecha (desarrollo)
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {branchNightClosings.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Aún no hay reportes de cierre nocturno guardados para {branch.name}.
+          </p>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {branchNightClosings.map((report) => (
+              <details key={report.id} className="night-closing-card">
+                <summary>
+                  <div>
+                    <strong>{report.closingDate}</strong> · {branch.name}{' '}
+                    <span className={`badge ${report.wasAutoClosed ? 'badge-warning' : 'badge-success'}`}>
+                      {report.wasAutoClosed ? `Turno #${report.shiftNumber ?? '-'} cerrado 23:00` : 'Corte manual previo'}
+                    </span>
+                  </div>
+                  <strong>{formatMxn(report.totalConfirmedCents)} confirmado</strong>
+                </summary>
+                <pre className="night-report-pre">{report.reportText}</pre>
+                <small className="muted">
+                  Ejecutado: {new Date(report.executedAt).toLocaleString('es-MX')} · {report.executedBy}
+                </small>
+              </details>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

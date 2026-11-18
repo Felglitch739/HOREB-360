@@ -2163,6 +2163,41 @@ th {
   border: 1px solid var(--success-border);
 }
 
+.csv-import-box {
+  padding: 12px;
+  border-radius: 11px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-alt);
+}
+
+.night-closing-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.night-closing-card summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.night-report-pre {
+  margin: 10px 0 6px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 @page {
   size: 80mm auto;
   margin: 0;

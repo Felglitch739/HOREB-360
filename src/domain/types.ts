@@ -190,12 +190,43 @@ export interface Order {
 export interface BranchAuditEntry {
   id: string;
   branchId: BranchId;
-  category: 'precio' | 'pago' | 'ticket' | 'caja' | 'equipo' | 'aviso' | 'lealtad' | 'rifa';
+  category:
+    | 'precio'
+    | 'pago'
+    | 'ticket'
+    | 'caja'
+    | 'equipo'
+    | 'aviso'
+    | 'lealtad'
+    | 'rifa'
+    | 'cierre_nocturno'
+    | 'conciliacion';
   message: string;
   actor: string;
   createdAt: string;
   previousValue?: string;
   nextValue?: string;
+}
+
+export interface NightClosingReport {
+  id: string;
+  branchId: BranchId;
+  closingDate: string; // YYYY-MM-DD (zona America/Monterrey)
+  shiftId: string | null;
+  shiftNumber: number | null;
+  wasAutoClosed: boolean;
+  expectedCashCents: number;
+  countedCashCents: number;
+  confirmedCardCents: number;
+  confirmedTransferCents: number;
+  pendingTransferCents: number;
+  pendingBalanceCents: number;
+  pendingDeliveryCount: number;
+  pendingDeliveryAmountCents: number;
+  totalConfirmedCents: number;
+  reportText: string;
+  executedAt: string;
+  executedBy: string;
 }
 
 export interface ShiftClosingSummary {
@@ -253,5 +284,6 @@ export interface DemoState {
   loyaltyEvents?: LoyaltyEvent[];
   raffleTickets?: RaffleTicket[];
   raffleDraws?: RaffleDraw[];
+  nightClosings?: NightClosingReport[];
   auditLogs?: BranchAuditEntry[];
 }

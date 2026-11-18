@@ -5,11 +5,13 @@ import {
   combineBranches,
   mapDbCustomer,
   mapDbLoyaltyEvent,
+  mapDbNightClosing,
   mapDbRaffleDraw,
   mapDbRaffleTicket,
   type BranchRow,
   type DbCustomerRow,
   type DbLoyaltyEventRow,
+  type DbNightClosingRow,
   type DbRaffleDrawRow,
   type DbRaffleTicketRow,
 } from '../../../src/domain/sharedState.ts';
@@ -112,6 +114,18 @@ const requestSchema = z.object({
       winnerTicketId: id.optional(),
     }),
     z.object({ action: z.literal('seedSampleCustomers') }),
+    z.object({
+      action: z.literal('runNightClosing'),
+      closingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      enforce2300Rule: z.boolean().optional(),
+    }),
+    z.object({
+      action: z.literal('confirmTransferBatch'),
+      items: z.array(z.object({
+        lineId: id,
+        reference: z.string().trim().max(60).optional(),
+      })).min(1).max(50),
+    }),
     z.object({ action: z.literal('openShift'), amount }),
     z.object({ action: z.literal('closeShift'), amount }),
     z.object({
@@ -165,17 +179,18 @@ Deno.serve(async (request) => {
     return reply({ error: 'Tu cuenta no puede realizar esta operación en la sucursal.' }, 403);
   }
 
-  const [previousRes, currentRes, custRes, loyaltyRes, ticketsRes, drawsRes] = await Promise.all([
+  const [previousRes, currentRes, custRes, loyaltyRes, ticketsRes, drawsRes, ncRes] = await Promise.all([
     admin.from('horeb_operations').select('operation_id').eq('operation_id', operationId).eq('branch_id', branch).eq('actor_id', actor).maybeSingle(),
     admin.from('horeb_branch_state').select('branch_id,version,updated_at,state').eq('branch_id', branch).single(),
     admin.from('horeb_customers').select('*'),
     admin.from('horeb_loyalty_events').select('*'),
     admin.from('horeb_raffle_tickets').select('*'),
     admin.from('horeb_raffle_draws').select('*').order('drawn_at', { ascending: false }),
+    admin.from('horeb_night_closings').select('*').order('closing_date', { ascending: false }),
   ]);
 
   const current = currentRes.data;
-  if (!current || currentRes.error || previousRes.error || custRes.error || loyaltyRes.error || ticketsRes.error || drawsRes.error) {
+  if (!current || currentRes.error || previousRes.error || custRes.error || loyaltyRes.error || ticketsRes.error || drawsRes.error || ncRes.error) {
     return reply({ error: 'No se pudo cargar la sucursal.' }, 503);
   }
   if (previousRes.data) return reply({ row: current });
@@ -187,12 +202,14 @@ Deno.serve(async (request) => {
   const prevLoyalty = (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent);
   const prevTickets = (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket);
   const prevDraws = (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw);
+  const prevClosings = (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing);
 
   const combined = combineBranches([current as BranchRow], {
     customers: prevCustomers,
     loyaltyEvents: prevLoyalty,
     raffleTickets: prevTickets,
     raffleDraws: prevDraws,
+    nightClosings: prevClosings,
   });
 
   if (operation.action === 'reprint') {
@@ -222,6 +239,7 @@ Deno.serve(async (request) => {
     loyaltyEvents: nextLoyalty = [],
     raffleTickets: nextTickets = [],
     raffleDraws: nextDraws = [],
+    nightClosings: nextClosings = [],
     ...branchOnlyState
   } = result.state;
 
@@ -313,6 +331,34 @@ Deno.serve(async (request) => {
     );
   }
 
+  const prevClosingIds = new Set(prevClosings.map((c) => c.id));
+  const addedClosings = nextClosings.filter((c) => !prevClosingIds.has(c.id));
+  if (addedClosings.length > 0) {
+    await admin.from('horeb_night_closings').upsert(
+      addedClosings.map((r) => ({
+        id: r.id,
+        branch_id: r.branchId,
+        closing_date: r.closingDate,
+        shift_id: r.shiftId,
+        shift_number: r.shiftNumber,
+        was_auto_closed: r.wasAutoClosed,
+        expected_cash_cents: r.expectedCashCents,
+        counted_cash_cents: r.countedCashCents,
+        confirmed_card_cents: r.confirmedCardCents,
+        confirmed_transfer_cents: r.confirmedTransferCents,
+        pending_transfer_cents: r.pendingTransferCents,
+        pending_balance_cents: r.pendingBalanceCents,
+        pending_delivery_count: r.pendingDeliveryCount,
+        pending_delivery_amount_cents: r.pendingDeliveryAmountCents,
+        total_confirmed_cents: r.totalConfirmedCents,
+        report_text: r.reportText,
+        executed_at: r.executedAt,
+        executed_by: r.executedBy,
+      })),
+      { onConflict: 'branch_id,closing_date', ignoreDuplicates: true },
+    );
+  }
+
   const persisted = data as BranchRow;
   const order = result.order && persisted.state.orders?.find((item) => item.folio === result.order?.folio);
 
@@ -331,6 +377,8 @@ Deno.serve(async (request) => {
       'recordWhatsappSent',
       'upsertCustomer',
       'runRaffleDraw',
+      'runNightClosing',
+      'confirmTransferBatch',
     ].includes(operation.action)
   ) {
     const latestAudit = persisted.state.auditLogs?.[0];
@@ -354,6 +402,7 @@ Deno.serve(async (request) => {
       loyaltyEvents: nextLoyalty,
       raffleTickets: nextTickets,
       raffleDraws: nextDraws,
+      nightClosings: nextClosings,
     },
   });
 });
