@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
-import { Cloud, Palette, ShieldCheck, UserCheck, WashingMachine } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, Lock, ShieldCheck, UserCheck, WashingMachine } from 'lucide-react';
 import { App } from './App';
 import type { Operation } from './domain/operations';
 import { combineBranches, type BranchRole, type BranchRow } from './domain/sharedState';
@@ -50,12 +50,13 @@ const QUICK_ACCOUNTS = [
 ] as const;
 
 export function Root() {
-  const { theme, setTheme, toggleTheme } = useBrandTheme();
+  const { theme, setTheme } = useBrandTheme();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [rows, setRows] = useState<BranchRow[] | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const interacting = useRef(false);
 
   useEffect(() => {
@@ -187,99 +188,160 @@ export function Root() {
         sharedNotice={error}
         theme={theme}
         onSetTheme={setTheme}
-        onToggleTheme={toggleTheme}
       />
     );
   }
 
   return (
-    <main className="cloud-auth">
-      <section className="card cloud-auth-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <span className="brand-mark">
-            <WashingMachine size={24} aria-hidden="true" />
-          </span>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={toggleTheme}
-          >
-            <Palette size={15} aria-hidden="true" />
-            <span className={`theme-swatch ${theme === 'blue' ? 'green' : 'blue'}`} aria-hidden="true" />
-            {theme === 'blue' ? 'Color verde' : 'Color azul'}
-          </button>
-        </div>
-        <h1>HOREB 360</h1>
-        <p>
-          <Cloud size={16} aria-hidden="true" /> Acceso en línea por sucursal
-        </p>
-        {error && (
-          <div className="alert alert-error" role="alert">
-            {error}
-          </div>
-        )}
-        {!session && session !== undefined && (
-          <>
-            <form onSubmit={signIn}>
-              <label className="field">
-                Correo
-                <input name="email" className="input" type="email" autoComplete="username" required />
-              </label>
-              <label className="field">
-                Contraseña
-                <input
-                  name="password"
-                  className="input"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
-              <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-                {loading ? 'Entrando…' : 'Entrar'}
-              </button>
-            </form>
-
-            <div className="quick-login-box">
-              <div className="quick-login-title">Acceso rápido</div>
-              <div className="quick-login-grid">
-                {QUICK_ACCOUNTS.map((account) => (
-                  <button
-                    key={account.email}
-                    type="button"
-                    className="quick-login-btn"
-                    disabled={loading}
-                    onClick={() => void signInWithCredentials(account.email, account.password)}
-                  >
-                    <span className="quick-login-head">
-                      {account.role === 'supervisor' ? (
-                        <ShieldCheck size={16} aria-hidden="true" />
-                      ) : (
-                        <UserCheck size={16} aria-hidden="true" />
-                      )}
-                      <strong>{account.label}</strong>
-                    </span>
-                    <small>{account.subtitle}</small>
-                    <span className="quick-login-email">{account.email}</span>
-                  </button>
-                ))}
-              </div>
+    <main className="auth-layout">
+      <section className="auth-showcase" aria-label="Lavandería Horeb">
+        <div className="auth-showcase-bg" aria-hidden="true" />
+        <div className="auth-showcase-inner">
+          <div className="auth-brand">
+            <span className="brand-mark">
+              <WashingMachine size={24} aria-hidden="true" />
+            </span>
+            <div>
+              <strong>
+                HOREB <span>360</span>
+              </strong>
+              <small>Gestión de lavandería</small>
             </div>
-          </>
-        )}
-        {session === undefined && <p role="status">Comprobando sesión…</p>}
-        {session && !rows && !error && <p role="status">Cargando tus sucursales…</p>}
-        {session && rows?.length === 0 && <p>Tu cuenta aún no tiene una sucursal asignada.</p>}
-        {session && (
-          <div className="order-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => void reload()}>
-              Actualizar
-            </button>
-            <button type="button" className="btn btn-secondary" onClick={() => void signOut()}>
-              Cerrar sesión
-            </button>
           </div>
-        )}
+
+          <div className="auth-hero-copy">
+            <h2>Control claro de mostrador, encargos y corte de caja.</h2>
+            <p>
+              Opera Lomas, Treviño y Sucursal 3 desde un mismo panel en línea con seguimiento por
+              etapas, ticket térmico y cierre por turno.
+            </p>
+            <ul className="auth-pillars">
+              <li>
+                <CheckCircle2 size={17} aria-hidden="true" />
+                <span>Autoservicio y encargos con cobro mixto y cambio exacto</span>
+              </li>
+              <li>
+                <CheckCircle2 size={17} aria-hidden="true" />
+                <span>Comprobantes térmicos 80 mm / 58 mm con código de barras</span>
+              </li>
+              <li>
+                <CheckCircle2 size={17} aria-hidden="true" />
+                <span>Cortes de turno auditables y reportes consolidados en vivo</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="auth-showcase-foot">
+            <Lock size={14} aria-hidden="true" />
+            <span>Acceso protegido por sucursal y rol</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="auth-panel" aria-label="Iniciar sesión">
+        <div className="auth-form-wrap">
+          <div className="auth-panel-header">
+            <div className="auth-mobile-brand">
+              <span className="brand-mark">
+                <WashingMachine size={22} aria-hidden="true" />
+              </span>
+              <strong>HOREB 360</strong>
+            </div>
+            <h1>Iniciar sesión</h1>
+            <p>Ingresa con tu cuenta de sucursal para continuar.</p>
+          </div>
+
+          {error && (
+            <div className="alert alert-error" role="alert">
+              {error}
+            </div>
+          )}
+
+          {!session && session !== undefined && (
+            <>
+              <form className="auth-form" onSubmit={signIn}>
+                <label className="field">
+                  Correo electrónico
+                  <input
+                    name="email"
+                    className="input"
+                    type="email"
+                    autoComplete="username"
+                    placeholder="nombre@horeb.mx"
+                    required
+                  />
+                </label>
+
+                <div className="field">
+                  <label htmlFor="login-password">Contraseña</label>
+                  <div className="password-input-wrap">
+                    <input
+                      id="login-password"
+                      name="password"
+                      className="input"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle-btn"
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                      onClick={() => setShowPassword((prev) => !prev)}
+                    >
+                      {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
+                  {loading ? 'Entrando…' : 'Entrar al panel'}
+                </button>
+              </form>
+
+              <div className="quick-login-box">
+                <div className="quick-login-title">Acceso rápido</div>
+                <div className="quick-login-grid">
+                  {QUICK_ACCOUNTS.map((account) => (
+                    <button
+                      key={account.email}
+                      type="button"
+                      className="quick-login-btn"
+                      disabled={loading}
+                      onClick={() => void signInWithCredentials(account.email, account.password)}
+                    >
+                      <span className="quick-login-head">
+                        {account.role === 'supervisor' ? (
+                          <ShieldCheck size={16} aria-hidden="true" />
+                        ) : (
+                          <UserCheck size={16} aria-hidden="true" />
+                        )}
+                        <strong>{account.label}</strong>
+                      </span>
+                      <small>{account.subtitle}</small>
+                      <span className="quick-login-email">{account.email}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {session === undefined && <p role="status">Comprobando sesión…</p>}
+          {session && !rows && !error && <p role="status">Cargando tus sucursales…</p>}
+          {session && rows?.length === 0 && <p>Tu cuenta aún no tiene una sucursal asignada.</p>}
+          {session && (
+            <div className="order-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => void reload()}>
+                Actualizar
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => void signOut()}>
+                Cerrar sesión
+              </button>
+            </div>
+          )}
+        </div>
       </section>
     </main>
   );

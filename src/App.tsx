@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react';
-import { BarChart3, ClipboardList, LayoutDashboard, MapPin, Palette, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
+import { BarChart3, ClipboardList, LayoutDashboard, MapPin, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -35,12 +35,11 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'] | 'ajustes';
 
-export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: {
+export function App({ shared, sharedNotice, theme, onSetTheme }: {
   shared: SharedWorkspace;
   sharedNotice?: string;
   theme: BrandTheme;
   onSetTheme: (theme: BrandTheme) => void;
-  onToggleTheme: () => void;
 }) {
   const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
   const state = shared.state;
@@ -168,11 +167,6 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
             </strong>
           </div>
           <div className="workspace-actions" data-tour="branch-bar">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onToggleTheme} title="Cambiar color del tema">
-              <Palette size={15} aria-hidden="true" />
-              <span className={`theme-swatch ${theme === 'blue' ? 'green' : 'blue'}`} aria-hidden="true" />
-              {theme === 'blue' ? 'Color verde' : 'Color azul'}
-            </button>
             <span className={'shift-pill' + (openShift ? ' open' : '')}><i aria-hidden="true" />{openShift ? 'Turno ' + openShift.number + ' abierto' : 'Caja cerrada'}</span>
             <CustomSelect
               ariaLabel="Sucursal"
