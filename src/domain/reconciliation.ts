@@ -40,10 +40,10 @@ export interface CsvParseSummary {
 
 export type CsvParseResult = CsvParseSummary | { ok: false; error: string };
 
-export function getMonterreyDateAndHour(nowIso: string): { localDate: string; hour: number } {
+export function getMatamorosDateAndHour(nowIso: string): { localDate: string; hour: number } {
   const date = new Date(nowIso);
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Monterrey',
+    timeZone: 'America/Matamoros',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -71,7 +71,7 @@ export function runNightClosingForBranch(
   | { ok: true; state: DemoState; data: NightClosingReport; alreadyExecuted: boolean }
   | { ok: false; error: string } {
   const now = options.now ?? new Date().toISOString();
-  const { localDate, hour } = getMonterreyDateAndHour(now);
+  const { localDate, hour } = getMatamorosDateAndHour(now);
 
   if (options.enforce2300Rule && hour < 23) {
     return {

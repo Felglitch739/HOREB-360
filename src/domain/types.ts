@@ -211,7 +211,7 @@ export interface BranchAuditEntry {
 export interface NightClosingReport {
   id: string;
   branchId: BranchId;
-  closingDate: string; // YYYY-MM-DD (zona America/Monterrey)
+  closingDate: string; // YYYY-MM-DD (zona America/Matamoros)
   shiftId: string | null;
   shiftNumber: number | null;
   wasAutoClosed: boolean;

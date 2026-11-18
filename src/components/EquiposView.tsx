@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { CheckCircle2, Edit3, Plus, Trash2, Unlock, WashingMachine, Wrench } from 'lucide-react';
+import { Activity, CheckCircle2, Edit3, Plus, Trash2, Unlock, WashingMachine, Wrench } from 'lucide-react';
 import { getBranchInfo, getBranchMachines } from '../domain/rules';
+import { buildMockThinqPreviewFeed, formatThinqStateLabel } from '../domain/telemetry';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchId, DemoState, Machine, MachineKind, MachineStatus } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
@@ -355,6 +356,46 @@ export function EquiposView({
           <span className="badge badge-info">{dryers.length}</span>
         </h2>
         {renderMachineGrid(dryers, 'Sin secadoras registradas en esta sucursal.')}
+      </section>
+
+      <section className="card">
+        <h2 className="card-title">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Activity size={18} aria-hidden="true" />
+            Telemetría LG ThinQ Connect
+          </span>
+          <span className="badge badge-warning">MockUp / Demo · Etapa futura</span>
+        </h2>
+        <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
+          Vista previa preparada con el esquema oficial de eventos y estados de <strong>LG Smart Solution / ThinQ Connect API</strong> (perfil <code>Washer</code> y <code>Dryer</code>, autenticación por Personal Access Token). Actualmente muestra datos <strong>MockUp / Demo</strong> sin conexión real con máquinas hasta validar modelos compatibles con Carlos.
+        </p>
+        <div className="machine-grid">
+          {buildMockThinqPreviewFeed(
+            machines,
+            state.orders.filter((o) => o.branchId === branchId),
+          ).map((snap) => (
+            <article key={snap.machineId} className="machine-card">
+              <div className="machine-card-head">
+                <div>
+                  <strong className="machine-code">{snap.code}</strong>
+                  <span className="machine-name">{snap.name} · {snap.deviceProfile}</span>
+                </div>
+                <span className="badge badge-warning">MockUp / Demo</span>
+              </div>
+              <div className="machine-card-meta">
+                <span>
+                  Estado ThinQ: <strong>{formatThinqStateLabel(snap)}</strong>
+                </span>
+                <span className="muted">
+                  {snap.remainingMinutes > 0
+                    ? `Tiempo restante estimado: ${snap.remainingMinutes} min`
+                    : 'Sin ciclo activo'}
+                  {snap.linkedFolio ? ` · Folio ${snap.linkedFolio}` : ''}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );

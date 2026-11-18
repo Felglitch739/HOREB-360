@@ -289,7 +289,7 @@ export function CajaView({
         </h2>
 
         <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
-          Registra un único corte nocturno por sucursal y fecha (23:00 hora local). Si el turno sigue abierto, se cierra en automático con el efectivo esperado; si ya se cerró manualmente, se conserva sin duplicar.
+          Registra un único corte nocturno por sucursal y fecha (23:00 hora Matamoros). Si el turno sigue abierto, se cierra en automático con el efectivo esperado; si ya se cerró manualmente, se conserva sin duplicar.
         </p>
 
         {nightFeedback && (
