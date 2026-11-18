@@ -188,7 +188,7 @@ export function AjustesView({
                 type="button"
                 disabled={!isSupervisor}
                 className={`seg-btn ${paperWidth === '80mm' ? 'active' : ''}`}
-                style={{ minHeight: 40, fontSize: '0.86rem' }}
+                style={{ minHeight: 44, fontSize: '0.86rem' }}
                 onClick={() => setPaperWidth('80mm')}
               >
                 <Printer size={15} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
@@ -198,7 +198,7 @@ export function AjustesView({
                 type="button"
                 disabled={!isSupervisor}
                 className={`seg-btn ${paperWidth === '58mm' ? 'active' : ''}`}
-                style={{ minHeight: 40, fontSize: '0.86rem' }}
+                style={{ minHeight: 44, fontSize: '0.86rem' }}
                 onClick={() => setPaperWidth('58mm')}
               >
                 <Printer size={15} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />

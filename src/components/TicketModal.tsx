@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Printer, RefreshCw, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Printer, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo } from '../domain/rules';
 import type { BranchSettings, Order, PaymentLine, TicketState } from '../domain/types';
@@ -41,11 +41,31 @@ export function TicketModal({
   const branch = getBranchInfo(order.branchId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showCustomize, setShowCustomize] = useState(false);
   const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>(branchSettings.defaultPaperWidth);
   const [careNote, setCareNote] = useState('');
   const [footerMessage, setFooterMessage] = useState(
     branchSettings.ticketFooter || DEFAULT_FOOTER,
   );
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    closeBtnRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus?.();
+    };
+  }, [onClose]);
 
   const stageLabel = order.encargoStage
     ? ENCARGO_STAGES.find((stage) => stage.id === order.encargoStage)?.label
@@ -73,11 +93,21 @@ export function TicketModal({
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="ticket-modal-title">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ticket-modal-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <style>{`@media print { @page { size: ${paperWidth} auto; margin: 0; } }`}</style>
       <div className="modal-card">
         <div className="card-title">
           <span id="ticket-modal-title">Comprobante · {order.folio}</span>
           <button
+            ref={closeBtnRef}
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={onClose}
@@ -87,71 +117,90 @@ export function TicketModal({
           </button>
         </div>
 
-        <div className="ticket-customize">
-          <div className="field">
-            <label>Tamaño de papel térmico</label>
-            <div className="ticket-width-group">
-              <button
-                type="button"
-                className={`seg-btn ${paperWidth === '80mm' ? 'active' : ''}`}
-                style={{ minHeight: 36, fontSize: '0.84rem' }}
-                onClick={() => setPaperWidth('80mm')}
-              >
-                80 mm (Estándar)
-              </button>
-              <button
-                type="button"
-                className={`seg-btn ${paperWidth === '58mm' ? 'active' : ''}`}
-                style={{ minHeight: 36, fontSize: '0.84rem' }}
-                onClick={() => setPaperWidth('58mm')}
-              >
-                58 mm (Compacto)
-              </button>
-            </div>
-          </div>
-
-          <div className="field">
-            <label htmlFor="ticket-care-note">Nota / indicaciones de prenda</label>
-            <input
-              id="ticket-care-note"
-              className="input"
-              style={{ minHeight: 38 }}
-              value={careNote}
-              onChange={(event) => setCareNote(event.target.value)}
-              placeholder="Ej. Sin suavizante, entregar en gancho"
-              maxLength={120}
+        <div className="ticket-customize-wrap">
+          <button
+            type="button"
+            className="ticket-customize-toggle"
+            aria-expanded={showCustomize}
+            onClick={() => setShowCustomize((open) => !open)}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              Personalizar nota o papel ({paperWidth})
+            </span>
+            <ChevronDown
+              size={16}
+              aria-hidden="true"
+              style={{ transform: showCustomize ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s ease' }}
             />
-            <div className="ticket-note-chips">
-              {QUICK_NOTES.map((note) => {
-                const active = careNote
-                  .split('·')
-                  .map((item) => item.trim())
-                  .includes(note);
-                return (
+          </button>
+
+          {showCustomize && (
+            <div className="ticket-customize">
+              <div className="field">
+                <label>Tamaño de papel térmico</label>
+                <div className="ticket-width-group">
                   <button
-                    key={note}
                     type="button"
-                    className={`combo-preset-chip ${active ? 'active' : ''}`}
-                    onClick={() => toggleQuickNote(note)}
+                    className={`seg-btn ${paperWidth === '80mm' ? 'active' : ''}`}
+                    style={{ minHeight: 44, fontSize: '0.84rem' }}
+                    onClick={() => setPaperWidth('80mm')}
                   >
-                    {note}
+                    80 mm (Estándar)
                   </button>
-                );
-              })}
-            </div>
-          </div>
+                  <button
+                    type="button"
+                    className={`seg-btn ${paperWidth === '58mm' ? 'active' : ''}`}
+                    style={{ minHeight: 44, fontSize: '0.84rem' }}
+                    onClick={() => setPaperWidth('58mm')}
+                  >
+                    58 mm (Compacto)
+                  </button>
+                </div>
+              </div>
 
-          <div className="field">
-            <label htmlFor="ticket-footer-msg">Mensaje al pie</label>
-            <input
-              id="ticket-footer-msg"
-              className="input"
-              style={{ minHeight: 38 }}
-              value={footerMessage}
-              onChange={(event) => setFooterMessage(event.target.value)}
-              maxLength={120}
-            />
-          </div>
+              <div className="field">
+                <label htmlFor="ticket-care-note">Nota / indicaciones de prenda</label>
+                <input
+                  id="ticket-care-note"
+                  className="input"
+                  value={careNote}
+                  onChange={(event) => setCareNote(event.target.value)}
+                  placeholder="Ej. Sin suavizante, entregar en gancho"
+                  maxLength={120}
+                />
+                <div className="ticket-note-chips">
+                  {QUICK_NOTES.map((note) => {
+                    const active = careNote
+                      .split('·')
+                      .map((item) => item.trim())
+                      .includes(note);
+                    return (
+                      <button
+                        key={note}
+                        type="button"
+                        className={`combo-preset-chip ${active ? 'active' : ''}`}
+                        onClick={() => toggleQuickNote(note)}
+                      >
+                        {note}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="ticket-footer-msg">Mensaje al pie</label>
+                <input
+                  id="ticket-footer-msg"
+                  className="input"
+                  value={footerMessage}
+                  onChange={(event) => setFooterMessage(event.target.value)}
+                  maxLength={160}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className={`ticket-paper ticket-${paperWidth}`}>
@@ -254,10 +303,10 @@ export function TicketModal({
         <div className="order-actions">
           {error && <p className="alert alert-error" role="alert">{error}</p>}
           {ticket.status === 'no_emitido' && (
-            <>
+            <div style={{ width: '100%', display: 'grid', gap: 8 }}>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn btn-primary btn-full"
                 disabled={busy}
                 onClick={() => void issue(false)}
               >
@@ -266,14 +315,13 @@ export function TicketModal({
               </button>
               <button
                 type="button"
-                className="btn btn-warning"
+                className="ticket-fallback-link"
                 disabled={busy}
                 onClick={() => void issue(true)}
               >
-                <AlertTriangle size={18} />
-                Reportar falla de impresora
+                ¿Atasco o falla de impresora? Registrar incidencia y conservar folio
               </button>
-            </>
+            </div>
           )}
 
           {ticket.status === 'fallo' && (

@@ -260,9 +260,7 @@ export function Root() {
                       <strong>{account.label}</strong>
                     </span>
                     <small>{account.subtitle}</small>
-                    <code>
-                      {account.email} · {account.password}
-                    </code>
+                    <span className="quick-login-email">{account.email}</span>
                   </button>
                 ))}
               </div>

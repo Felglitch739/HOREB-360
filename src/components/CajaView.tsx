@@ -173,11 +173,20 @@ export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewSh
           <label className="field">Motivo<input className="input" value={movementReason} onChange={(event) => setMovementReason(event.target.value)} required maxLength={100} /></label>
           <button className="btn btn-primary" type="submit">Registrar movimiento</button>
         </form>
-        {openShift.cashMovements?.length ? <div className="table-wrap cash-records"><table>
-          <thead><tr><th>Movimiento</th><th>Motivo</th><th className="num">Monto</th></tr></thead>
-          <tbody>{openShift.cashMovements.map((item, index) => <tr key={item.createdAt + index}>
-            <td>{item.kind === 'entrada' ? 'Entrada' : 'Retiro'}</td><td>{item.reason}</td><td className="num">{formatMxn(item.amountCents)}</td>
-          </tr>)}</tbody></table></div> : null}
+        {openShift.cashMovements?.length ? (
+          <div className="table-wrap cash-records">
+            <table>
+              <thead><tr><th>Movimiento</th><th>Motivo</th><th className="num">Monto</th></tr></thead>
+              <tbody>{openShift.cashMovements.map((item, index) => <tr key={item.createdAt + index}>
+                <td>{item.kind === 'entrada' ? 'Entrada' : 'Retiro'}</td><td>{item.reason}</td><td className="num">{formatMxn(item.amountCents)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted" style={{ margin: '10px 0 0', fontSize: '0.88rem' }}>
+            Sin entradas ni retiros registrados en este turno.
+          </p>
+        )}
       </section>}
 
       {/* Historial de turnos */}
@@ -221,7 +230,11 @@ export function CajaView({ state, branchId, canManage, onCloseShift, onOpenNewSh
                     </td>
                     <td className="num">{formatMxn(m.expectedCashCents)}</td>
                     <td className="num">{shift.status === 'cerrado' ? formatMxn(m.countedCashCents) : '—'}</td>
-                    <td className="num">{shift.status === 'cerrado' ? formatMxn(m.differenceCents) : '—'}</td>
+                    <td className={`num ${shift.status === 'cerrado' ? (m.differenceCents < 0 ? 'diff-neg' : m.differenceCents > 0 ? 'diff-pos' : '') : ''}`}>
+                      {shift.status === 'cerrado'
+                        ? `${m.differenceCents > 0 ? '+' : ''}${formatMxn(m.differenceCents)}`
+                        : '—'}
+                    </td>
                     <td className="num">{formatMxn(m.confirmedCardCents)}</td>
                     <td className="num">{formatMxn(m.confirmedTransferCents)}</td>
                     <td className="num">{formatMxn(m.pendingBalanceCents)}</td>

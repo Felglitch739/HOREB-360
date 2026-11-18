@@ -1,14 +1,10 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Palette, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
-import { AdminView } from './components/AdminView';
-import { AjustesView } from './components/AjustesView';
-import { AppTour, type TourTabId } from './components/AppTour';
-import { CajaView } from './components/CajaView';
+import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
 import { Overview } from './components/Overview';
 import { SharedStatus } from './components/SharedStatus';
-import { TicketModal } from './components/TicketModal';
 import {
   BRANCHES,
   getBranchInfo,
@@ -22,6 +18,12 @@ import { type Operation } from './domain/operations';
 import type { SharedWorkspace } from './Root';
 import type { BranchId, BranchSettings, CashMovement } from './domain/types';
 import type { BrandTheme } from './theme';
+
+const AdminView = lazy(() => import('./components/AdminView').then((m) => ({ default: m.AdminView })));
+const AjustesView = lazy(() => import('./components/AjustesView').then((m) => ({ default: m.AjustesView })));
+const AppTour = lazy(() => import('./components/AppTour').then((m) => ({ default: m.AppTour })));
+const CajaView = lazy(() => import('./components/CajaView').then((m) => ({ default: m.CajaView })));
+const TicketModal = lazy(() => import('./components/TicketModal').then((m) => ({ default: m.TicketModal })));
 
 const navigation = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
@@ -78,24 +80,30 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
     return shared.execute(branch, operation);
   }
 
+  function resolveOrderBranch(orderId: string): BranchId {
+    return state.orders.find((item) => item.id === orderId)?.branchId ?? activeBranchId;
+  }
+
   function handleCreateOrder({ branchId, ...input }: CreateOrderInput) {
     return run(branchId, { action: 'create', input });
   }
 
   function handleCapturePayment(orderId: string, lines: PaymentInputLine[]) {
-    return run(activeBranchId, { action: 'capture', orderId, lines });
+    return run(resolveOrderBranch(orderId), { action: 'capture', orderId, lines });
   }
 
   function handleConfirmPaymentLine(lineId: string) {
-    return run(activeBranchId, { action: 'confirm', lineId });
+    const line = state.paymentLines.find((item) => item.id === lineId);
+    const branch = line ? resolveOrderBranch(line.orderId) : activeBranchId;
+    return run(branch, { action: 'confirm', lineId });
   }
 
   function handleAdvanceEncargo(orderId: string) {
-    return run(activeBranchId, { action: 'advance', orderId });
+    return run(resolveOrderBranch(orderId), { action: 'advance', orderId });
   }
 
   function handleDeliverEncargo(orderId: string) {
-    return run(activeBranchId, { action: 'deliver', orderId });
+    return run(resolveOrderBranch(orderId), { action: 'deliver', orderId });
   }
 
   function handleEmitTicket(orderId: string, simulateFailure: boolean) {
@@ -154,9 +162,6 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
               <span className={`theme-swatch ${theme === 'blue' ? 'green' : 'blue'}`} aria-hidden="true" />
               {theme === 'blue' ? 'Color verde' : 'Color azul'}
             </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
-              <Compass size={15} aria-hidden="true" /> Guía interactiva
-            </button>
             <span className={'shift-pill' + (openShift ? ' open' : '')}><i aria-hidden="true" />{openShift ? 'Turno ' + openShift.number + ' abierto' : 'Caja cerrada'}</span>
             <CustomSelect
               ariaLabel="Sucursal"
@@ -168,87 +173,98 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
             />
           </div>
         </header>
-      <main className="main-content">
-        {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
-        {activeTab === 'inicio' && (
-          <Overview
-            state={state}
-            branchId={activeBranchId}
-            onNew={() => navigate('mostrador')}
-            onOrders={showOrders}
-            onStartTour={() => setTourOpen(true)}
-          />
-        )}
-        {activeTab !== 'inicio' && <div className="page-intro">
-          <div>
-            <h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1>
-            <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranch.name}</p>
-          </div>
-          {activeTab === 'ordenes' && <button type="button" className="btn btn-primary" onClick={() => navigate('mostrador')}><Plus size={17} /> Nueva orden</button>}
-        </div>}
-        {(activeTab === 'mostrador' || activeTab === 'ordenes') && (
-          <MostradorView
-            key={activeBranchId + activeTab}
-            ordersOnly={activeTab === 'ordenes'}
-            initialFilter={orderFilter}
-            initialQuery={orderQuery}
-            state={state}
-            branchId={activeBranchId}
-            onCreateOrder={handleCreateOrder}
-            onCapturePayment={handleCapturePayment}
-            onConfirmPaymentLine={handleConfirmPaymentLine}
-            onAdvanceEncargo={handleAdvanceEncargo}
-            onDeliverEncargo={handleDeliverEncargo}
-            onOpenTicket={(id) => setTicketOrderId(id)}
-          />
-        )}
+        <main className="main-content">
+          {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
+          {activeTab === 'inicio' && (
+            <Overview
+              state={state}
+              branchId={activeBranchId}
+              onNew={() => navigate('mostrador')}
+              onOrders={showOrders}
+            />
+          )}
+          {activeTab !== 'inicio' && (
+            <div className="page-intro">
+              <div>
+                <h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1>
+                <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranch.name}</p>
+              </div>
+              {activeTab === 'ordenes' && (
+                <button type="button" className="btn btn-primary" onClick={() => navigate('mostrador')}>
+                  <Plus size={17} /> Nueva orden
+                </button>
+              )}
+            </div>
+          )}
+          {(activeTab === 'mostrador' || activeTab === 'ordenes') && (
+            <MostradorView
+              key={activeBranchId + activeTab}
+              ordersOnly={activeTab === 'ordenes'}
+              initialFilter={orderFilter}
+              initialQuery={orderQuery}
+              state={state}
+              branchId={activeBranchId}
+              onCreateOrder={handleCreateOrder}
+              onCapturePayment={handleCapturePayment}
+              onConfirmPaymentLine={handleConfirmPaymentLine}
+              onAdvanceEncargo={handleAdvanceEncargo}
+              onDeliverEncargo={handleDeliverEncargo}
+              onOpenTicket={(id) => setTicketOrderId(id)}
+            />
+          )}
 
-        {activeTab === 'caja' && (
-          <CajaView
-            key={activeBranchId}
-            state={state}
-            branchId={activeBranchId}
-            canManage={activeRole === 'supervisor'}
-            onCloseShift={handleCloseShift}
-            onOpenNewShift={handleOpenNewShift}
-            onMovement={handleMovement}
-          />
-        )}
+          <Suspense fallback={<p className="muted" role="status">Cargando sección…</p>}>
+            {activeTab === 'caja' && (
+              <CajaView
+                key={activeBranchId}
+                state={state}
+                branchId={activeBranchId}
+                canManage={activeRole === 'supervisor'}
+                onCloseShift={handleCloseShift}
+                onOpenNewShift={handleOpenNewShift}
+                onMovement={handleMovement}
+              />
+            )}
 
-        {activeTab === 'admin' && <AdminView state={state} branches={visibleBranches.map((branch) => branch.id)} />}
+            {activeTab === 'admin' && <AdminView state={state} branches={visibleBranches.map((branch) => branch.id)} />}
 
-        {activeTab === 'ajustes' && (
-          <AjustesView
-            branchId={activeBranchId}
-            branchName={activeBranch.name}
-            role={activeRole}
-            settings={activeSettings}
-            theme={theme}
-            onSetTheme={onSetTheme}
-            onSaveSettings={handleSaveSettings}
-            onReload={shared.reload}
-            onSignOut={shared.signOut}
-          />
-        )}
-      </main>
+            {activeTab === 'ajustes' && (
+              <AjustesView
+                branchId={activeBranchId}
+                branchName={activeBranch.name}
+                role={activeRole}
+                settings={activeSettings}
+                theme={theme}
+                onSetTheme={onSetTheme}
+                onSaveSettings={handleSaveSettings}
+                onReload={shared.reload}
+                onSignOut={shared.signOut}
+              />
+            )}
+          </Suspense>
+        </main>
       </div>
 
-      {ticketOrder && ticketState && (
-        <TicketModal
-          order={ticketOrder}
-          paymentLines={getOrderPaymentLines(state, ticketOrder.id)}
-          ticket={ticketState}
-          branchSettings={getBranchSettings(state, ticketOrder.branchId)}
-          onEmit={handleEmitTicket}
-          onClose={() => setTicketOrderId(null)}
-        />
-      )}
+      <Suspense fallback={null}>
+        {ticketOrder && ticketState && (
+          <TicketModal
+            order={ticketOrder}
+            paymentLines={getOrderPaymentLines(state, ticketOrder.id)}
+            ticket={ticketState}
+            branchSettings={getBranchSettings(state, ticketOrder.branchId)}
+            onEmit={handleEmitTicket}
+            onClose={() => setTicketOrderId(null)}
+          />
+        )}
 
-      <AppTour
-        open={tourOpen}
-        onNavigate={(tab: TourTabId) => navigate(tab)}
-        onClose={() => setTourOpen(false)}
-      />
+        {tourOpen && (
+          <AppTour
+            open={tourOpen}
+            onNavigate={(tab: TourTabId) => navigate(tab)}
+            onClose={() => setTourOpen(false)}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

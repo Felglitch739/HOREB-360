@@ -32,6 +32,7 @@ export function CustomSelect<T extends string = string>({
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<(HTMLLIElement | null)[]>([]);
   const listboxId = useId();
 
   const selectedOption = options.find((option) => option.value === value) ?? options[0];
@@ -40,6 +41,11 @@ export function CustomSelect<T extends string = string>({
     const idx = options.findIndex((option) => option.value === value);
     if (idx >= 0) setActiveIndex(idx);
   }, [value, options]);
+
+  useEffect(() => {
+    if (!open) return;
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [open, activeIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -126,6 +132,7 @@ export function CustomSelect<T extends string = string>({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
+        aria-activedescendant={open ? `${listboxId}-opt-${activeIndex}` : undefined}
         aria-label={ariaLabel}
         onClick={() => setOpen((prev) => !prev)}
         onKeyDown={handleTriggerKeyDown}
@@ -150,6 +157,10 @@ export function CustomSelect<T extends string = string>({
             return (
               <li
                 key={option.value}
+                id={`${listboxId}-opt-${index}`}
+                ref={(el) => {
+                  optionRefs.current[index] = el;
+                }}
                 role="option"
                 aria-selected={isSelected}
                 className={`custom-select-option ${isSelected ? 'selected' : ''} ${isFocused ? 'focused' : ''}`}

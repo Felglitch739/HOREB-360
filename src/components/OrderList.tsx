@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import {
   ENCARGO_STAGES,
   canDeliverOrder,
@@ -71,6 +71,16 @@ export function OrderList({
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Buscar por folio o cliente"
           />
+          {query && (
+            <button
+              type="button"
+              className="search-clear-btn"
+              aria-label="Limpiar búsqueda"
+              onClick={() => onQueryChange('')}
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          )}
         </label>
         <CustomSelect
           ariaLabel="Filtrar órdenes"

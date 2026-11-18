@@ -39,7 +39,7 @@ export function CheckoutPanel({
   const [serviceType, setServiceType] = useState<ServiceType>('autoservicio');
   const [folio, setFolio] = useState(suggestedFolio);
   const [customerAlias, setCustomerAlias] = useState('');
-  const [comboCount, setComboCount] = useState(1);
+  const [comboCountText, setComboCountText] = useState('1');
   const [payAtPickup, setPayAtPickup] = useState(true);
 
   const [cashInput, setCashInput] = useState('');
@@ -48,6 +48,9 @@ export function CheckoutPanel({
   const [confirmCardNow, setConfirmCardNow] = useState(false);
   const [confirmTransferNow, setConfirmTransferNow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const parsedCombo = Number.parseInt(comboCountText, 10);
+  const comboCount = Number.isFinite(parsedCombo) && parsedCombo >= 1 ? parsedCombo : 1;
 
   useEffect(() => {
     setFolio(suggestedFolio);
@@ -154,7 +157,7 @@ export function CheckoutPanel({
       });
       if (checkoutOrder) onCancelCheckout();
       setCustomerAlias('');
-      setComboCount(1);
+      setComboCountText('1');
       resetPaymentInputs();
     } finally {
       setSubmitting(false);
@@ -235,7 +238,7 @@ export function CheckoutPanel({
                     key={preset}
                     type="button"
                     className={`combo-preset-chip ${comboCount === preset ? 'active' : ''}`}
-                    onClick={() => setComboCount(preset)}
+                    onClick={() => setComboCountText(String(preset))}
                   >
                     x{preset}
                   </button>
@@ -245,7 +248,7 @@ export function CheckoutPanel({
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setComboCount((c) => Math.max(1, c - 1))}
+                  onClick={() => setComboCountText(String(Math.max(1, comboCount - 1)))}
                   aria-label="Disminuir combos"
                 >
                   -
@@ -253,16 +256,21 @@ export function CheckoutPanel({
                 <input
                   id="combo-count"
                   className="input"
-                  type="number"
-                  min={1}
-                  value={comboCount}
-                  onChange={(e) => setComboCount(Math.max(1, Number.parseInt(e.target.value || '1', 10)))}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={comboCountText}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '');
+                    setComboCountText(digits);
+                  }}
+                  onBlur={() => setComboCountText(String(comboCount))}
                   style={{ textAlign: 'center', fontWeight: 700 }}
                 />
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setComboCount((c) => c + 1)}
+                  onClick={() => setComboCountText(String(comboCount + 1))}
                   aria-label="Aumentar combos"
                 >
                   +
