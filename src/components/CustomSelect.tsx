@@ -119,6 +119,11 @@ export function CustomSelect<T extends string = string>({
     if ((event.key === 'Enter' || event.key === ' ') && open) {
       event.preventDefault();
       selectIndex(activeIndex);
+      return;
+    }
+
+    if (event.key === 'Tab' && open) {
+      setOpen(false);
     }
   }
 

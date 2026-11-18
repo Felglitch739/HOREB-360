@@ -29,7 +29,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     title: 'Recepción en Mostrador',
     description:
-      'Registra Autoservicio o Encargo, elige combos rápido (x1, x2, x3, x5), marca "Cobrar al recoger" si pagan al entregar o captura pagos mixtos con cálculo automático de cambio.',
+      'Registra Autoservicio o Encargo, mezcla productos del catálogo (Combo, Edredón, Detergente, Bolsa), vincula cliente frecuente para lealtad 10+1 o realiza cobro rápido, asigna lavadoras disponibles y registra pagos mixtos.',
     selector: '#checkout-form',
     tab: 'mostrador',
   },

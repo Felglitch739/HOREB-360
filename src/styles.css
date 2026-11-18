@@ -1390,8 +1390,8 @@ th {
   .workspace-nav {
     grid-row: 2;
     grid-column: 1 / -1;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 3px;
+    grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+    gap: 4px;
   }
   .workspace-nav button {
     min-height: 44px;
@@ -1493,6 +1493,7 @@ th {
   color: #f4f7ef;
   padding: clamp(28px, 4vw, 52px);
   display: flex;
+  align-items: flex-end;
 }
 
 .auth-showcase-bg {
@@ -1500,23 +1501,31 @@ th {
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(145deg, rgba(15, 35, 66, 0.92) 0%, rgba(15, 35, 66, 0.72) 55%, rgba(15, 35, 66, 0.94) 100%),
+    linear-gradient(180deg, rgba(15, 35, 66, 0.16) 0%, rgba(15, 35, 66, 0.28) 60%, rgba(15, 35, 66, 0.62) 100%),
     url('/lavanderia-hero.webp') center / cover no-repeat;
-  opacity: 0.75;
+  opacity: 0.96;
+  filter: brightness(1.08);
 }
 
 :root:not([data-theme='blue']) .auth-showcase-bg {
   background:
-    linear-gradient(145deg, rgba(20, 43, 34, 0.93) 0%, rgba(20, 43, 34, 0.72) 55%, rgba(20, 43, 34, 0.95) 100%),
+    linear-gradient(180deg, rgba(20, 43, 34, 0.16) 0%, rgba(20, 43, 34, 0.28) 60%, rgba(20, 43, 34, 0.62) 100%),
     url('/lavanderia-hero.webp') center / cover no-repeat;
 }
 
 .auth-showcase-inner {
   width: 100%;
-  max-width: 560px;
-  margin: auto 0;
-  display: grid;
-  gap: 32px;
+  max-width: 520px;
+}
+
+.auth-showcase-badge {
+  display: inline-flex;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.68);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.22);
 }
 
 .auth-brand {
@@ -1527,9 +1536,10 @@ th {
 
 .auth-brand strong {
   display: block;
-  font-size: 1.35rem;
+  font-size: 1.4rem;
   line-height: 1.1;
   letter-spacing: -0.02em;
+  color: #ffffff;
 }
 
 .auth-brand strong span {
@@ -1538,54 +1548,30 @@ th {
 
 .auth-brand small {
   display: block;
-  color: var(--sidebar-muted);
-  font-size: 0.8rem;
-  margin-top: 3px;
+  color: #e2e8f0;
+  font-size: 0.88rem;
+  margin-top: 4px;
 }
 
-.auth-hero-copy h2 {
-  margin: 0 0 12px;
-  font-size: clamp(1.75rem, 2.9vw, 2.4rem);
-  line-height: 1.12;
-  letter-spacing: -0.025em;
-  color: #ffffff;
+.auth-help-text {
+  margin: 4px 0 0;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
-.auth-hero-copy p {
-  margin: 0 0 22px;
-  font-size: 0.98rem;
-  color: var(--sidebar-link);
-  max-width: 48ch;
+.checkout-footer-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding-top: 8px;
+  padding-bottom: 4px;
+  z-index: 5;
 }
 
-.auth-pillars {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 12px;
-}
-
-.auth-pillars li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.92rem;
-  font-weight: 550;
-  color: #f4f7ef;
-}
-
-.auth-pillars svg {
-  color: var(--brand-accent);
-  flex: none;
-}
-
-.auth-showcase-foot {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
-  color: var(--sidebar-muted);
+.checkout-submit-btn {
+  min-height: 48px;
+  touch-action: manipulation;
 }
 
 .auth-panel {

@@ -608,17 +608,6 @@ export function CheckoutPanel({
                 )}
               </div>
             </div>
-
-            <div className="summary-bar" aria-live="polite">
-              <span>Total {formatMxn(totalCents)}</span>
-              {tender.ok && (
-                <strong style={{ color: tender.remaining > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                  {tender.remaining > 0
-                    ? `Falta ${formatMxn(tender.remaining)}`
-                    : `Cambio ${formatMxn(tender.change)}`}
-                </strong>
-              )}
-            </div>
           </>
         )}
 
@@ -643,19 +632,36 @@ export function CheckoutPanel({
           </div>
         )}
 
-        <button
-          type="submit"
-          className="btn btn-primary btn-full checkout-submit-btn"
-          disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
-        >
-          <Plus size={18} />
-          {checkoutOrder
-            ? 'Guardar cobro'
-            : deferPayment
-              ? 'Guardar encargo'
-              : 'Guardar folio y pago'}{' '}
-          ({formatMxn(totalCents)})
-        </button>
+        <div className="checkout-footer-bar">
+          <div className="summary-bar" aria-live="polite">
+            <span>Total {formatMxn(totalCents)}</span>
+            {deferPayment ? (
+              <strong>Por cobrar</strong>
+            ) : freeCoverAll ? (
+              <strong style={{ color: 'var(--success)' }}>Lealtad 10+1</strong>
+            ) : tender.ok ? (
+              <strong style={{ color: tender.remaining > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                {tender.remaining > 0
+                  ? `Falta ${formatMxn(tender.remaining)}`
+                  : `Cambio ${formatMxn(tender.change)}`}
+              </strong>
+            ) : null}
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary btn-full checkout-submit-btn"
+            disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
+          >
+            <Plus size={18} />
+            {checkoutOrder
+              ? 'Guardar cobro'
+              : deferPayment
+                ? 'Guardar encargo'
+                : 'Guardar folio y pago'}{' '}
+            ({formatMxn(totalCents)})
+          </button>
+        </div>
 
         {checkoutOrder && (
           <button

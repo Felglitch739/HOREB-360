@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
-import { CheckCircle2, Eye, EyeOff, Lock, WashingMachine } from 'lucide-react';
+import { Eye, EyeOff, WashingMachine } from 'lucide-react';
 import { App } from './App';
 import type { Operation } from './domain/operations';
 import {
@@ -58,10 +58,28 @@ export function Root() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [rows, setRows] = useState<BranchRow[] | null>(null);
   const [globalRecords, setGlobalRecords] = useState<GlobalRecordsBundle>({});
+  const [errorKind, setErrorKind] = useState<'none' | 'credentials' | 'offline' | 'no-branch'>('none');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const interacting = useRef(false);
+
+  useEffect(() => {
+    const onOffline = () => {
+      setErrorKind('offline');
+      setError('Sin conexión con el servidor. Revisa tu conexión a internet e intenta de nuevo.');
+    };
+    const onOnline = () => {
+      setErrorKind((prev) => (prev === 'offline' ? 'none' : prev));
+      setError((prev) => (prev.startsWith('Sin conexión') ? '' : prev));
+    };
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+    };
+  }, []);
 
   useEffect(() => {
     const {
@@ -82,11 +100,17 @@ export function Root() {
       client.from('horeb_night_closings').select('*').order('closing_date', { ascending: false }),
     ]);
     if (access.error || data.error) {
-      setError('No se pudo cargar Supabase. Revisa la conexión y vuelve a intentar.');
+      setErrorKind('offline');
+      setError('Sin conexión con el servidor. Revisa tu internet y vuelve a intentar.');
       return;
     }
     setError('');
     setMemberships(access.data as Membership[]);
+    if ((access.data as Membership[]).length === 0) {
+      setErrorKind('no-branch');
+    } else {
+      setErrorKind('none');
+    }
     setRows((prior) =>
       (data.data as BranchRow[]).map((fresh) => {
         const current = prior?.find((row) => row.branch_id === fresh.branch_id);
@@ -171,16 +195,32 @@ export function Root() {
   }
 
   async function signInWithCredentials(email: string, password: string) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorKind('offline');
+      setError('Sin conexión con el servidor. Revisa tu internet e intenta de nuevo.');
+      return;
+    }
     setLoading(true);
     setError('');
+    setErrorKind('none');
     try {
       const { error: authError } = await client.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
-      if (authError) setError('No se pudo iniciar sesión. Revisa el correo y la contraseña.');
+      if (authError) {
+        const msg = authError.message.toLowerCase();
+        if (msg.includes('fetch') || msg.includes('network') || authError.status === 0) {
+          setErrorKind('offline');
+          setError('Sin conexión con el servidor. Revisa tu internet e intenta de nuevo.');
+        } else {
+          setErrorKind('credentials');
+          setError('Correo o contraseña incorrectos. Verifica tus datos o contacta a tu supervisor.');
+        }
+      }
     } catch {
-      setError('No se pudo contactar a Supabase para iniciar sesión.');
+      setErrorKind('offline');
+      setError('Sin conexión con el servidor. Revisa tu internet e intenta de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -200,7 +240,7 @@ export function Root() {
     if (signOutError) setError('No se pudo cerrar la sesión. Vuelve a intentar.');
   }
 
-  if (session && rows?.length) {
+  if (session && rows?.length && memberships.length > 0) {
     const roles = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
     return (
       <App
@@ -217,7 +257,7 @@ export function Root() {
       <section className="auth-showcase" aria-label="Lavandería Horeb">
         <div className="auth-showcase-bg" aria-hidden="true" />
         <div className="auth-showcase-inner">
-          <div className="auth-brand">
+          <div className="auth-brand auth-showcase-badge">
             <span className="brand-mark">
               <WashingMachine size={24} aria-hidden="true" />
             </span>
@@ -225,40 +265,13 @@ export function Root() {
               <strong>
                 HOREB <span>360</span>
               </strong>
-              <small>Gestión de lavandería</small>
+              <small>Panel de operación de Lavandería Horeb</small>
             </div>
-          </div>
-
-          <div className="auth-hero-copy">
-            <h2>Control claro de mostrador, encargos y corte de caja.</h2>
-            <p>
-              Opera Lomas, Treviño y Sucursal 3 desde un mismo panel en línea con seguimiento por
-              etapas, ticket térmico y cierre por turno.
-            </p>
-            <ul className="auth-pillars">
-              <li>
-                <CheckCircle2 size={17} aria-hidden="true" />
-                <span>Autoservicio y encargos con cobro mixto y cambio exacto</span>
-              </li>
-              <li>
-                <CheckCircle2 size={17} aria-hidden="true" />
-                <span>Comprobantes térmicos 80 mm / 58 mm con código de barras</span>
-              </li>
-              <li>
-                <CheckCircle2 size={17} aria-hidden="true" />
-                <span>Cortes de turno auditables y reportes consolidados en vivo</span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="auth-showcase-foot">
-            <Lock size={14} aria-hidden="true" />
-            <span>Acceso protegido por sucursal y rol</span>
           </div>
         </div>
       </section>
 
-      <section className="auth-panel" aria-label="Iniciar sesión">
+      <section className="auth-panel" aria-label="Inicia sesión">
         <div className="auth-form-wrap">
           <div className="auth-panel-header">
             <div className="auth-mobile-brand">
@@ -267,12 +280,12 @@ export function Root() {
               </span>
               <strong>HOREB 360</strong>
             </div>
-            <h1>Iniciar sesión</h1>
-            <p>Ingresa con tu cuenta de sucursal para continuar.</p>
+            <h1>Inicia sesión</h1>
+            <p>Panel de operación de Lavandería Horeb</p>
           </div>
 
           {error && (
-            <div className="alert alert-error" role="alert">
+            <div className="alert alert-error" role="alert" data-error-kind={errorKind}>
               {error}
             </div>
           )}
@@ -281,7 +294,7 @@ export function Root() {
             <>
               <form className="auth-form" onSubmit={signIn}>
                 <label className="field">
-                  Correo electrónico
+                  Correo
                   <input
                     name="email"
                     className="input"
@@ -316,15 +329,20 @@ export function Root() {
                 </div>
 
                 <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-                  {loading ? 'Entrando…' : 'Entrar al panel'}
+                  {loading ? 'Validando…' : 'Entrar'}
                 </button>
               </form>
+              <p className="auth-help-text">¿Problemas para entrar? Contacta a tu supervisor</p>
             </>
           )}
 
           {session === undefined && <p role="status">Comprobando sesión…</p>}
           {session && !rows && !error && <p role="status">Cargando tus sucursales…</p>}
-          {session && rows?.length === 0 && <p>Tu cuenta aún no tiene una sucursal asignada.</p>}
+          {session && rows && (rows.length === 0 || memberships.length === 0) && (
+            <div className="alert alert-error" role="alert" data-error-kind="no-branch">
+              Tu cuenta aún no tiene una sucursal asignada. Contacta a tu supervisor para habilitar tu acceso.
+            </div>
+          )}
           {session && (
             <div className="order-actions">
               <button type="button" className="btn btn-secondary" onClick={() => void reload()}>
