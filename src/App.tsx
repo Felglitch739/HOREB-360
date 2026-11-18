@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react';
-import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Palette, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
+import { BarChart3, ClipboardList, LayoutDashboard, MapPin, Palette, Plus, Settings, Store, Wallet, WashingMachine } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -31,10 +31,9 @@ const navigation = [
   { id: 'ordenes', label: 'Órdenes', icon: ClipboardList },
   { id: 'caja', label: 'Caja', icon: Wallet },
   { id: 'admin', label: 'Reportes', icon: BarChart3 },
-  { id: 'ajustes', label: 'Ajustes', icon: Settings },
 ] as const;
 
-type TabId = (typeof navigation)[number]['id'];
+type TabId = (typeof navigation)[number]['id'] | 'ajustes';
 
 export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: {
   shared: SharedWorkspace;
@@ -148,14 +147,26 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
         </nav>
         <SharedStatus branchName={activeBranch.name} role={activeRole} />
         <div className="sidebar-footer">
-          <button type="button" className="reset-button" onClick={() => setTourOpen(true)}>
-            <Compass size={16} aria-hidden="true" /> Guía interactiva
+          <button
+            type="button"
+            className={`reset-button ${activeTab === 'ajustes' ? 'active' : ''}`}
+            aria-current={activeTab === 'ajustes' ? 'page' : undefined}
+            onClick={() => navigate('ajustes')}
+          >
+            <Settings size={17} aria-hidden="true" /> Ajustes
           </button>
         </div>
       </aside>
       <div className="workspace">
         <header className="workspace-header">
-          <div className="breadcrumb">Operación <span>/</span> <strong>{navigation.find((entry) => entry.id === activeTab)?.label}</strong></div>
+          <div className="breadcrumb">
+            Operación <span>/</span>{' '}
+            <strong>
+              {activeTab === 'ajustes'
+                ? 'Ajustes'
+                : navigation.find((entry) => entry.id === activeTab)?.label}
+            </strong>
+          </div>
           <div className="workspace-actions" data-tour="branch-bar">
             <button type="button" className="btn btn-secondary btn-sm" onClick={onToggleTheme} title="Cambiar color del tema">
               <Palette size={15} aria-hidden="true" />
@@ -186,7 +197,11 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
           {activeTab !== 'inicio' && (
             <div className="page-intro">
               <div>
-                <h1>{navigation.find((entry) => entry.id === activeTab)?.label}</h1>
+                <h1>
+                  {activeTab === 'ajustes'
+                    ? 'Ajustes'
+                    : navigation.find((entry) => entry.id === activeTab)?.label}
+                </h1>
                 <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranch.name}</p>
               </div>
               {activeTab === 'ordenes' && (
@@ -237,6 +252,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onToggleTheme }: 
                 theme={theme}
                 onSetTheme={onSetTheme}
                 onSaveSettings={handleSaveSettings}
+                onStartTour={() => setTourOpen(true)}
                 onReload={shared.reload}
                 onSignOut={shared.signOut}
               />

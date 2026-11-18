@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, LogOut, Palette, Printer, RefreshCw, Save, ShieldCheck, Tag, UserCheck } from 'lucide-react';
+import { Check, Compass, LogOut, Palette, Printer, RefreshCw, Save, ShieldCheck, Tag, UserCheck } from 'lucide-react';
 import { formatMxn, parsePesosToCents } from '../domain/money';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchId, BranchSettings } from '../domain/types';
@@ -16,6 +16,7 @@ interface AjustesViewProps {
     branchId: BranchId,
     patch: Partial<BranchSettings>,
   ) => Promise<{ ok: boolean; error?: string }>;
+  onStartTour: () => void;
   onReload: () => Promise<void>;
   onSignOut: () => void;
 }
@@ -28,6 +29,7 @@ export function AjustesView({
   theme,
   onSetTheme,
   onSaveSettings,
+  onStartTour,
   onReload,
   onSignOut,
 }: AjustesViewProps) {
@@ -272,6 +274,10 @@ export function AjustesView({
               Conectado en línea con la sucursal <strong>{branchName}</strong>. El panel sincroniza automáticamente cada 8 segundos.
             </p>
             <div className="order-actions">
+              <button type="button" className="btn btn-secondary" onClick={onStartTour}>
+                <Compass size={16} />
+                Guía interactiva
+              </button>
               <button
                 type="button"
                 className="btn btn-secondary"
