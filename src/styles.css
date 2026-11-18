@@ -1769,6 +1769,167 @@ th {
   }
 }
 
+.input-sm {
+  min-height: 36px;
+  padding: 5px 10px;
+  font-size: 0.86rem;
+}
+
+.catalog-head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.catalog-grid {
+  display: grid;
+  gap: 7px;
+}
+
+.catalog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.catalog-row.selected {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.catalog-row-info {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.catalog-row-info strong {
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.catalog-row-info small {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.catalog-qty-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.qty-btn {
+  min-height: 36px;
+  width: 36px;
+  padding: 0;
+}
+
+.qty-value {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 0.94rem;
+}
+
+.payment-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 600;
+  width: 100%;
+}
+
+.payment-chip-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.payment-chip-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.payment-confirm-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.payment-confirm-inline .input {
+  flex: 1 1 160px;
+}
+
+.catalog-settings-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.catalog-setting-row {
+  display: grid;
+  gap: 6px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.catalog-setting-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.catalog-setting-top .split-amount-wrap input {
+  width: 96px;
+}
+
+.audit-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.audit-row {
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+
+.audit-row strong {
+  display: block;
+  font-size: 0.86rem;
+  line-height: 1.3;
+}
+
+.audit-row small {
+  font-size: 0.76rem;
+}
+
 @page {
   size: 80mm auto;
   margin: 0;

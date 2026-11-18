@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Printer, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { formatMxn } from '../domain/money';
-import { ENCARGO_STAGES, getBranchInfo } from '../domain/rules';
+import { ENCARGO_STAGES, getBranchInfo, getOrderLineItems } from '../domain/rules';
+import type { BranchRole } from '../domain/sharedState';
 import type { BranchSettings, Order, PaymentLine, TicketState } from '../domain/types';
 
 interface TicketModalProps {
@@ -9,7 +10,9 @@ interface TicketModalProps {
   paymentLines: PaymentLine[];
   ticket: TicketState;
   branchSettings: BranchSettings;
+  actorRole: BranchRole;
   onEmit: (orderId: string, simulateFailure: boolean) => Promise<{ ok: boolean; error?: string }>;
+  onReprint: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
 }
 
@@ -34,12 +37,17 @@ export function TicketModal({
   paymentLines,
   ticket,
   branchSettings,
+  actorRole,
   onEmit,
+  onReprint,
   onClose,
 }: TicketModalProps) {
   const branch = getBranchInfo(order.branchId);
+  const lineItems = getOrderLineItems(order);
+  const canReprint = actorRole === 'supervisor' || Boolean(branchSettings.allowOperatorReprint);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [justIssued, setJustIssued] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
   const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>(branchSettings.defaultPaperWidth);
   const [careNote, setCareNote] = useState('');
@@ -75,7 +83,27 @@ export function TicketModal({
     setError('');
     try {
       const result = await onEmit(order.id, fails);
-      if (!result.ok) setError(result.error ?? 'No se pudo emitir el comprobante.');
+      if (!result.ok) {
+        setError(result.error ?? 'No se pudo emitir el comprobante.');
+      } else if (!fails) {
+        setJustIssued(true);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReprint() {
+    if (!canReprint || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await onReprint(order.id);
+      if (!result.ok) {
+        setError(result.error ?? 'No tienes permiso para reimprimir este comprobante.');
+        return;
+      }
+      window.print();
     } finally {
       setBusy(false);
     }
@@ -209,7 +237,14 @@ export function TicketModal({
             <div>Sucursal: {branch.name}</div>
             {branchSettings.branchPhone && <div>Tel: {branchSettings.branchPhone}</div>}
             {branchSettings.scheduleText && <div>Horario: {branchSettings.scheduleText}</div>}
-            <div className="ticket-folio-box">FOLIO {order.folio}</div>
+            <div className="ticket-folio-box">
+              FOLIO {order.folio}
+              {(ticket.reprintCount ?? 0) > 0 && (
+                <div style={{ fontSize: '0.78em', fontWeight: 700, marginTop: 2 }}>
+                  REIMPRESIÓN #{ticket.reprintCount}
+                </div>
+              )}
+            </div>
             <div>Fecha: {new Date(order.createdAt).toLocaleString('es-MX')}</div>
           </div>
 
@@ -231,10 +266,12 @@ export function TicketModal({
               <span>{stageLabel}</span>
             </div>
           )}
-          <div className="ticket-row">
-            <span>Combo Lavado + Secado x{order.comboCount}</span>
-            <span>{formatMxn(order.totalCents)}</span>
-          </div>
+          {lineItems.map((item) => (
+            <div className="ticket-row" key={item.itemId}>
+              <span>{item.name} x{item.quantity} ({formatMxn(item.unitPriceCents)})</span>
+              <span>{formatMxn(item.lineTotalCents)}</span>
+            </div>
+          ))}
 
           {careNote.trim() && (
             <>
@@ -248,11 +285,19 @@ export function TicketModal({
           <div className="ticket-divider" />
           <strong>Pagos registrados</strong>
           {paymentLines.map((line) => (
-            <div className="ticket-row" key={line.id}>
-              <span>
-                {METHOD_LABEL[line.method]} ({line.status === 'confirmado' ? 'Confirmado' : 'Pendiente'})
-              </span>
-              <span>{formatMxn(line.amountCents)}</span>
+            <div key={line.id}>
+              <div className="ticket-row">
+                <span>
+                  {METHOD_LABEL[line.method]} ({line.status === 'confirmado' ? 'Confirmado' : 'Pendiente'})
+                </span>
+                <span>{formatMxn(line.amountCents)}</span>
+              </div>
+              {line.reference && (
+                <div className="ticket-row" style={{ fontSize: '0.84em', color: '#475569' }}>
+                  <span>Ref: {line.reference}</span>
+                  <span>{line.confirmedBy ?? ''}</span>
+                </div>
+              )}
             </div>
           ))}
           {paymentLines.map((line) => line.cashReceivedCents !== undefined && line.cashReceivedCents > line.amountCents && (
@@ -294,12 +339,13 @@ export function TicketModal({
         {ticket.status === 'emitido' && (
           <div className="alert alert-success">
             <CheckCircle2 size={16} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-            Ticket emitido bajo el folio {ticket.folio} (intentos: {ticket.attempts}).
+            Ticket emitido bajo el folio {ticket.folio}
+            {(ticket.reprintCount ?? 0) > 0 ? ` · Reimpresiones: ${ticket.reprintCount}` : ''}.
           </div>
         )}
 
         <div className="order-actions">
-          {error && <p className="alert alert-error" role="alert">{error}</p>}
+          {error && <p className="alert alert-error" role="alert" style={{ width: '100%' }}>{error}</p>}
           {ticket.status === 'no_emitido' && (
             <div style={{ width: '100%', display: 'grid', gap: 8 }}>
               <button
@@ -311,14 +357,16 @@ export function TicketModal({
                 <Printer size={18} />
                 Emitir ticket
               </button>
-              <button
-                type="button"
-                className="ticket-fallback-link"
-                disabled={busy}
-                onClick={() => void issue(true)}
-              >
-                ¿Atasco o falla de impresora? Registrar incidencia y conservar folio
-              </button>
+              {import.meta.env.DEV && (
+                <button
+                  type="button"
+                  className="ticket-fallback-link"
+                  disabled={busy}
+                  onClick={() => void issue(true)}
+                >
+                  Simular falla de impresora (entorno de prueba)
+                </button>
+              )}
             </div>
           )}
 
@@ -336,15 +384,32 @@ export function TicketModal({
 
           {ticket.status === 'emitido' && (
             <>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ flex: '1 1 160px' }}
-                onClick={() => window.print()}
-              >
-                <Printer size={18} />
-                Imprimir ({paperWidth})
-              </button>
+              {justIssued ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: '1 1 160px' }}
+                  onClick={() => window.print()}
+                >
+                  <Printer size={18} />
+                  Imprimir ({paperWidth})
+                </button>
+              ) : canReprint ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: '1 1 160px' }}
+                  disabled={busy}
+                  onClick={() => void handleReprint()}
+                >
+                  <Printer size={18} />
+                  Reimprimir comprobante ({paperWidth})
+                </button>
+              ) : (
+                <div className="alert alert-info" style={{ width: '100%', marginBottom: 4 }}>
+                  Solo lectura: la reimpresión de comprobantes emitidos requiere permiso de Supervisión.
+                </div>
+              )}
               <button
                 type="button"
                 className="btn btn-secondary"

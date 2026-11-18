@@ -22,7 +22,7 @@ interface OrderListProps {
   feedback: { type: 'error' | 'success'; text: string } | null;
   showFeedback: boolean;
   onStartCheckout: (order: Order) => void;
-  onConfirmPaymentLine: (lineId: string) => Promise<void>;
+  onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
   onAdvanceEncargo: (orderId: string) => Promise<void>;
   onDeliverEncargo: (orderId: string) => Promise<void>;

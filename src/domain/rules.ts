@@ -1,12 +1,15 @@
 import { COMBO_PRICE_CENTS, formatMxn } from './money.ts';
 import type {
+  BranchAuditEntry,
   BranchId,
   BranchInfo,
   BranchSettings,
   CashMovement,
+  CatalogItem,
   DemoState,
   EncargoStage,
   Order,
+  OrderLineItem,
   PaymentLine,
   PaymentMethod,
   Shift,
@@ -28,12 +31,58 @@ export const ENCARGO_STAGES: { id: EncargoStage; label: string }[] = [
   { id: 'entregado', label: 'Entregado' },
 ];
 
+export const DEFAULT_CATALOG: CatalogItem[] = [
+  {
+    id: 'combo',
+    name: 'Combo Lavado + Secado',
+    priceCents: COMBO_PRICE_CENTS,
+    requiresMachine: true,
+    loyaltyCredits: 1,
+    pricePendingConfirmation: false,
+    active: true,
+  },
+  {
+    id: 'edredon',
+    name: 'Edredón King / Matrimonial',
+    priceCents: 9500,
+    requiresMachine: true,
+    loyaltyCredits: 0,
+    pricePendingConfirmation: true,
+    active: true,
+  },
+  {
+    id: 'detergente',
+    name: 'Kit Detergente + Suavizante',
+    priceCents: 2000,
+    requiresMachine: false,
+    loyaltyCredits: 0,
+    pricePendingConfirmation: true,
+    active: true,
+  },
+  {
+    id: 'bolsa',
+    name: 'Bolsa Jumbo HOREB',
+    priceCents: 3500,
+    requiresMachine: false,
+    loyaltyCredits: 0,
+    pricePendingConfirmation: true,
+    active: true,
+  },
+];
+
 export interface PaymentInputLine {
   method: PaymentMethod;
   amountCents: number;
   cashReceivedCents?: number;
   /** Efectivo siempre inicia confirmado; tarjeta/transferencia pueden iniciar pendientes o confirmados. */
   confirmImmediately?: boolean;
+  /** Referencia de terminal o transferencia bancaria capturada al guardar */
+  reference?: string;
+}
+
+export interface OrderItemInput {
+  itemId: string;
+  quantity: number;
 }
 
 export interface CreateOrderInput {
@@ -42,8 +91,10 @@ export interface CreateOrderInput {
   folio?: string;
   customerAlias?: string;
   comboCount?: number;
+  items?: OrderItemInput[];
   paymentLines: PaymentInputLine[];
   now?: string;
+  actorLabel?: string;
 }
 
 export type DomainResult<T> =
@@ -82,12 +133,74 @@ export const DEFAULT_BRANCH_SETTINGS: BranchSettings = {
   scheduleText: 'Lun–Sáb 8:00 a 20:00',
   ticketFooter: '¡Gracias por su preferencia! Conserve este comprobante para recoger su encargo.',
   defaultPaperWidth: '80mm',
+  allowOperatorReprint: false,
+  catalog: DEFAULT_CATALOG,
 };
 
+function appendAudit(
+  state: DemoState,
+  entry: Omit<BranchAuditEntry, 'id'>,
+): BranchAuditEntry[] {
+  const next: BranchAuditEntry = {
+    id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    ...entry,
+  };
+  return [next, ...(state.auditLogs ?? [])].slice(0, 120);
+}
+
+export function getBranchCatalog(state: DemoState, branchId: BranchId): CatalogItem[] {
+  const saved = state.settings?.[branchId];
+  const basePrice = saved?.comboPriceCents ?? DEFAULT_BRANCH_SETTINGS.comboPriceCents;
+  const savedList = saved?.catalog;
+  if (!savedList || savedList.length === 0) {
+    return DEFAULT_CATALOG.map((item) =>
+      item.id === 'combo' ? { ...item, priceCents: basePrice } : { ...item },
+    );
+  }
+  const byId = new Map(savedList.map((item) => [item.id, item]));
+  const merged = DEFAULT_CATALOG.map((def) => {
+    const existing = byId.get(def.id);
+    if (!existing) {
+      return def.id === 'combo' ? { ...def, priceCents: basePrice } : { ...def };
+    }
+    return {
+      ...def,
+      ...existing,
+    };
+  });
+  for (const extra of savedList) {
+    if (!DEFAULT_CATALOG.some((def) => def.id === extra.id)) {
+      merged.push(extra);
+    }
+  }
+  return merged;
+}
+
+export function getOrderLineItems(order: Order): OrderLineItem[] {
+  if (order.items && order.items.length > 0) return order.items;
+  return [
+    {
+      itemId: 'combo',
+      name: 'Combo Lavado + Secado',
+      quantity: order.comboCount,
+      unitPriceCents: order.unitPriceCents,
+      lineTotalCents: order.totalCents,
+      requiresMachine: true,
+      loyaltyCredits: 1,
+    },
+  ];
+}
+
 export function getBranchSettings(state: DemoState, branchId: BranchId): BranchSettings {
+  const saved = state.settings?.[branchId];
+  const catalog = getBranchCatalog(state, branchId);
+  const comboItem = catalog.find((item) => item.id === 'combo');
   return {
     ...DEFAULT_BRANCH_SETTINGS,
-    ...(state.settings?.[branchId] ?? {}),
+    ...(saved ?? {}),
+    comboPriceCents: comboItem?.priceCents ?? saved?.comboPriceCents ?? DEFAULT_BRANCH_SETTINGS.comboPriceCents,
+    allowOperatorReprint: saved?.allowOperatorReprint ?? false,
+    catalog,
   };
 }
 
@@ -95,9 +208,48 @@ export function updateBranchSettings(
   state: DemoState,
   branchId: BranchId,
   patch: Partial<BranchSettings>,
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
 ): DomainResult<BranchSettings> {
   const current = getBranchSettings(state, branchId);
-  const comboPriceCents = patch.comboPriceCents ?? current.comboPriceCents;
+  const currentCatalog = getBranchCatalog(state, branchId);
+  let nextCatalog = currentCatalog;
+
+  if (patch.catalog && patch.catalog.length > 0) {
+    const patchMap = new Map(patch.catalog.map((item) => [item.id, item]));
+    const validated: CatalogItem[] = [];
+    for (const baseItem of currentCatalog) {
+      const incoming = patchMap.get(baseItem.id);
+      if (!incoming) {
+        validated.push(baseItem);
+        continue;
+      }
+      if (!Number.isSafeInteger(incoming.priceCents) || incoming.priceCents < 100 || incoming.priceCents > 10_000_000) {
+        return { ok: false, error: `El precio de "${baseItem.name}" debe ser al menos $1.00 MXN.` };
+      }
+      const cleanName = incoming.name.trim().slice(0, 80);
+      if (!cleanName) {
+        return { ok: false, error: 'El nombre del producto no puede quedar vacío.' };
+      }
+      validated.push({
+        ...baseItem,
+        ...incoming,
+        name: cleanName,
+      });
+    }
+    nextCatalog = validated;
+  }
+
+  let comboPriceCents = patch.comboPriceCents ?? current.comboPriceCents;
+  const comboInPatchCatalog = patch.catalog?.find((item) => item.id === 'combo');
+  if (comboInPatchCatalog) {
+    comboPriceCents = comboInPatchCatalog.priceCents;
+  } else if (patch.comboPriceCents !== undefined) {
+    nextCatalog = nextCatalog.map((item) =>
+      item.id === 'combo' ? { ...item, priceCents: patch.comboPriceCents! } : item,
+    );
+  }
+
   if (!Number.isSafeInteger(comboPriceCents) || comboPriceCents < 100 || comboPriceCents > 10_000_000) {
     return { ok: false, error: 'El precio del combo debe ser al menos $1.00 MXN.' };
   }
@@ -117,7 +269,45 @@ export function updateBranchSettings(
     scheduleText: (patch.scheduleText ?? current.scheduleText).trim().slice(0, 80),
     ticketFooter: (patch.ticketFooter ?? current.ticketFooter).trim().slice(0, 160),
     defaultPaperWidth,
+    allowOperatorReprint: patch.allowOperatorReprint ?? current.allowOperatorReprint ?? false,
+    catalog: nextCatalog,
   };
+
+  let auditLogs = state.auditLogs ?? [];
+  for (const prevItem of currentCatalog) {
+    const nextItem = nextCatalog.find((item) => item.id === prevItem.id);
+    if (nextItem && nextItem.priceCents !== prevItem.priceCents) {
+      auditLogs = appendAudit(
+        { ...state, auditLogs },
+        {
+          branchId,
+          category: 'precio',
+          message: `Precio actualizado en ${prevItem.name}: ${formatMxn(prevItem.priceCents)} → ${formatMxn(nextItem.priceCents)}`,
+          previousValue: formatMxn(prevItem.priceCents),
+          nextValue: formatMxn(nextItem.priceCents),
+          actor: actorLabel,
+          createdAt: now,
+        },
+      );
+    }
+  }
+  if (
+    patch.allowOperatorReprint !== undefined &&
+    patch.allowOperatorReprint !== (current.allowOperatorReprint ?? false)
+  ) {
+    auditLogs = appendAudit(
+      { ...state, auditLogs },
+      {
+        branchId,
+        category: 'ticket',
+        message: patch.allowOperatorReprint
+          ? 'Se habilitó la reimpresión de comprobantes para Caja.'
+          : 'Se restringió la reimpresión de comprobantes solo a Supervisión.',
+        actor: actorLabel,
+        createdAt: now,
+      },
+    );
+  }
 
   return {
     ok: true,
@@ -127,6 +317,7 @@ export function updateBranchSettings(
         ...(state.settings ?? {}),
         [branchId]: next,
       },
+      auditLogs,
     },
     data: next,
   };
@@ -316,13 +507,65 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     };
   }
 
-  const unitPriceCents = getBranchSettings(state, input.branchId).comboPriceCents;
-  const comboCount = input.comboCount ?? 1;
-  if (!Number.isSafeInteger(comboCount * unitPriceCents) || !Number.isInteger(comboCount) || comboCount < 1) {
-    return { ok: false, error: 'La cantidad de combos debe ser al menos 1.' };
+  const catalog = getBranchCatalog(state, input.branchId);
+  let orderItems: OrderLineItem[] = [];
+
+  if (input.items && input.items.length > 0) {
+    const mergedByItemId = new Map<string, number>();
+    for (const rawItem of input.items) {
+      if (!Number.isInteger(rawItem.quantity) || rawItem.quantity < 1 || rawItem.quantity > 200) {
+        return { ok: false, error: 'Cada partida debe tener una cantidad válida entre 1 y 200.' };
+      }
+      mergedByItemId.set(rawItem.itemId, (mergedByItemId.get(rawItem.itemId) ?? 0) + rawItem.quantity);
+    }
+    for (const [itemId, quantity] of mergedByItemId.entries()) {
+      const product = catalog.find((entry) => entry.id === itemId && entry.active);
+      if (!product) {
+        return { ok: false, error: `El producto "${itemId}" no está disponible en ${getBranchInfo(input.branchId).name}.` };
+      }
+      const lineTotalCents = quantity * product.priceCents;
+      if (!Number.isSafeInteger(lineTotalCents)) {
+        return { ok: false, error: 'El importe calculado supera el límite permitido.' };
+      }
+      orderItems.push({
+        itemId: product.id,
+        name: product.name,
+        quantity,
+        unitPriceCents: product.priceCents,
+        lineTotalCents,
+        requiresMachine: product.requiresMachine,
+        loyaltyCredits: product.loyaltyCredits,
+      });
+    }
+  } else {
+    const comboProduct = catalog.find((entry) => entry.id === 'combo') ?? DEFAULT_CATALOG[0];
+    const comboCount = input.comboCount ?? 1;
+    if (!Number.isSafeInteger(comboCount * comboProduct.priceCents) || !Number.isInteger(comboCount) || comboCount < 1) {
+      return { ok: false, error: 'La cantidad de combos debe ser al menos 1.' };
+    }
+    orderItems = [
+      {
+        itemId: comboProduct.id,
+        name: comboProduct.name,
+        quantity: comboCount,
+        unitPriceCents: comboProduct.priceCents,
+        lineTotalCents: comboCount * comboProduct.priceCents,
+        requiresMachine: comboProduct.requiresMachine,
+        loyaltyCredits: comboProduct.loyaltyCredits,
+      },
+    ];
   }
 
-  const totalCents = comboCount * unitPriceCents;
+  const totalCents = orderItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const comboCount = Math.max(
+    1,
+    orderItems
+      .filter((item) => item.requiresMachine || item.itemId === 'combo')
+      .reduce((sum, item) => sum + item.quantity, 0) ||
+      orderItems.reduce((sum, item) => sum + item.quantity, 0),
+  );
+  const comboLine = orderItems.find((item) => item.itemId === 'combo');
+  const unitPriceCents = comboLine?.unitPriceCents ?? orderItems[0]?.unitPriceCents ?? getBranchSettings(state, input.branchId).comboPriceCents;
 
   const nextFolio = suggestNextFolio(state, input.branchId);
   const folio = (input.folio?.trim() || nextFolio).toUpperCase();
@@ -356,6 +599,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     customerAlias,
     comboCount,
     unitPriceCents,
+    items: orderItems,
     totalCents,
     encargoStage: input.serviceType === 'encargo' ? 'recibido' : null,
     orderStatus: 'en_proceso',
@@ -365,7 +609,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
 
   const payment = input.serviceType === 'encargo' && input.paymentLines.length === 0
     ? null
-    : buildPaymentLines(order, input.paymentLines, openShift, now);
+    : buildPaymentLines(order, input.paymentLines, openShift, now, input.actorLabel);
   if (payment && !payment.ok) return payment;
 
   const ticket: TicketState = {
@@ -376,8 +620,30 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     lastAttemptAt: null,
     lastError: null,
     issuedAt: null,
+    reprintCount: 0,
+    lastReprintedAt: null,
+    lastReprintedBy: null,
     simulated: true,
   };
+
+  let auditLogs = state.auditLogs ?? [];
+  for (const line of payment?.lines ?? []) {
+    if (line.status === 'confirmado' && line.method !== 'efectivo') {
+      auditLogs = appendAudit(
+        { ...state, auditLogs },
+        {
+          branchId: input.branchId,
+          category: 'pago',
+          message:
+            line.method === 'tarjeta'
+              ? `Pago en terminal aprobado en ${folio} (${formatMxn(line.amountCents)})${line.reference ? ` · Ref: ${line.reference}` : ''}`
+              : `Transferencia verificada en ${folio} (${formatMxn(line.amountCents)})${line.reference ? ` · Ref: ${line.reference}` : ''}`,
+          actor: line.confirmedBy ?? input.actorLabel ?? 'Mostrador',
+          createdAt: now,
+        },
+      );
+    }
+  }
 
   const nextState: DemoState = {
     ...state,
@@ -390,6 +656,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     nextFolioSeq: folio === nextFolio
       ? { ...state.nextFolioSeq, [input.branchId]: Number(nextFolio.split('-').at(-1)) + 1 }
       : state.nextFolioSeq,
+    auditLogs,
   };
 
   return { ok: true, state: nextState, data: order };
@@ -400,6 +667,7 @@ function buildPaymentLines(
   input: PaymentInputLine[],
   shift: Shift,
   now: string,
+  actorLabel = 'Mostrador',
 ): { ok: true; lines: PaymentLine[] } | { ok: false; error: string } {
   if (input.some((line) => !Number.isSafeInteger(line.amountCents) || line.amountCents <= 0)) {
     return { ok: false, error: 'Los importes deben ser centavos enteros positivos.' };
@@ -423,6 +691,7 @@ function buildPaymentLines(
     ok: true,
     lines: input.map((line) => {
       const confirmed = line.method === 'efectivo' || Boolean(line.confirmImmediately);
+      const cleanRef = line.reference?.trim().slice(0, 60) || null;
       return {
         id: `pay-${order.id}-${line.method}`,
         orderId: order.id,
@@ -430,8 +699,10 @@ function buildPaymentLines(
         amountCents: line.amountCents,
         cashReceivedCents: line.cashReceivedCents,
         status: confirmed ? 'confirmado' : 'pendiente',
+        reference: cleanRef,
         createdAt: now,
         confirmedAt: confirmed ? now : null,
+        confirmedBy: confirmed ? actorLabel : null,
         confirmedShiftId: confirmed ? shift.id : null,
       };
     }),
@@ -443,6 +714,7 @@ export function captureEncargoPayment(
   orderId: string,
   input: PaymentInputLine[],
   now = new Date().toISOString(),
+  actorLabel = 'Mostrador',
 ): DomainResult<Order> {
   const order = state.orders.find((item) => item.id === orderId && item.serviceType === 'encargo');
   if (!order) return { ok: false, error: 'Encargo no encontrado.' };
@@ -451,11 +723,31 @@ export function captureEncargoPayment(
   }
   const shift = getOpenShift(state, order.branchId);
   if (!shift) return { ok: false, error: 'Abre un turno para registrar el cobro.' };
-  const payment = buildPaymentLines(order, input, shift, now);
+  const payment = buildPaymentLines(order, input, shift, now, actorLabel);
   if (!payment.ok) return payment;
+
+  let auditLogs = state.auditLogs ?? [];
+  for (const line of payment.lines) {
+    if (line.status === 'confirmado' && line.method !== 'efectivo') {
+      auditLogs = appendAudit(
+        { ...state, auditLogs },
+        {
+          branchId: order.branchId,
+          category: 'pago',
+          message:
+            line.method === 'tarjeta'
+              ? `Pago en terminal aprobado en ${order.folio} (${formatMxn(line.amountCents)})${line.reference ? ` · Ref: ${line.reference}` : ''}`
+              : `Transferencia verificada en ${order.folio} (${formatMxn(line.amountCents)})${line.reference ? ` · Ref: ${line.reference}` : ''}`,
+          actor: line.confirmedBy ?? actorLabel,
+          createdAt: now,
+        },
+      );
+    }
+  }
+
   return {
     ok: true,
-    state: { ...state, paymentLines: [...state.paymentLines, ...payment.lines] },
+    state: { ...state, paymentLines: [...state.paymentLines, ...payment.lines], auditLogs },
     data: order,
   };
 }
@@ -464,6 +756,7 @@ export function confirmPaymentLine(
   state: DemoState,
   paymentLineId: string,
   now = new Date().toISOString(),
+  details: { reference?: string; actorLabel?: string } = {},
 ): DomainResult<PaymentLine> {
   const line = state.paymentLines.find((p) => p.id === paymentLineId);
   if (!line) {
@@ -486,18 +779,35 @@ export function confirmPaymentLine(
     };
   }
 
+  const cleanRef = details.reference?.trim().slice(0, 60) || line.reference || null;
+  const actorLabel = details.actorLabel?.trim() || 'Personal en turno';
+
   const updated: PaymentLine = {
     ...line,
     status: 'confirmado',
+    reference: cleanRef,
     confirmedAt: now,
+    confirmedBy: actorLabel,
     confirmedShiftId: openShift.id,
   };
+
+  const auditLogs = appendAudit(state, {
+    branchId: order.branchId,
+    category: 'pago',
+    message:
+      line.method === 'tarjeta'
+        ? `Pago aprobado en terminal confirmado en ${order.folio} (${formatMxn(line.amountCents)})${cleanRef ? ` · Ref: ${cleanRef}` : ''}`
+        : `Transferencia verificada en ${order.folio} (${formatMxn(line.amountCents)})${cleanRef ? ` · Ref: ${cleanRef}` : ''}`,
+    actor: actorLabel,
+    createdAt: now,
+  });
 
   return {
     ok: true,
     state: {
       ...state,
       paymentLines: state.paymentLines.map((p) => (p.id === paymentLineId ? updated : p)),
+      auditLogs,
     },
     data: updated,
   };
@@ -635,6 +945,7 @@ export function emitTicket(
     lastAttemptAt: now,
     lastError: null,
     issuedAt: now,
+    reprintCount: ticket.reprintCount ?? 0,
   };
 
   return {
@@ -647,6 +958,62 @@ export function emitTicket(
       tickets: { ...state.tickets, [orderId]: issued },
     },
     data: issued,
+  };
+}
+
+export function canReprintTicket(
+  state: DemoState,
+  order: Order,
+  actorRole: 'operator' | 'supervisor',
+): boolean {
+  if (actorRole === 'supervisor') return true;
+  return Boolean(getBranchSettings(state, order.branchId).allowOperatorReprint);
+}
+
+export function reprintTicket(
+  state: DemoState,
+  orderId: string,
+  options: { actorRole: 'operator' | 'supervisor'; actorLabel?: string; now?: string },
+): DomainResult<TicketState> {
+  const ticket = state.tickets[orderId];
+  const order = state.orders.find((o) => o.id === orderId);
+  if (!ticket || !order) {
+    return { ok: false, error: 'Orden o comprobante no encontrado.' };
+  }
+  if (ticket.status !== 'emitido') {
+    return { ok: false, error: 'Emite primero el comprobante antes de reimprimir.' };
+  }
+  if (!canReprintTicket(state, order, options.actorRole)) {
+    return { ok: false, error: 'La reimpresión de comprobantes requiere autorización de Supervisión.' };
+  }
+
+  const now = options.now ?? new Date().toISOString();
+  const actorLabel = options.actorLabel?.trim() || (options.actorRole === 'supervisor' ? 'Supervisión' : 'Caja');
+  const nextCount = (ticket.reprintCount ?? 0) + 1;
+
+  const updated: TicketState = {
+    ...ticket,
+    reprintCount: nextCount,
+    lastReprintedAt: now,
+    lastReprintedBy: actorLabel,
+  };
+
+  const auditLogs = appendAudit(state, {
+    branchId: order.branchId,
+    category: 'ticket',
+    message: `Reimpresión #${nextCount} del comprobante ${order.folio}`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      tickets: { ...state.tickets, [orderId]: updated },
+      auditLogs,
+    },
+    data: updated,
   };
 }
 

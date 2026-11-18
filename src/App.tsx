@@ -7,6 +7,7 @@ import { Overview } from './components/Overview';
 import { SharedStatus } from './components/SharedStatus';
 import {
   BRANCHES,
+  getBranchCatalog,
   getBranchInfo,
   getBranchSettings,
   getOpenShift,
@@ -90,10 +91,10 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
     return run(resolveOrderBranch(orderId), { action: 'capture', orderId, lines });
   }
 
-  function handleConfirmPaymentLine(lineId: string) {
+  function handleConfirmPaymentLine(lineId: string, reference?: string) {
     const line = state.paymentLines.find((item) => item.id === lineId);
     const branch = line ? resolveOrderBranch(line.orderId) : activeBranchId;
-    return run(branch, { action: 'confirm', lineId });
+    return run(branch, { action: 'confirm', lineId, reference });
   }
 
   function handleAdvanceEncargo(orderId: string) {
@@ -108,6 +109,12 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
     const order = state.orders.find((item) => item.id === orderId);
     if (!order) return Promise.resolve({ ok: false, error: 'No encontramos el folio.' });
     return run(order.branchId, { action: 'emit', orderId, simulateFailure });
+  }
+
+  function handleReprintTicket(orderId: string) {
+    const order = state.orders.find((item) => item.id === orderId);
+    if (!order) return Promise.resolve({ ok: false, error: 'No encontramos el folio.' });
+    return run(order.branchId, { action: 'reprint', orderId });
   }
 
   function handleCloseShift(branch: BranchId, amount: number) {
@@ -243,6 +250,8 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
                 branchName={activeBranch.name}
                 role={activeRole}
                 settings={activeSettings}
+                catalog={getBranchCatalog(state, activeBranchId)}
+                auditLogs={(state.auditLogs ?? []).filter((entry) => entry.branchId === activeBranchId)}
                 theme={theme}
                 onSetTheme={onSetTheme}
                 onSaveSettings={handleSaveSettings}
@@ -262,7 +271,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
             paymentLines={getOrderPaymentLines(state, ticketOrder.id)}
             ticket={ticketState}
             branchSettings={getBranchSettings(state, ticketOrder.branchId)}
+            actorRole={shared.roles[ticketOrder.branchId] ?? activeRole}
             onEmit={handleEmitTicket}
+            onReprint={handleReprintTicket}
             onClose={() => setTicketOrderId(null)}
           />
         )}

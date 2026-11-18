@@ -25,8 +25,12 @@ export interface PaymentLine {
   amountCents: number;
   cashReceivedCents?: number;
   status: PaymentLineStatus;
+  /** Referencia de terminal (Clip) o movimiento bancario (Nu) */
+  reference?: string | null;
   createdAt: string;
   confirmedAt: string | null;
+  /** Usuario o correo que confirmó el pago externo */
+  confirmedBy?: string | null;
   /** Turno abierto en el que se confirmó este ingreso */
   confirmedShiftId: string | null;
 }
@@ -41,7 +45,35 @@ export interface TicketState {
   lastAttemptAt: string | null;
   lastError: string | null;
   issuedAt: string | null;
+  reprintCount?: number;
+  lastReprintedAt?: string | null;
+  lastReprintedBy?: string | null;
   simulated: true;
+}
+
+export interface CatalogItem {
+  id: string;
+  name: string;
+  /** Precio unitario vigente en centavos MXN */
+  priceCents: number;
+  /** Indica si consume lavadora/secadora al operar */
+  requiresMachine: boolean;
+  /** Créditos de combo que aporta al programa de lealtad por unidad */
+  loyaltyCredits: number;
+  /** Marca si el precio es de referencia y falta confirmar con Carlos */
+  pricePendingConfirmation?: boolean;
+  active: boolean;
+}
+
+export interface OrderLineItem {
+  itemId: string;
+  name: string;
+  quantity: number;
+  /** Precio unitario congelado al guardar la orden */
+  unitPriceCents: number;
+  lineTotalCents: number;
+  requiresMachine?: boolean;
+  loyaltyCredits?: number;
 }
 
 export interface Order {
@@ -55,12 +87,25 @@ export interface Order {
   comboCount: number;
   /** Precio unitario en centavos enteros (7000 = $70.00) */
   unitPriceCents: number;
+  /** Partidas con precio unitario congelado al momento de guardar */
+  items?: OrderLineItem[];
   /** Total en centavos enteros */
   totalCents: number;
   encargoStage: EncargoStage | null;
   orderStatus: OrderStatus;
   createdAt: string;
   deliveredAt: string | null;
+}
+
+export interface BranchAuditEntry {
+  id: string;
+  branchId: BranchId;
+  category: 'precio' | 'pago' | 'ticket' | 'caja';
+  message: string;
+  actor: string;
+  createdAt: string;
+  previousValue?: string;
+  nextValue?: string;
 }
 
 export interface ShiftClosingSummary {
@@ -99,6 +144,10 @@ export interface BranchSettings {
   scheduleText: string;
   ticketFooter: string;
   defaultPaperWidth: '80mm' | '58mm';
+  /** Catálogo editable de servicios y productos de mostrador */
+  catalog?: CatalogItem[];
+  /** Si Caja puede reimprimir un comprobante ya emitido sin Supervisión */
+  allowOperatorReprint?: boolean;
 }
 
 export interface DemoState {
@@ -109,4 +158,5 @@ export interface DemoState {
   shifts: Shift[];
   nextFolioSeq: Record<BranchId, number>;
   settings?: Partial<Record<BranchId, BranchSettings>>;
+  auditLogs?: BranchAuditEntry[];
 }

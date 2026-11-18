@@ -12,6 +12,7 @@ export function combineBranches(rows: BranchRow[]): DemoState {
     activeBranchId: rows[0]?.branch_id ?? initial.activeBranchId,
     shifts: [],
     settings,
+    auditLogs: [],
   };
   for (const { branch_id, updated_at, state: saved } of rows) {
     state.orders.push(...(saved.orders ?? []));
@@ -22,7 +23,11 @@ export function combineBranches(rows: BranchRow[]): DemoState {
     if (saved.settings?.[branch_id]) {
       settings[branch_id] = saved.settings[branch_id];
     }
+    if (saved.auditLogs?.length) {
+      state.auditLogs!.push(...saved.auditLogs);
+    }
   }
   state.orders.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  state.auditLogs!.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return state;
 }

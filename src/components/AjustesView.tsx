@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Check, Compass, LogOut, Palette, Printer, RefreshCw, Save, ShieldCheck, Tag, UserCheck } from 'lucide-react';
-import { formatMxn, parsePesosToCents } from '../domain/money';
+import {
+  Check,
+  Compass,
+  History,
+  LogOut,
+  Palette,
+  Printer,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Tag,
+  UserCheck,
+} from 'lucide-react';
+import { parsePesosToCents } from '../domain/money';
 import type { BranchRole } from '../domain/sharedState';
-import type { BranchId, BranchSettings } from '../domain/types';
+import type { BranchAuditEntry, BranchId, BranchSettings, CatalogItem } from '../domain/types';
 import type { BrandTheme } from '../theme';
 
 interface AjustesViewProps {
@@ -10,6 +22,8 @@ interface AjustesViewProps {
   branchName: string;
   role: BranchRole;
   settings: BranchSettings;
+  catalog: CatalogItem[];
+  auditLogs: BranchAuditEntry[];
   theme: BrandTheme;
   onSetTheme: (theme: BrandTheme) => void;
   onSaveSettings: (
@@ -26,6 +40,8 @@ export function AjustesView({
   branchName,
   role,
   settings,
+  catalog,
+  auditLogs,
   theme,
   onSetTheme,
   onSaveSettings,
@@ -35,7 +51,15 @@ export function AjustesView({
 }: AjustesViewProps) {
   const isSupervisor = role === 'supervisor';
 
-  const [priceInput, setPriceInput] = useState((settings.comboPriceCents / 100).toFixed(2));
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(catalog.map((item) => [item.id, (item.priceCents / 100).toFixed(2)])),
+  );
+  const [confirmedFlags, setConfirmedFlags] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(catalog.map((item) => [item.id, !item.pricePendingConfirmation])),
+  );
+  const [allowOperatorReprint, setAllowOperatorReprint] = useState(
+    Boolean(settings.allowOperatorReprint),
+  );
   const [businessName, setBusinessName] = useState(settings.businessName);
   const [branchPhone, setBranchPhone] = useState(settings.branchPhone);
   const [scheduleText, setScheduleText] = useState(settings.scheduleText);
@@ -47,30 +71,52 @@ export function AjustesView({
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
-    setPriceInput((settings.comboPriceCents / 100).toFixed(2));
+    setPriceDrafts(
+      Object.fromEntries(catalog.map((item) => [item.id, (item.priceCents / 100).toFixed(2)])),
+    );
+    setConfirmedFlags(
+      Object.fromEntries(catalog.map((item) => [item.id, !item.pricePendingConfirmation])),
+    );
+    setAllowOperatorReprint(Boolean(settings.allowOperatorReprint));
     setBusinessName(settings.businessName);
     setBranchPhone(settings.branchPhone);
     setScheduleText(settings.scheduleText);
     setTicketFooter(settings.ticketFooter);
     setPaperWidth(settings.defaultPaperWidth);
     setFeedback(null);
-  }, [branchId, settings]);
+  }, [branchId, settings, catalog]);
 
   async function handleSave(event: React.FormEvent) {
     event.preventDefault();
     if (!isSupervisor || saving) return;
     setFeedback(null);
 
-    const comboPriceCents = parsePesosToCents(priceInput);
-    if (comboPriceCents === null || comboPriceCents < 100) {
-      setFeedback({ type: 'error', text: 'Captura un precio válido en MXN (mínimo $1.00).' });
-      return;
+    const updatedCatalog: CatalogItem[] = [];
+    for (const item of catalog) {
+      const parsedCents = parsePesosToCents(priceDrafts[item.id] ?? '');
+      if (parsedCents === null || parsedCents < 100) {
+        setFeedback({
+          type: 'error',
+          text: `Captura un precio válido en MXN para "${item.name}" (mínimo $1.00).`,
+        });
+        return;
+      }
+      updatedCatalog.push({
+        ...item,
+        priceCents: parsedCents,
+        pricePendingConfirmation: !confirmedFlags[item.id],
+      });
     }
+
+    const comboPriceCents =
+      updatedCatalog.find((item) => item.id === 'combo')?.priceCents ?? settings.comboPriceCents;
 
     setSaving(true);
     try {
       const result = await onSaveSettings(branchId, {
         comboPriceCents,
+        catalog: updatedCatalog,
+        allowOperatorReprint,
         businessName,
         branchPhone,
         scheduleText,
@@ -83,7 +129,7 @@ export function AjustesView({
       }
       setFeedback({
         type: 'success',
-        text: `Ajustes guardados para ${branchName}. Las nuevas órdenes usarán ${formatMxn(comboPriceCents)} por combo.`,
+        text: `Tarifas y comprobantes actualizados para ${branchName}. Las órdenes ya guardadas conservan su precio original.`,
       });
     } finally {
       setSaving(false);
@@ -114,7 +160,7 @@ export function AjustesView({
 
       {!isSupervisor && (
         <div className="alert alert-info">
-          Tu cuenta opera como <strong>Caja</strong> en {branchName}. La edición de precios y formato de ticket está reservada para <strong>Supervisión</strong>.
+          Tu cuenta opera como <strong>Caja</strong> en {branchName}. La edición de precios, catálogo y permisos está reservada para <strong>Supervisión</strong>.
         </div>
       )}
 
@@ -123,27 +169,58 @@ export function AjustesView({
           <h2 className="card-title">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <Tag size={18} aria-hidden="true" />
-              Tarifas y comprobantes · {branchName}
+              Catálogo, tarifas y comprobantes · {branchName}
             </span>
             <span className={`badge ${isSupervisor ? 'badge-success' : 'badge-warning'}`}>
               {isSupervisor ? 'Editable' : 'Solo lectura'}
             </span>
           </h2>
 
-          <div className="field">
-            <label htmlFor="settings-combo-price">Precio del combo Lavado + Secado (MXN)</label>
-            <input
-              id="settings-combo-price"
-              className="input"
-              inputMode="decimal"
-              value={priceInput}
-              disabled={!isSupervisor}
-              onChange={(event) => setPriceInput(event.target.value)}
-            />
-            <small className="muted">
-              Aplica a nuevas órdenes de {branchName}. Los folios anteriores conservan su importe original.
-            </small>
+          <div className="catalog-settings-list">
+            {catalog.map((item) => (
+              <div key={item.id} className="catalog-setting-row">
+                <div className="catalog-setting-top">
+                  <div>
+                    <strong>{item.name}</strong>
+                    {!confirmedFlags[item.id] && (
+                      <span className="badge badge-warning" style={{ marginLeft: 8 }}>
+                        Por confirmar con Carlos
+                      </span>
+                    )}
+                  </div>
+                  <div className="split-amount-wrap">
+                    <span>$</span>
+                    <input
+                      aria-label={`Precio de ${item.name} MXN`}
+                      className="input input-sm"
+                      inputMode="decimal"
+                      value={priceDrafts[item.id] ?? ''}
+                      disabled={!isSupervisor}
+                      onChange={(event) =>
+                        setPriceDrafts((prev) => ({ ...prev, [item.id]: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+                {isSupervisor && (
+                  <label className="checkbox-row" style={{ minHeight: 36, padding: '4px 8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(confirmedFlags[item.id])}
+                      onChange={(event) =>
+                        setConfirmedFlags((prev) => ({ ...prev, [item.id]: event.target.checked }))
+                      }
+                    />
+                    Precio confirmado para operación
+                  </label>
+                )}
+              </div>
+            ))}
           </div>
+
+          <small className="muted" style={{ display: 'block', marginBottom: 14 }}>
+            Los cambios aplican únicamente a nuevas órdenes en {branchName}; los folios previos conservan el precio capturado al venderse.
+          </small>
 
           <div className="field">
             <label htmlFor="settings-business-name">Nombre comercial en el ticket</label>
@@ -208,6 +285,16 @@ export function AjustesView({
               </button>
             </div>
           </div>
+
+          <label className="checkbox-row field">
+            <input
+              type="checkbox"
+              disabled={!isSupervisor}
+              checked={allowOperatorReprint}
+              onChange={(event) => setAllowOperatorReprint(event.target.checked)}
+            />
+            Permitir que Caja reimprima comprobantes ya emitidos
+          </label>
 
           <div className="field">
             <label htmlFor="settings-footer">Mensaje al pie del ticket</label>
@@ -292,6 +379,39 @@ export function AjustesView({
                 Cerrar sesión
               </button>
             </div>
+          </section>
+
+          <section className="card">
+            <h2 className="card-title">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <History size={18} aria-hidden="true" />
+                Auditoría reciente · {branchName}
+              </span>
+            </h2>
+            {auditLogs.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Aún no hay cambios de precios, confirmaciones externas o reimpresiones registradas en {branchName}.
+              </p>
+            ) : (
+              <div className="audit-list">
+                {auditLogs.slice(0, 12).map((entry) => (
+                  <div key={entry.id} className="audit-row">
+                    <div>
+                      <strong>{entry.message}</strong>
+                      <small className="muted">
+                        {entry.actor} ·{' '}
+                        {new Date(entry.createdAt).toLocaleString('es-MX', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </div>

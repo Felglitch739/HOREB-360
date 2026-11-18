@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
+  getBranchCatalog,
   getBranchInfo,
-  getBranchSettings,
   getOpenShift,
   getOrderPendingCents,
   suggestNextFolio,
@@ -20,7 +20,7 @@ interface MostradorViewProps {
   initialQuery: string;
   onCreateOrder: (input: CreateOrderInput) => Promise<{ ok: boolean; error?: string; order?: Order }>;
   onCapturePayment: (orderId: string, lines: PaymentInputLine[]) => Promise<{ ok: boolean; error?: string; order?: Order }>;
-  onConfirmPaymentLine: (lineId: string) => Promise<{ ok: boolean; error?: string }>;
+  onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<{ ok: boolean; error?: string }>;
   onAdvanceEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
   onDeliverEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
   onOpenTicket: (orderId: string) => void;
@@ -44,13 +44,13 @@ export function MostradorView({
   onOpenTicket,
 }: MostradorViewProps) {
   const branch = getBranchInfo(branchId);
-  const branchSettings = getBranchSettings(state, branchId);
+  const catalog = getBranchCatalog(state, branchId);
   const openShift = Boolean(getOpenShift(state, branchId));
 
   const [query, setQuery] = useState(initialQuery);
   const [filter, setFilter] = useState(initialFilter);
   const [checkoutId, setCheckoutId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string; orderId?: string } | null>(null);
 
   const checkoutOrder = state.orders.find((order) => order.id === checkoutId) ?? null;
   const suggestedFolio = suggestNextFolio(state, branchId);
@@ -65,8 +65,8 @@ export function MostradorView({
     return order.encargoStage === filter;
   });
 
-  async function handleConfirmPaymentLine(lineId: string) {
-    const result = await onConfirmPaymentLine(lineId);
+  async function handleConfirmPaymentLine(lineId: string, reference?: string) {
+    const result = await onConfirmPaymentLine(lineId, reference);
     if (!result.ok && result.error) setFeedback({ type: 'error', text: result.error });
   }
 
@@ -85,7 +85,7 @@ export function MostradorView({
       {(!ordersOnly || checkoutOrder) && (
         <CheckoutPanel
           branchName={branch.name}
-          comboPriceCents={branchSettings.comboPriceCents}
+          catalog={catalog}
           openShift={openShift}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}
@@ -94,6 +94,7 @@ export function MostradorView({
           onCancelCheckout={() => setCheckoutId(null)}
           onCreateOrder={(input) => onCreateOrder({ ...input, branchId })}
           onCapturePayment={onCapturePayment}
+          onOpenTicket={onOpenTicket}
         />
       )}
 

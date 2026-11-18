@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Minus, Plus, Receipt } from 'lucide-react';
 import { calculateTender, formatMxn } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
-import type { Order, ServiceType } from '../domain/types';
+import type { CatalogItem, Order, ServiceType } from '../domain/types';
 
 interface CheckoutPanelProps {
   branchName: string;
-  comboPriceCents: number;
+  catalog: CatalogItem[];
   openShift: boolean;
   suggestedFolio: string;
   checkoutOrder: Order | null;
-  feedback: { type: 'error' | 'success'; text: string } | null;
-  onFeedback: (next: { type: 'error' | 'success'; text: string } | null) => void;
+  feedback: { type: 'error' | 'success'; text: string; orderId?: string } | null;
+  onFeedback: (next: { type: 'error' | 'success'; text: string; orderId?: string } | null) => void;
   onCancelCheckout: () => void;
   onCreateOrder: (
     input: Omit<CreateOrderInput, 'branchId'>,
@@ -20,13 +20,12 @@ interface CheckoutPanelProps {
     orderId: string,
     lines: PaymentInputLine[],
   ) => Promise<{ ok: boolean; error?: string; order?: Order }>;
+  onOpenTicket: (orderId: string) => void;
 }
-
-const COMBO_PRESETS = [1, 2, 3, 5] as const;
 
 export function CheckoutPanel({
   branchName,
-  comboPriceCents,
+  catalog,
   openShift,
   suggestedFolio,
   checkoutOrder,
@@ -35,26 +34,24 @@ export function CheckoutPanel({
   onCancelCheckout,
   onCreateOrder,
   onCapturePayment,
+  onOpenTicket,
 }: CheckoutPanelProps) {
+  const activeCatalog = catalog.filter((item) => item.active);
   const [serviceType, setServiceType] = useState<ServiceType>('autoservicio');
-  const [folio, setFolio] = useState(suggestedFolio);
   const [customerAlias, setCustomerAlias] = useState('');
-  const [comboCountText, setComboCountText] = useState('1');
+  const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
+    [activeCatalog[0]?.id ?? 'combo']: 1,
+  }));
   const [payAtPickup, setPayAtPickup] = useState(true);
 
   const [cashInput, setCashInput] = useState('');
   const [cardInput, setCardInput] = useState('0');
   const [transferInput, setTransferInput] = useState('0');
   const [confirmCardNow, setConfirmCardNow] = useState(false);
+  const [cardReference, setCardReference] = useState('');
   const [confirmTransferNow, setConfirmTransferNow] = useState(false);
+  const [transferReference, setTransferReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  const parsedCombo = Number.parseInt(comboCountText, 10);
-  const comboCount = Number.isFinite(parsedCombo) && parsedCombo >= 1 ? parsedCombo : 1;
-
-  useEffect(() => {
-    setFolio(suggestedFolio);
-  }, [suggestedFolio]);
 
   useEffect(() => {
     if (checkoutOrder) {
@@ -62,12 +59,23 @@ export function CheckoutPanel({
       setCardInput('0');
       setTransferInput('0');
       setConfirmCardNow(false);
+      setCardReference('');
       setConfirmTransferNow(false);
+      setTransferReference('');
     }
   }, [checkoutOrder?.id]);
 
+  const selectedItems = activeCatalog
+    .map((item) => ({ item, quantity: quantities[item.id] ?? 0 }))
+    .filter((entry) => entry.quantity > 0);
+
+  const cartTotalCents = selectedItems.reduce(
+    (sum, entry) => sum + entry.item.priceCents * entry.quantity,
+    0,
+  );
+
   const deferPayment = !checkoutOrder && serviceType === 'encargo' && payAtPickup;
-  const totalCents = checkoutOrder?.totalCents ?? comboCount * comboPriceCents;
+  const totalCents = checkoutOrder?.totalCents ?? cartTotalCents;
   const tender = calculateTender(totalCents, cashInput, cardInput, transferInput);
 
   function resetPaymentInputs() {
@@ -75,11 +83,22 @@ export function CheckoutPanel({
     setCardInput('0');
     setTransferInput('0');
     setConfirmCardNow(false);
+    setCardReference('');
     setConfirmTransferNow(false);
+    setTransferReference('');
+  }
+
+  function updateItemQuantity(itemId: string, delta: number) {
+    setQuantities((prev) => {
+      const nextQty = Math.max(0, Math.min(99, (prev[itemId] ?? 0) + delta));
+      return { ...prev, [itemId]: nextQty };
+    });
+    onFeedback(null);
   }
 
   function setSingleMethod(method: 'efectivo' | 'tarjeta' | 'transferencia') {
-    const pesos = String(totalCents / 100);
+    if (totalCents <= 0) return;
+    const pesos = (totalCents / 100).toFixed(totalCents % 100 === 0 ? 0 : 2);
     setCashInput(method === 'efectivo' ? pesos : '0');
     setCardInput(method === 'tarjeta' ? pesos : '0');
     setTransferInput(method === 'transferencia' ? pesos : '0');
@@ -90,6 +109,11 @@ export function CheckoutPanel({
     e.preventDefault();
     if (submitting) return;
     onFeedback(null);
+
+    if (!checkoutOrder && selectedItems.length === 0) {
+      onFeedback({ type: 'error', text: 'Agrega al menos un servicio o producto al carrito.' });
+      return;
+    }
 
     const paymentLines: PaymentInputLine[] = [];
     let change = 0;
@@ -119,6 +143,7 @@ export function CheckoutPanel({
           method: 'tarjeta',
           amountCents: tender.card,
           confirmImmediately: confirmCardNow,
+          reference: cardReference.trim() || undefined,
         });
       }
       if (tender.transfer > 0) {
@@ -126,6 +151,7 @@ export function CheckoutPanel({
           method: 'transferencia',
           amountCents: tender.transfer,
           confirmImmediately: confirmTransferNow,
+          reference: transferReference.trim() || undefined,
         });
       }
     }
@@ -136,9 +162,11 @@ export function CheckoutPanel({
         ? await onCapturePayment(checkoutOrder.id, paymentLines)
         : await onCreateOrder({
             serviceType,
-            folio,
             customerAlias,
-            comboCount,
+            items: selectedItems.map(({ item, quantity }) => ({
+              itemId: item.id,
+              quantity,
+            })),
             paymentLines: deferPayment ? [] : paymentLines,
           });
 
@@ -147,17 +175,20 @@ export function CheckoutPanel({
         return;
       }
 
+      const savedOrder = res.order ?? checkoutOrder;
+      const savedFolio = savedOrder?.folio ?? '';
       onFeedback({
         type: 'success',
+        orderId: savedOrder?.id,
         text:
           (checkoutOrder
-            ? `Cobro registrado en ${checkoutOrder.folio}.`
-            : `Orden ${res.order?.folio} guardada en ${branchName}.`) +
+            ? `Cobro registrado en folio ${savedFolio}.`
+            : `Orden guardada · Folio ${savedFolio} (${branchName}).`) +
           (change > 0 ? ` Entrega ${formatMxn(change)} de cambio.` : ''),
       });
       if (checkoutOrder) onCancelCheckout();
       setCustomerAlias('');
-      setComboCountText('1');
+      setQuantities({ [activeCatalog[0]?.id ?? 'combo']: 1 });
       resetPaymentInputs();
     } finally {
       setSubmitting(false);
@@ -168,7 +199,9 @@ export function CheckoutPanel({
     <section id="checkout-form" className="card" aria-label="Registrar orden en mostrador">
       <h2 className="card-title">
         <span>{checkoutOrder ? `Cobrar ${checkoutOrder.folio}` : `Mostrador · ${branchName}`}</span>
-        <span className="badge badge-info">Combo {formatMxn(comboPriceCents)}</span>
+        <span className="badge badge-info">
+          {checkoutOrder ? 'Cobro pendiente' : `Sig. folio ${suggestedFolio}`}
+        </span>
       </h2>
 
       {!openShift && (
@@ -204,17 +237,6 @@ export function CheckoutPanel({
               </div>
             </div>
 
-            <div className="field">
-              <label htmlFor="folio-input">Folio de orden</label>
-              <input
-                id="folio-input"
-                className="input"
-                value={folio}
-                onChange={(e) => setFolio(e.target.value)}
-                placeholder="Ej. TRE-0001"
-              />
-            </div>
-
             {serviceType === 'encargo' && (
               <div className="field">
                 <label htmlFor="alias-input">Cliente / referencia</label>
@@ -229,52 +251,48 @@ export function CheckoutPanel({
             )}
 
             <div className="field">
-              <label htmlFor="combo-count">
-                Combo Lavado + Secado ({formatMxn(comboPriceCents)} c/u)
-              </label>
-              <div className="combo-presets" role="group" aria-label="Cantidad rápida de combos">
-                {COMBO_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    className={`combo-preset-chip ${comboCount === preset ? 'active' : ''}`}
-                    onClick={() => setComboCountText(String(preset))}
-                  >
-                    x{preset}
-                  </button>
-                ))}
+              <div className="catalog-head-row">
+                <label style={{ marginBottom: 0 }}>Servicios y productos</label>
+                <small className="muted">Folio único asignado al guardar</small>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setComboCountText(String(Math.max(1, comboCount - 1)))}
-                  aria-label="Disminuir combos"
-                >
-                  -
-                </button>
-                <input
-                  id="combo-count"
-                  className="input"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={comboCountText}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '');
-                    setComboCountText(digits);
-                  }}
-                  onBlur={() => setComboCountText(String(comboCount))}
-                  style={{ textAlign: 'center', fontWeight: 700 }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setComboCountText(String(comboCount + 1))}
-                  aria-label="Aumentar combos"
-                >
-                  +
-                </button>
+
+              <div className="catalog-grid">
+                {activeCatalog.map((item) => {
+                  const qty = quantities[item.id] ?? 0;
+                  return (
+                    <div key={item.id} className={`catalog-row ${qty > 0 ? 'selected' : ''}`}>
+                      <div className="catalog-row-info">
+                        <strong>{item.name}</strong>
+                        <small>
+                          {formatMxn(item.priceCents)} c/u
+                          {item.pricePendingConfirmation ? ' · Precio ref.' : ''}
+                        </small>
+                      </div>
+                      <div className="catalog-qty-controls">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm qty-btn"
+                          onClick={() => updateItemQuantity(item.id, -1)}
+                          disabled={qty === 0}
+                          aria-label={`Quitar ${item.name}`}
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="qty-value" aria-live="polite">
+                          {qty}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm qty-btn"
+                          onClick={() => updateItemQuantity(item.id, 1)}
+                          aria-label={`Agregar ${item.name}`}
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -332,7 +350,7 @@ export function CheckoutPanel({
 
               <div className="split-row">
                 <div className="split-row-top">
-                  <strong>Tarjeta</strong>
+                  <strong>Tarjeta (terminal)</strong>
                   <div className="split-amount-wrap">
                     <span>$</span>
                     <input
@@ -350,8 +368,18 @@ export function CheckoutPanel({
                     checked={confirmCardNow}
                     onChange={(e) => setConfirmCardNow(e.target.checked)}
                   />
-                  Confirmar cobro de tarjeta al guardar
+                  Registrar pago aprobado en terminal
                 </label>
+                {confirmCardNow && (
+                  <input
+                    className="input input-sm"
+                    aria-label="Referencia de pago en terminal"
+                    placeholder="Referencia / folio terminal (opcional)"
+                    value={cardReference}
+                    onChange={(e) => setCardReference(e.target.value)}
+                    maxLength={60}
+                  />
+                )}
               </div>
 
               <div className="split-row">
@@ -374,8 +402,18 @@ export function CheckoutPanel({
                     checked={confirmTransferNow}
                     onChange={(e) => setConfirmTransferNow(e.target.checked)}
                   />
-                  Confirmar transferencia al guardar
+                  Marcar transferencia verificada
                 </label>
+                {confirmTransferNow && (
+                  <input
+                    className="input input-sm"
+                    aria-label="Referencia de transferencia verificada"
+                    placeholder="Referencia bancaria / clave rastreo (opcional)"
+                    value={transferReference}
+                    onChange={(e) => setTransferReference(e.target.value)}
+                    maxLength={60}
+                  />
+                )}
               </div>
             </div>
 
@@ -397,11 +435,27 @@ export function CheckoutPanel({
             role={feedback.type === 'error' ? 'alert' : 'status'}
             className={`alert ${feedback.type === 'error' ? 'alert-error' : 'alert-success'}`}
           >
-            {feedback.text}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span>{feedback.text}</span>
+              {feedback.type === 'success' && feedback.orderId && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => onOpenTicket(feedback.orderId!)}
+                >
+                  <Receipt size={15} />
+                  Ver / emitir comprobante
+                </button>
+              )}
+            </div>
           </div>
         )}
 
-        <button type="submit" className="btn btn-primary btn-full" disabled={!openShift || submitting}>
+        <button
+          type="submit"
+          className="btn btn-primary btn-full checkout-submit-btn"
+          disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0)}
+        >
           <Plus size={18} />
           {checkoutOrder
             ? 'Guardar cobro'

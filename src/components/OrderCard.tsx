@@ -9,7 +9,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { formatMxn } from '../domain/money';
-import { ENCARGO_STAGES } from '../domain/rules';
+import { ENCARGO_STAGES, getOrderLineItems } from '../domain/rules';
 import type { EncargoStage, Order, PaymentLine, TicketState } from '../domain/types';
 
 interface OrderCardProps {
@@ -20,7 +20,7 @@ interface OrderCardProps {
   deliverCheck: { allowed: boolean; reason?: string };
   hasOpenShift: boolean;
   onStartCheckout: (order: Order) => void;
-  onConfirmPaymentLine: (lineId: string) => Promise<void>;
+  onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
   onAdvanceEncargo: (orderId: string) => Promise<void>;
   onDeliverEncargo: (orderId: string) => Promise<void>;
@@ -58,9 +58,11 @@ export function OrderCard({
 }: OrderCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [refDrafts, setRefDrafts] = useState<Record<string, string>>({});
   const currentStageIndex = order.encargoStage
     ? ENCARGO_STAGES.findIndex((s) => s.id === order.encargoStage)
     : -1;
+  const lineItems = getOrderLineItems(order);
 
   const firstPendingLine = paymentLines.find((line) => line.status === 'pendiente');
   const nextStageLabel = order.encargoStage ? NEXT_STAGE_LABEL[order.encargoStage] : undefined;
@@ -217,8 +219,8 @@ export function OrderCard({
         <div className="order-details">
           <div className="order-meta">
             <span>
-              {order.serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'} · Combo x
-              {order.comboCount} · {timeStr}
+              {order.serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'} ·{' '}
+              {lineItems.map((item) => `${item.name} x${item.quantity}`).join(' · ')} · {timeStr}
             </span>
           </div>
 
@@ -245,29 +247,67 @@ export function OrderCard({
             <div className="payment-chips">
               {paymentLines.map((line) => (
                 <div key={line.id} className="payment-chip">
-                  <span>
-                    {METHOD_LABEL[line.method]} {formatMxn(line.amountCents)}
-                  </span>
-                  {line.status === 'confirmado' ? (
-                    <span className="badge badge-success">
-                      <CheckCircle2 size={12} /> Confirmado
+                  <div className="payment-chip-main">
+                    <span>
+                      {METHOD_LABEL[line.method]} {formatMxn(line.amountCents)}
                     </span>
-                  ) : (
-                    <>
+                    {line.status === 'confirmado' ? (
+                      <span className="badge badge-success">
+                        <CheckCircle2 size={12} /> Confirmado
+                      </span>
+                    ) : (
                       <span className="badge badge-warning">
                         <Clock size={12} /> Pendiente
                       </span>
+                    )}
+                  </div>
+
+                  {line.status === 'confirmado' && (line.reference || line.confirmedBy) && (
+                    <small className="payment-chip-meta">
+                      {line.reference ? `Ref: ${line.reference} · ` : ''}
+                      {line.confirmedBy ? `Confirmado por ${line.confirmedBy}` : ''}
+                      {line.confirmedAt
+                        ? ` (${new Date(line.confirmedAt).toLocaleString('es-MX', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })})`
+                        : ''}
+                    </small>
+                  )}
+
+                  {line.status === 'pendiente' && (
+                    <div className="payment-confirm-inline">
+                      <input
+                        className="input input-sm"
+                        placeholder={
+                          line.method === 'tarjeta'
+                            ? 'Ref. terminal (opcional)'
+                            : 'Ref. bancaria (opcional)'
+                        }
+                        aria-label={`Referencia de ${METHOD_LABEL[line.method]} para ${order.folio}`}
+                        value={refDrafts[line.id] ?? ''}
+                        onChange={(event) =>
+                          setRefDrafts((prev) => ({ ...prev, [line.id]: event.target.value }))
+                        }
+                        maxLength={60}
+                      />
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
                         disabled={busyAction !== null}
                         onClick={() =>
-                          void runBusy(`confirm-${line.id}`, () => onConfirmPaymentLine(line.id))
+                          void runBusy(`confirm-${line.id}`, () =>
+                            onConfirmPaymentLine(line.id, refDrafts[line.id]?.trim() || undefined),
+                          )
                         }
                       >
-                        Confirmar
+                        {line.method === 'tarjeta'
+                          ? 'Registrar pago aprobado en terminal'
+                          : 'Marcar transferencia verificada'}
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               ))}
