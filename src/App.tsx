@@ -4,6 +4,7 @@ import { AdminView } from './components/AdminView';
 import { CajaView } from './components/CajaView';
 import { MostradorView } from './components/MostradorView';
 import { Overview } from './components/Overview';
+import { SharedStatus } from './components/SharedStatus';
 import { TicketModal } from './components/TicketModal';
 import { BRANCHES, getBranchInfo, getOpenShift, getOrderPaymentLines, type CreateOrderInput, type PaymentInputLine } from './domain/rules';
 import { operate, type Operation } from './domain/operations';
@@ -142,7 +143,6 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
         <div className="sidebar-footer">
           <div className="demo-status"><i aria-hidden="true" /> {shared ? 'Demo compartida' : 'Demo local'}</div>
           {onSwitchMode && <button className="reset-button" onClick={onSwitchMode}>{shared ? 'Ir a demo local' : 'Abrir demo compartida'}</button>}
-          {shared && <button className="reset-button" onClick={shared.signOut}>Cerrar sesión</button>}
           {!shared && (confirmReset ? <div className="reset-actions">
             <button className="btn btn-danger btn-sm" onClick={handleResetDemo}>Confirmar reinicio</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setConfirmReset(false)}>Cancelar</button>
@@ -153,7 +153,6 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
         <header className="workspace-header">
           <div className="breadcrumb">Operación <span>/</span> <strong>{navigation.find((entry) => entry.id === activeTab)?.label}</strong></div>
           <div className="workspace-actions">
-            {shared && <button className="btn btn-secondary btn-sm" onClick={() => void shared.reload()}>Actualizar</button>}
             <span className={'shift-pill' + (openShift ? ' open' : '')}><i aria-hidden="true" />{openShift ? 'Turno ' + openShift.number + ' abierto' : 'Caja cerrada'}</span>
             <label className="branch-select"><MapPin size={17} aria-hidden="true" /><span className="sr-only">Sucursal</span>
               <select value={activeBranchId} onChange={(event) => handleSelectBranch(event.target.value as BranchId)}>
@@ -163,6 +162,14 @@ export function App({ shared, onSwitchMode, sharedNotice }: {
           </div>
         </header>
       <main className="main-content">
+        {shared && (
+          <SharedStatus
+            branchName={getBranchInfo(activeBranchId).name}
+            role={shared.roles[activeBranchId] ?? 'operator'}
+            onReload={shared.reload}
+            onSignOut={shared.signOut}
+          />
+        )}
         {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
         {activeTab === 'inicio' && <Overview state={state} branchId={activeBranchId}
           onNew={() => navigate('mostrador')} onOrders={showOrders} canLoadExamples={!shared && hasPristineDemo(state)}
