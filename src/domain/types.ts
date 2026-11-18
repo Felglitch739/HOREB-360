@@ -76,6 +76,25 @@ export interface OrderLineItem {
   loyaltyCredits?: number;
 }
 
+export type MachineKind = 'lavadora' | 'secadora';
+
+export type MachineStatus = 'disponible' | 'en_uso' | 'fuera_de_servicio';
+
+export interface Machine {
+  id: string;
+  branchId: BranchId;
+  code: string;
+  name: string;
+  kind: MachineKind;
+  status: MachineStatus;
+  currentOrderId: string | null;
+  currentOrderFolio?: string | null;
+  cycles: number;
+  outOfServiceReason?: string | null;
+  updatedAt: string;
+  updatedBy?: string | null;
+}
+
 export interface Order {
   id: string;
   folio: string;
@@ -93,6 +112,12 @@ export interface Order {
   totalCents: number;
   encargoStage: EncargoStage | null;
   orderStatus: OrderStatus;
+  assignedMachineIds?: string[];
+  assignedMachineLabels?: string[];
+  whatsappPreparedAt?: string | null;
+  whatsappMessage?: string | null;
+  whatsappSentAt?: string | null;
+  whatsappSentBy?: string | null;
   createdAt: string;
   deliveredAt: string | null;
 }
@@ -100,7 +125,7 @@ export interface Order {
 export interface BranchAuditEntry {
   id: string;
   branchId: BranchId;
-  category: 'precio' | 'pago' | 'ticket' | 'caja';
+  category: 'precio' | 'pago' | 'ticket' | 'caja' | 'equipo' | 'aviso';
   message: string;
   actor: string;
   createdAt: string;
@@ -158,5 +183,6 @@ export interface DemoState {
   shifts: Shift[];
   nextFolioSeq: Record<BranchId, number>;
   settings?: Partial<Record<BranchId, BranchSettings>>;
+  machines?: Machine[];
   auditLogs?: BranchAuditEntry[];
 }

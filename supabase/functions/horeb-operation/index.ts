@@ -39,6 +39,8 @@ const catalogItemSchema = z.object({
   active: z.boolean(),
 });
 
+const machineIdsSchema = z.array(z.string().trim().min(1).max(60)).max(20);
+
 const requestSchema = z.object({
   branch: z.enum(['lomas', 'trevino', 'sucursal-3']),
   version: z.number().int().min(0).max(2147483646),
@@ -52,15 +54,35 @@ const requestSchema = z.object({
         customerAlias: z.string().trim().max(100).optional(),
         comboCount: z.number().int().min(1).max(100).optional(),
         items: orderItemsSchema.optional(),
+        machineIds: machineIdsSchema.optional(),
         paymentLines: lines,
       }),
     }),
     z.object({ action: z.literal('capture'), orderId: id, lines }),
     z.object({ action: z.literal('confirm'), lineId: id, reference: z.string().trim().max(60).optional() }),
-    z.object({ action: z.literal('advance'), orderId: id }),
+    z.object({ action: z.literal('advance'), orderId: id, machineIds: machineIdsSchema.optional() }),
     z.object({ action: z.literal('deliver'), orderId: id }),
     z.object({ action: z.literal('emit'), orderId: id, simulateFailure: z.boolean() }),
     z.object({ action: z.literal('reprint'), orderId: id }),
+    z.object({
+      action: z.literal('upsertMachine'),
+      machine: z.object({
+        id: id.optional(),
+        code: z.string().trim().min(1).max(12),
+        name: z.string().trim().min(1).max(50),
+        kind: z.enum(['lavadora', 'secadora']),
+      }),
+    }),
+    z.object({ action: z.literal('deleteMachine'), machineId: id }),
+    z.object({ action: z.literal('seedSampleMachines') }),
+    z.object({
+      action: z.literal('setMachineStatus'),
+      machineId: id,
+      status: z.enum(['disponible', 'fuera_de_servicio']),
+      reason: z.string().trim().max(100).optional(),
+    }),
+    z.object({ action: z.literal('assignMachines'), orderId: id, machineIds: machineIdsSchema }),
+    z.object({ action: z.literal('recordWhatsappSent'), orderId: id }),
     z.object({ action: z.literal('openShift'), amount }),
     z.object({ action: z.literal('closeShift'), amount }),
     z.object({
@@ -158,7 +180,21 @@ Deno.serve(async (request) => {
   const persisted = data as BranchRow;
   const order = result.order && persisted.state.orders?.find((item) => item.folio === result.order?.folio);
 
-  if (['updateSettings', 'confirm', 'reprint', 'closeShift', 'openShift', 'movement'].includes(operation.action)) {
+  if (
+    [
+      'updateSettings',
+      'confirm',
+      'reprint',
+      'closeShift',
+      'openShift',
+      'movement',
+      'upsertMachine',
+      'deleteMachine',
+      'setMachineStatus',
+      'assignMachines',
+      'recordWhatsappSent',
+    ].includes(operation.action)
+  ) {
     const latestAudit = persisted.state.auditLogs?.[0];
     await admin.from('horeb_audit_logs').insert({
       branch_id: branch,

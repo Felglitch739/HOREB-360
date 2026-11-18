@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Minus, Plus, Receipt } from 'lucide-react';
 import { calculateTender, formatMxn } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
-import type { CatalogItem, Order, ServiceType } from '../domain/types';
+import type { CatalogItem, Machine, Order, ServiceType } from '../domain/types';
 
 interface CheckoutPanelProps {
   branchName: string;
   catalog: CatalogItem[];
+  machines: Machine[];
   openShift: boolean;
   suggestedFolio: string;
   checkoutOrder: Order | null;
@@ -26,6 +27,7 @@ interface CheckoutPanelProps {
 export function CheckoutPanel({
   branchName,
   catalog,
+  machines,
   openShift,
   suggestedFolio,
   checkoutOrder,
@@ -42,6 +44,7 @@ export function CheckoutPanel({
   const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
     [activeCatalog[0]?.id ?? 'combo']: 1,
   }));
+  const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
   const [payAtPickup, setPayAtPickup] = useState(true);
 
   const [cashInput, setCashInput] = useState('');
@@ -103,6 +106,15 @@ export function CheckoutPanel({
     setCardInput(method === 'tarjeta' ? pesos : '0');
     setTransferInput(method === 'transferencia' ? pesos : '0');
     onFeedback(null);
+  }
+
+  const washers = machines.filter((m) => m.kind === 'lavadora');
+  const needsMachine = selectedItems.some((entry) => entry.item.requiresMachine);
+
+  function toggleMachine(machineId: string) {
+    setSelectedMachineIds((prev) =>
+      prev.includes(machineId) ? prev.filter((id) => id !== machineId) : [...prev, machineId],
+    );
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -167,6 +179,7 @@ export function CheckoutPanel({
               itemId: item.id,
               quantity,
             })),
+            machineIds: needsMachine && selectedMachineIds.length > 0 ? selectedMachineIds : undefined,
             paymentLines: deferPayment ? [] : paymentLines,
           });
 
@@ -189,6 +202,7 @@ export function CheckoutPanel({
       if (checkoutOrder) onCancelCheckout();
       setCustomerAlias('');
       setQuantities({ [activeCatalog[0]?.id ?? 'combo']: 1 });
+      setSelectedMachineIds([]);
       resetPaymentInputs();
     } finally {
       setSubmitting(false);
@@ -236,6 +250,37 @@ export function CheckoutPanel({
                 </button>
               </div>
             </div>
+
+            {needsMachine && washers.length > 0 && (
+              <div className="field">
+                <label>Asignar lavadora (opcional)</label>
+                <div className="machine-picker" role="group" aria-label="Lavadoras de la sucursal">
+                  {washers.map((machine) => {
+                    const available = machine.status === 'disponible';
+                    const active = selectedMachineIds.includes(machine.id);
+                    return (
+                      <button
+                        key={machine.id}
+                        type="button"
+                        disabled={!available}
+                        aria-pressed={active}
+                        className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
+                        onClick={() => toggleMachine(machine.id)}
+                      >
+                        <strong>{machine.code}</strong>
+                        <small>
+                          {machine.status === 'disponible'
+                            ? 'Disponible'
+                            : machine.status === 'en_uso'
+                              ? `En uso (${machine.currentOrderFolio ?? ''})`
+                              : 'Fuera de serv.'}
+                        </small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {serviceType === 'encargo' && (
               <div className="field">
@@ -295,6 +340,37 @@ export function CheckoutPanel({
                 })}
               </div>
             </div>
+
+            {needsMachine && washers.length > 0 && (
+              <div className="field">
+                <label>Asignar lavadora (opcional)</label>
+                <div className="machine-picker" role="group" aria-label="Lavadoras de la sucursal">
+                  {washers.map((machine) => {
+                    const available = machine.status === 'disponible';
+                    const active = selectedMachineIds.includes(machine.id);
+                    return (
+                      <button
+                        key={machine.id}
+                        type="button"
+                        disabled={!available}
+                        aria-pressed={active}
+                        className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
+                        onClick={() => toggleMachine(machine.id)}
+                      >
+                        <strong>{machine.code}</strong>
+                        <small>
+                          {machine.status === 'disponible'
+                            ? 'Disponible'
+                            : machine.status === 'en_uso'
+                              ? `En uso (${machine.currentOrderFolio ?? ''})`
+                              : 'Fuera de serv.'}
+                        </small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {serviceType === 'encargo' && (
               <label className="checkbox-row field">

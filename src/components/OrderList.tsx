@@ -2,6 +2,7 @@ import { Search, X } from 'lucide-react';
 import {
   ENCARGO_STAGES,
   canDeliverOrder,
+  getBranchMachines,
   getOrderPaymentLines,
   getOrderPendingCents,
 } from '../domain/rules';
@@ -24,8 +25,9 @@ interface OrderListProps {
   onStartCheckout: (order: Order) => void;
   onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
-  onAdvanceEncargo: (orderId: string) => Promise<void>;
+  onAdvanceEncargo: (orderId: string, machineIds?: string[]) => Promise<void>;
   onDeliverEncargo: (orderId: string) => Promise<void>;
+  onRecordWhatsappSent: (orderId: string) => Promise<void>;
 }
 
 export function OrderList({
@@ -45,6 +47,7 @@ export function OrderList({
   onOpenTicket,
   onAdvanceEncargo,
   onDeliverEncargo,
+  onRecordWhatsappSent,
 }: OrderListProps) {
   const filterOptions = [
     { value: 'todas', label: 'Todas las órdenes' },
@@ -108,20 +111,22 @@ export function OrderList({
       ) : (
         <div className="order-list">
           {matchingOrders.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              paymentLines={getOrderPaymentLines(state, order.id)}
-              ticket={state.tickets[order.id]}
-              pendingCents={getOrderPendingCents(state, order.id)}
-              deliverCheck={canDeliverOrder(state, order.id)}
-              hasOpenShift={hasOpenShift}
-              onStartCheckout={onStartCheckout}
-              onConfirmPaymentLine={onConfirmPaymentLine}
-              onOpenTicket={onOpenTicket}
-              onAdvanceEncargo={onAdvanceEncargo}
-              onDeliverEncargo={onDeliverEncargo}
-            />
+              <OrderCard
+                key={order.id}
+                order={order}
+                branchMachines={getBranchMachines(state, order.branchId)}
+                paymentLines={getOrderPaymentLines(state, order.id)}
+                ticket={state.tickets[order.id]}
+                pendingCents={getOrderPendingCents(state, order.id)}
+                deliverCheck={canDeliverOrder(state, order.id)}
+                hasOpenShift={hasOpenShift}
+                onStartCheckout={onStartCheckout}
+                onConfirmPaymentLine={onConfirmPaymentLine}
+                onOpenTicket={onOpenTicket}
+                onAdvanceEncargo={onAdvanceEncargo}
+                onDeliverEncargo={onDeliverEncargo}
+                onRecordWhatsappSent={onRecordWhatsappSent}
+              />
           ))}
         </div>
       )}

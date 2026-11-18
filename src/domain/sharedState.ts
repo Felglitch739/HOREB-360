@@ -12,6 +12,7 @@ export function combineBranches(rows: BranchRow[]): DemoState {
     activeBranchId: rows[0]?.branch_id ?? initial.activeBranchId,
     shifts: [],
     settings,
+    machines: [],
     auditLogs: [],
   };
   for (const { branch_id, updated_at, state: saved } of rows) {
@@ -22,6 +23,9 @@ export function combineBranches(rows: BranchRow[]): DemoState {
     state.nextFolioSeq[branch_id] = saved.nextFolioSeq?.[branch_id] ?? 1;
     if (saved.settings?.[branch_id]) {
       settings[branch_id] = saved.settings[branch_id];
+    }
+    if (saved.machines?.length) {
+      state.machines!.push(...saved.machines);
     }
     if (saved.auditLogs?.length) {
       state.auditLogs!.push(...saved.auditLogs);

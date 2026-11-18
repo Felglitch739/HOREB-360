@@ -4,16 +4,19 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  ExternalLink,
+  MessageCircle,
   PackageCheck,
   Receipt,
   Sparkles,
 } from 'lucide-react';
 import { formatMxn } from '../domain/money';
-import { ENCARGO_STAGES, getOrderLineItems } from '../domain/rules';
-import type { EncargoStage, Order, PaymentLine, TicketState } from '../domain/types';
+import { ENCARGO_STAGES, buildOrderReadyWhatsappMessage, getBranchInfo, getOrderLineItems } from '../domain/rules';
+import type { EncargoStage, Machine, Order, PaymentLine, TicketState } from '../domain/types';
 
 interface OrderCardProps {
   order: Order;
+  branchMachines: Machine[];
   paymentLines: PaymentLine[];
   ticket?: TicketState;
   pendingCents: number;
@@ -22,8 +25,9 @@ interface OrderCardProps {
   onStartCheckout: (order: Order) => void;
   onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
-  onAdvanceEncargo: (orderId: string) => Promise<void>;
+  onAdvanceEncargo: (orderId: string, machineIds?: string[]) => Promise<void>;
   onDeliverEncargo: (orderId: string) => Promise<void>;
+  onRecordWhatsappSent: (orderId: string) => Promise<void>;
 }
 
 const STAGE_LABELS = Object.fromEntries(ENCARGO_STAGES.map((s) => [s.id, s.label])) as Record<
@@ -45,6 +49,7 @@ const METHOD_LABEL: Record<PaymentLine['method'], string> = {
 
 export function OrderCard({
   order,
+  branchMachines,
   paymentLines,
   ticket,
   pendingCents,
@@ -55,14 +60,31 @@ export function OrderCard({
   onOpenTicket,
   onAdvanceEncargo,
   onDeliverEncargo,
+  onRecordWhatsappSent,
 }: OrderCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [refDrafts, setRefDrafts] = useState<Record<string, string>>({});
+  const [selectedNextMachines, setSelectedNextMachines] = useState<string[]>([]);
   const currentStageIndex = order.encargoStage
     ? ENCARGO_STAGES.findIndex((s) => s.id === order.encargoStage)
     : -1;
   const lineItems = getOrderLineItems(order);
+
+  const nextMachineKind =
+    order.encargoStage === 'recibido'
+      ? 'lavadora'
+      : order.encargoStage === 'lavado'
+        ? 'secadora'
+        : null;
+  const candidateMachines = nextMachineKind
+    ? branchMachines.filter((m) => m.kind === nextMachineKind)
+    : [];
+
+  const whatsappMessage =
+    order.whatsappMessage ??
+    buildOrderReadyWhatsappMessage(order, getBranchInfo(order.branchId).name, pendingCents);
+  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMessage)}`;
 
   const firstPendingLine = paymentLines.find((line) => line.status === 'pendiente');
   const nextStageLabel = order.encargoStage ? NEXT_STAGE_LABEL[order.encargoStage] : undefined;
@@ -222,6 +244,15 @@ export function OrderCard({
               {order.serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'} ·{' '}
               {lineItems.map((item) => `${item.name} x${item.quantity}`).join(' · ')} · {timeStr}
             </span>
+            {order.assignedMachineLabels && order.assignedMachineLabels.length > 0 && (
+              <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {order.assignedMachineLabels.map((label) => (
+                  <span key={label} className="badge badge-info">
+                    Equipo: {label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {order.serviceType === 'encargo' && order.encargoStage && (
@@ -314,6 +345,91 @@ export function OrderCard({
             </div>
           )}
 
+          {order.serviceType === 'encargo' && nextStageLabel && candidateMachines.length > 0 && (
+            <div className="field" style={{ marginTop: 8 }}>
+              <label style={{ fontSize: '0.82rem' }}>
+                Asignar {nextMachineKind === 'lavadora' ? 'lavadora(s)' : 'secadora(s)'} al avanzar (libera el equipo previo)
+              </label>
+              <div className="machine-picker">
+                {candidateMachines.map((machine) => {
+                  const available = machine.status === 'disponible';
+                  const active = selectedNextMachines.includes(machine.id);
+                  return (
+                    <button
+                      key={machine.id}
+                      type="button"
+                      disabled={!available}
+                      aria-pressed={active}
+                      className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
+                      onClick={() =>
+                        setSelectedNextMachines((prev) =>
+                          prev.includes(machine.id)
+                            ? prev.filter((id) => id !== machine.id)
+                            : [...prev, machine.id],
+                        )
+                      }
+                    >
+                      <strong>{machine.code}</strong>
+                      <small>
+                        {machine.status === 'disponible'
+                          ? 'Libre'
+                          : machine.status === 'en_uso'
+                            ? `En uso (${machine.currentOrderFolio ?? ''})`
+                            : 'Fuera serv.'}
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {order.serviceType === 'encargo' && order.encargoStage === 'listo' && (
+            <div className="whatsapp-box">
+              <div className="whatsapp-box-head">
+                <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <MessageCircle size={15} />
+                  Aviso al cliente · Folio {order.folio}
+                </strong>
+                {order.whatsappSentAt ? (
+                  <span className="badge badge-success">
+                    Aviso enviado ({new Date(order.whatsappSentAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})
+                  </span>
+                ) : (
+                  <span className="badge badge-warning">Pendiente de enviar</span>
+                )}
+              </div>
+              <p className="whatsapp-preview">{whatsappMessage}</p>
+              <div className="order-actions">
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary btn-sm"
+                >
+                  <ExternalLink size={14} />
+                  Abrir WhatsApp
+                </a>
+                {!order.whatsappSentAt && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={busyAction !== null}
+                    onClick={() => void runBusy('wa-sent', () => onRecordWhatsappSent(order.id))}
+                  >
+                    <CheckCircle2 size={14} />
+                    Registrar aviso enviado
+                  </button>
+                )}
+              </div>
+              {order.whatsappSentBy && (
+                <small className="muted" style={{ display: 'block', marginTop: 4 }}>
+                  Registrado por {order.whatsappSentBy}
+                </small>
+              )}
+            </div>
+          )}
+
           <div className="order-actions">
             {paymentLines.length === 0 && order.serviceType === 'encargo' && (
               <button
@@ -352,7 +468,13 @@ export function OrderCard({
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled={busyAction !== null}
-                onClick={() => void runBusy('advance', () => onAdvanceEncargo(order.id))}
+                onClick={() =>
+                  void runBusy('advance', async () => {
+                    const machinesToAssign = selectedNextMachines.length > 0 ? selectedNextMachines : undefined;
+                    await onAdvanceEncargo(order.id, machinesToAssign);
+                    setSelectedNextMachines([]);
+                  })
+                }
               >
                 <Sparkles size={16} />
                 {nextStageLabel}

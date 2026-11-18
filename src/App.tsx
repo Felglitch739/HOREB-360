@@ -17,19 +17,21 @@ import {
 } from './domain/rules';
 import { type Operation } from './domain/operations';
 import type { SharedWorkspace } from './Root';
-import type { BranchId, BranchSettings, CashMovement } from './domain/types';
+import type { BranchId, BranchSettings, CashMovement, MachineKind, MachineStatus } from './domain/types';
 import type { BrandTheme } from './theme';
 
 const AdminView = lazy(() => import('./components/AdminView').then((m) => ({ default: m.AdminView })));
 const AjustesView = lazy(() => import('./components/AjustesView').then((m) => ({ default: m.AjustesView })));
 const AppTour = lazy(() => import('./components/AppTour').then((m) => ({ default: m.AppTour })));
 const CajaView = lazy(() => import('./components/CajaView').then((m) => ({ default: m.CajaView })));
+const EquiposView = lazy(() => import('./components/EquiposView').then((m) => ({ default: m.EquiposView })));
 const TicketModal = lazy(() => import('./components/TicketModal').then((m) => ({ default: m.TicketModal })));
 
 const navigation = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
   { id: 'mostrador', label: 'Mostrador', icon: Store },
   { id: 'ordenes', label: 'Órdenes', icon: ClipboardList },
+  { id: 'equipos', label: 'Equipos', icon: WashingMachine },
   { id: 'caja', label: 'Caja', icon: Wallet },
   { id: 'admin', label: 'Reportes', icon: BarChart3 },
 ] as const;
@@ -97,12 +99,40 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
     return run(branch, { action: 'confirm', lineId, reference });
   }
 
-  function handleAdvanceEncargo(orderId: string) {
-    return run(resolveOrderBranch(orderId), { action: 'advance', orderId });
+  function handleAdvanceEncargo(orderId: string, machineIds?: string[]) {
+    return run(resolveOrderBranch(orderId), { action: 'advance', orderId, machineIds });
   }
 
   function handleDeliverEncargo(orderId: string) {
     return run(resolveOrderBranch(orderId), { action: 'deliver', orderId });
+  }
+
+  function handleRecordWhatsappSent(orderId: string) {
+    return run(resolveOrderBranch(orderId), { action: 'recordWhatsappSent', orderId });
+  }
+
+  function handleUpsertMachine(
+    branch: BranchId,
+    machine: { id?: string; code: string; name: string; kind: MachineKind },
+  ) {
+    return run(branch, { action: 'upsertMachine', machine });
+  }
+
+  function handleDeleteMachine(branch: BranchId, machineId: string) {
+    return run(branch, { action: 'deleteMachine', machineId });
+  }
+
+  function handleSeedSampleMachines(branch: BranchId) {
+    return run(branch, { action: 'seedSampleMachines' });
+  }
+
+  function handleSetMachineStatus(
+    branch: BranchId,
+    machineId: string,
+    status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>,
+    reason?: string,
+  ) {
+    return run(branch, { action: 'setMachineStatus', machineId, status, reason });
   }
 
   function handleEmitTicket(orderId: string, simulateFailure: boolean) {
@@ -225,11 +255,25 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               onConfirmPaymentLine={handleConfirmPaymentLine}
               onAdvanceEncargo={handleAdvanceEncargo}
               onDeliverEncargo={handleDeliverEncargo}
+              onRecordWhatsappSent={handleRecordWhatsappSent}
               onOpenTicket={(id) => setTicketOrderId(id)}
             />
           )}
 
           <Suspense fallback={<p className="muted" role="status">Cargando sección…</p>}>
+            {activeTab === 'equipos' && (
+              <EquiposView
+                key={activeBranchId}
+                state={state}
+                branchId={activeBranchId}
+                role={activeRole}
+                onUpsertMachine={handleUpsertMachine}
+                onDeleteMachine={handleDeleteMachine}
+                onSeedSampleMachines={handleSeedSampleMachines}
+                onSetMachineStatus={handleSetMachineStatus}
+              />
+            )}
+
             {activeTab === 'caja' && (
               <CajaView
                 key={activeBranchId}

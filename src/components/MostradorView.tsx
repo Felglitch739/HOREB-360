@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   getBranchCatalog,
   getBranchInfo,
+  getBranchMachines,
   getOpenShift,
   getOrderPendingCents,
   suggestNextFolio,
@@ -21,8 +22,9 @@ interface MostradorViewProps {
   onCreateOrder: (input: CreateOrderInput) => Promise<{ ok: boolean; error?: string; order?: Order }>;
   onCapturePayment: (orderId: string, lines: PaymentInputLine[]) => Promise<{ ok: boolean; error?: string; order?: Order }>;
   onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<{ ok: boolean; error?: string }>;
-  onAdvanceEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
+  onAdvanceEncargo: (orderId: string, machineIds?: string[]) => Promise<{ ok: boolean; error?: string }>;
   onDeliverEncargo: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
+  onRecordWhatsappSent: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
   onOpenTicket: (orderId: string) => void;
 }
 
@@ -41,10 +43,12 @@ export function MostradorView({
   onConfirmPaymentLine,
   onAdvanceEncargo,
   onDeliverEncargo,
+  onRecordWhatsappSent,
   onOpenTicket,
 }: MostradorViewProps) {
   const branch = getBranchInfo(branchId);
   const catalog = getBranchCatalog(state, branchId);
+  const machines = getBranchMachines(state, branchId);
   const openShift = Boolean(getOpenShift(state, branchId));
 
   const [query, setQuery] = useState(initialQuery);
@@ -70,13 +74,18 @@ export function MostradorView({
     if (!result.ok && result.error) setFeedback({ type: 'error', text: result.error });
   }
 
-  async function handleAdvanceEncargo(orderId: string) {
-    const result = await onAdvanceEncargo(orderId);
+  async function handleAdvanceEncargo(orderId: string, machineIds?: string[]) {
+    const result = await onAdvanceEncargo(orderId, machineIds);
     if (!result.ok && result.error) setFeedback({ type: 'error', text: result.error });
   }
 
   async function handleDeliverEncargo(orderId: string) {
     const result = await onDeliverEncargo(orderId);
+    if (!result.ok && result.error) setFeedback({ type: 'error', text: result.error });
+  }
+
+  async function handleRecordWhatsappSent(orderId: string) {
+    const result = await onRecordWhatsappSent(orderId);
     if (!result.ok && result.error) setFeedback({ type: 'error', text: result.error });
   }
 
@@ -86,6 +95,7 @@ export function MostradorView({
         <CheckoutPanel
           branchName={branch.name}
           catalog={catalog}
+          machines={machines}
           openShift={openShift}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}
@@ -121,6 +131,7 @@ export function MostradorView({
         onOpenTicket={onOpenTicket}
         onAdvanceEncargo={handleAdvanceEncargo}
         onDeliverEncargo={handleDeliverEncargo}
+        onRecordWhatsappSent={handleRecordWhatsappSent}
       />
     </div>
   );

@@ -8,6 +8,9 @@ import type {
   CatalogItem,
   DemoState,
   EncargoStage,
+  Machine,
+  MachineKind,
+  MachineStatus,
   Order,
   OrderLineItem,
   PaymentLine,
@@ -92,9 +95,50 @@ export interface CreateOrderInput {
   customerAlias?: string;
   comboCount?: number;
   items?: OrderItemInput[];
+  machineIds?: string[];
   paymentLines: PaymentInputLine[];
   now?: string;
   actorLabel?: string;
+}
+
+export function getBranchMachines(state: DemoState, branchId: BranchId): Machine[] {
+  return (state.machines ?? [])
+    .filter((m) => m.branchId === branchId)
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'lavadora' ? -1 : 1;
+      return a.code.localeCompare(b.code, 'es-MX', { numeric: true });
+    });
+}
+
+export function buildSampleBranchMachines(
+  branchId: BranchId,
+  now = new Date().toISOString(),
+): Machine[] {
+  const washers: Machine[] = Array.from({ length: 5 }, (_, idx) => ({
+    id: `${branchId}-L${idx + 1}`,
+    branchId,
+    code: `L${idx + 1}`,
+    name: `Lavadora #${idx + 1}`,
+    kind: 'lavadora',
+    status: 'disponible',
+    currentOrderId: null,
+    currentOrderFolio: null,
+    cycles: (idx + 1) * 12,
+    updatedAt: now,
+  }));
+  const dryers: Machine[] = Array.from({ length: 5 }, (_, idx) => ({
+    id: `${branchId}-S${idx + 1}`,
+    branchId,
+    code: `S${idx + 1}`,
+    name: `Secadora #${idx + 1}`,
+    kind: 'secadora',
+    status: 'disponible',
+    currentOrderId: null,
+    currentOrderFolio: null,
+    cycles: (idx + 1) * 9,
+    updatedAt: now,
+  }));
+  return [...washers, ...dryers];
 }
 
 export type DomainResult<T> =
@@ -590,6 +634,29 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
 
   const orderId = `ord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
+  const requestedMachineIds = Array.from(new Set(input.machineIds ?? []));
+  let nextMachines = state.machines ?? [];
+  let assignedLabels: string[] = [];
+
+  if (requestedMachineIds.length > 0) {
+    const check = validateMachinesAvailableForOrder(state, input.branchId, requestedMachineIds);
+    if (!check.ok) return check;
+    assignedLabels = check.machines.map((m) => `${m.code} (${m.name})`);
+    const selectedSet = new Set(requestedMachineIds);
+    nextMachines = nextMachines.map((m) =>
+      selectedSet.has(m.id)
+        ? {
+            ...m,
+            status: 'en_uso',
+            currentOrderId: orderId,
+            currentOrderFolio: folio,
+            updatedAt: now,
+            updatedBy: input.actorLabel ?? 'Mostrador',
+          }
+        : m,
+    );
+  }
+
   const order: Order = {
     id: orderId,
     folio,
@@ -603,6 +670,8 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     totalCents,
     encargoStage: input.serviceType === 'encargo' ? 'recibido' : null,
     orderStatus: 'en_proceso',
+    assignedMachineIds: requestedMachineIds,
+    assignedMachineLabels: assignedLabels,
     createdAt: now,
     deliveredAt: null,
   };
@@ -653,6 +722,7 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
       ...state.tickets,
       [orderId]: ticket,
     },
+    machines: nextMachines,
     nextFolioSeq: folio === nextFolio
       ? { ...state.nextFolioSeq, [input.branchId]: Number(nextFolio.split('-').at(-1)) + 1 }
       : state.nextFolioSeq,
@@ -813,7 +883,316 @@ export function confirmPaymentLine(
   };
 }
 
-export function advanceEncargoStage(state: DemoState, orderId: string): DomainResult<Order> {
+function validateMachinesAvailableForOrder(
+  state: DemoState,
+  branchId: BranchId,
+  machineIds: string[],
+  excludeOrderId?: string,
+): { ok: true; machines: Machine[] } | { ok: false; error: string } {
+  const branchMachines = getBranchMachines(state, branchId);
+  const found: Machine[] = [];
+  for (const machineId of machineIds) {
+    const machine = branchMachines.find((m) => m.id === machineId);
+    if (!machine) {
+      return { ok: false, error: 'Una de las máquinas seleccionadas no pertenece a esta sucursal.' };
+    }
+    if (machine.status === 'fuera_de_servicio') {
+      return { ok: false, error: `La máquina ${machine.code} está marcada fuera de servicio.` };
+    }
+    if (machine.status === 'en_uso' && machine.currentOrderId !== excludeOrderId) {
+      return {
+        ok: false,
+        error: `La máquina ${machine.code} ya está ocupada por el folio ${machine.currentOrderFolio ?? machine.currentOrderId}.`,
+      };
+    }
+    const occupiedByOtherOrder = state.orders.find(
+      (order) =>
+        order.branchId === branchId &&
+        order.id !== excludeOrderId &&
+        order.orderStatus !== 'entregado' &&
+        (order.assignedMachineIds ?? []).includes(machineId),
+    );
+    if (occupiedByOtherOrder) {
+      return {
+        ok: false,
+        error: `La máquina ${machine.code} ya está asignada al folio ${occupiedByOtherOrder.folio}.`,
+      };
+    }
+    found.push(machine);
+  }
+  return { ok: true, machines: found };
+}
+
+function releaseMachinesForOrder(
+  machines: Machine[],
+  orderId: string,
+  options: { incrementCycles?: boolean; now: string; actorLabel?: string },
+): Machine[] {
+  return machines.map((m) => {
+    if (m.currentOrderId !== orderId) return m;
+    return {
+      ...m,
+      status: m.status === 'fuera_de_servicio' ? 'fuera_de_servicio' : 'disponible',
+      currentOrderId: null,
+      currentOrderFolio: null,
+      cycles: options.incrementCycles ? m.cycles + 1 : m.cycles,
+      updatedAt: options.now,
+      updatedBy: options.actorLabel ?? m.updatedBy,
+    };
+  });
+}
+
+export function buildOrderReadyWhatsappMessage(
+  order: Order,
+  branchName: string,
+  pendingCents: number,
+): string {
+  const balanceNote =
+    pendingCents > 0 ? ` Saldo pendiente: ${formatMxn(pendingCents)}.` : ' Pagado en su totalidad.';
+  return `Hola ${order.customerAlias}, tu encargo Folio ${order.folio} en Lavandería Horeb (${branchName}) ya está LISTO para recoger.${balanceNote}`;
+}
+
+export function upsertMachine(
+  state: DemoState,
+  branchId: BranchId,
+  input: { id?: string; code: string; name: string; kind: MachineKind },
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<Machine> {
+  const code = input.code.trim().toUpperCase().slice(0, 12);
+  const name = input.name.trim().slice(0, 50);
+  if (!code || !name) {
+    return { ok: false, error: 'Captura el código (ej. L1) y el nombre del equipo.' };
+  }
+  const existingList = state.machines ?? [];
+  const duplicateCode = existingList.find(
+    (m) => m.branchId === branchId && m.code.toUpperCase() === code && m.id !== input.id,
+  );
+  if (duplicateCode) {
+    return { ok: false, error: `Ya existe un equipo con el código ${code} en esta sucursal.` };
+  }
+
+  const target = input.id ? existingList.find((m) => m.id === input.id && m.branchId === branchId) : undefined;
+  const saved: Machine = target
+    ? { ...target, code, name, kind: input.kind, updatedAt: now, updatedBy: actorLabel }
+    : {
+        id: `${branchId}-${code.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`,
+        branchId,
+        code,
+        name,
+        kind: input.kind,
+        status: 'disponible',
+        currentOrderId: null,
+        currentOrderFolio: null,
+        cycles: 0,
+        updatedAt: now,
+        updatedBy: actorLabel,
+      };
+
+  const nextMachines = target
+    ? existingList.map((m) => (m.id === saved.id ? saved : m))
+    : [...existingList, saved];
+
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'equipo',
+    message: target ? `Equipo actualizado: ${saved.code} (${saved.name})` : `Equipo agregado al padrón: ${saved.code} (${saved.name})`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+
+  return { ok: true, state: { ...state, machines: nextMachines, auditLogs }, data: saved };
+}
+
+export function deleteMachine(
+  state: DemoState,
+  branchId: BranchId,
+  machineId: string,
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<{ id: string }> {
+  const existing = (state.machines ?? []).find((m) => m.id === machineId && m.branchId === branchId);
+  if (!existing) return { ok: false, error: 'Equipo no encontrado en esta sucursal.' };
+  if (existing.status === 'en_uso' || existing.currentOrderId) {
+    return { ok: false, error: `Libera primero el equipo ${existing.code} antes de eliminarlo.` };
+  }
+  const nextMachines = (state.machines ?? []).filter((m) => m.id !== machineId);
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'equipo',
+    message: `Equipo dado de baja del padrón: ${existing.code} (${existing.name})`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+  return { ok: true, state: { ...state, machines: nextMachines, auditLogs }, data: { id: machineId } };
+}
+
+export function seedSampleMachinesForBranch(
+  state: DemoState,
+  branchId: BranchId,
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<Machine[]> {
+  if (getBranchMachines(state, branchId).length > 0) {
+    return { ok: false, error: 'Esta sucursal ya tiene máquinas registradas.' };
+  }
+  const sample = buildSampleBranchMachines(branchId, now);
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'equipo',
+    message: `Padrón de prueba cargado (${sample.length} equipos base editables).`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+  return {
+    ok: true,
+    state: { ...state, machines: [...(state.machines ?? []), ...sample], auditLogs },
+    data: sample,
+  };
+}
+
+export function setMachineStatus(
+  state: DemoState,
+  branchId: BranchId,
+  machineId: string,
+  status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>,
+  options: { reason?: string; actorLabel?: string; now?: string } = {},
+): DomainResult<Machine> {
+  const now = options.now ?? new Date().toISOString();
+  const actorLabel = options.actorLabel?.trim() || 'Personal';
+  const existing = (state.machines ?? []).find((m) => m.id === machineId && m.branchId === branchId);
+  if (!existing) return { ok: false, error: 'Máquina no encontrada.' };
+
+  if (existing.status === 'en_uso' && status === 'fuera_de_servicio') {
+    return {
+      ok: false,
+      error: `La máquina ${existing.code} está en uso en el folio ${existing.currentOrderFolio ?? ''}. Libérala o reasigna la orden primero.`,
+    };
+  }
+
+  const releasedOrderId = existing.status === 'en_uso' ? existing.currentOrderId : null;
+  const updated: Machine = {
+    ...existing,
+    status,
+    currentOrderId: null,
+    currentOrderFolio: null,
+    cycles: releasedOrderId ? existing.cycles + 1 : existing.cycles,
+    outOfServiceReason: status === 'fuera_de_servicio' ? options.reason?.trim().slice(0, 100) || null : null,
+    updatedAt: now,
+    updatedBy: actorLabel,
+  };
+
+  const nextOrders = releasedOrderId
+    ? state.orders.map((o) =>
+        o.id === releasedOrderId
+          ? {
+              ...o,
+              assignedMachineIds: (o.assignedMachineIds ?? []).filter((id) => id !== machineId),
+              assignedMachineLabels: (o.assignedMachineLabels ?? []).filter((label) => !label.startsWith(`${existing.code} `)),
+            }
+          : o,
+      )
+    : state.orders;
+
+  const auditLogs = appendAudit(state, {
+    branchId,
+    category: 'equipo',
+    message:
+      status === 'fuera_de_servicio'
+        ? `Máquina ${existing.code} marcada FUERA DE SERVICIO${updated.outOfServiceReason ? ` (${updated.outOfServiceReason})` : ''}`
+        : releasedOrderId
+          ? `Máquina ${existing.code} liberada y marcada disponible`
+          : `Máquina ${existing.code} habilitada como disponible`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      orders: nextOrders,
+      machines: (state.machines ?? []).map((m) => (m.id === machineId ? updated : m)),
+      auditLogs,
+    },
+    data: updated,
+  };
+}
+
+export function assignOrderMachines(
+  state: DemoState,
+  orderId: string,
+  machineIds: string[],
+  actorLabel = 'Personal',
+  now = new Date().toISOString(),
+): DomainResult<Order> {
+  const order = state.orders.find((o) => o.id === orderId);
+  if (!order) return { ok: false, error: 'Orden no encontrada.' };
+  if (order.orderStatus === 'entregado') {
+    return { ok: false, error: 'No se pueden asignar máquinas a una orden ya entregada.' };
+  }
+
+  const uniqueIds = Array.from(new Set(machineIds));
+  if (uniqueIds.length > 0) {
+    const check = validateMachinesAvailableForOrder(state, order.branchId, uniqueIds, order.id);
+    if (!check.ok) return check;
+  }
+
+  let nextMachines = releaseMachinesForOrder(state.machines ?? [], order.id, {
+    incrementCycles: false,
+    now,
+    actorLabel,
+  });
+
+  const selectedSet = new Set(uniqueIds);
+  const labels: string[] = [];
+  nextMachines = nextMachines.map((m) => {
+    if (!selectedSet.has(m.id)) return m;
+    labels.push(`${m.code} (${m.name})`);
+    return {
+      ...m,
+      status: 'en_uso',
+      currentOrderId: order.id,
+      currentOrderFolio: order.folio,
+      updatedAt: now,
+      updatedBy: actorLabel,
+    };
+  });
+
+  const updatedOrder: Order = {
+    ...order,
+    assignedMachineIds: uniqueIds,
+    assignedMachineLabels: labels,
+  };
+
+  const auditLogs = appendAudit(state, {
+    branchId: order.branchId,
+    category: 'equipo',
+    message:
+      labels.length > 0
+        ? `Equipos asignados a ${order.folio}: ${labels.map((l) => l.split(' ')[0]).join(', ')}`
+        : `Equipos liberados en folio ${order.folio}`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      orders: state.orders.map((o) => (o.id === orderId ? updatedOrder : o)),
+      machines: nextMachines,
+      auditLogs,
+    },
+    data: updatedOrder,
+  };
+}
+
+export function advanceEncargoStage(
+  state: DemoState,
+  orderId: string,
+  options: { machineIds?: string[]; actorLabel?: string; now?: string } = {},
+): DomainResult<Order> {
   const order = state.orders.find((o) => o.id === orderId);
   if (!order) return { ok: false, error: 'Orden no encontrada.' };
   if (order.serviceType !== 'encargo' || !order.encargoStage) {
@@ -833,10 +1212,56 @@ export function advanceEncargoStage(state: DemoState, orderId: string): DomainRe
     return { ok: false, error: 'El encargo ya está listo o entregado.' };
   }
 
+  const now = options.now ?? new Date().toISOString();
+  const actorLabel = options.actorLabel?.trim() || 'Personal';
+  const requestedMachineIds = Array.from(new Set(options.machineIds ?? []));
+
+  if (requestedMachineIds.length > 0 && (nextStage === 'lavado' || nextStage === 'secado')) {
+    const check = validateMachinesAvailableForOrder(state, order.branchId, requestedMachineIds, order.id);
+    if (!check.ok) return check;
+  }
+
+  // Al avanzar de etapa, libera las máquinas asignadas a la etapa anterior y cuenta su ciclo.
+  let nextMachines = releaseMachinesForOrder(state.machines ?? [], order.id, {
+    incrementCycles: true,
+    now,
+    actorLabel,
+  });
+
+  let nextAssignedIds: string[] = [];
+  let nextAssignedLabels: string[] = [];
+
+  if (requestedMachineIds.length > 0 && (nextStage === 'lavado' || nextStage === 'secado')) {
+    const selectedSet = new Set(requestedMachineIds);
+    nextMachines = nextMachines.map((m) => {
+      if (!selectedSet.has(m.id)) return m;
+      nextAssignedIds.push(m.id);
+      nextAssignedLabels.push(`${m.code} (${m.name})`);
+      return {
+        ...m,
+        status: 'en_uso',
+        currentOrderId: order.id,
+        currentOrderFolio: order.folio,
+        updatedAt: now,
+        updatedBy: actorLabel,
+      };
+    });
+  }
+
+  const branchName = getBranchInfo(order.branchId).name;
+  const pendingCents = getOrderPendingCents(state, order.id);
+
   const updated: Order = {
     ...order,
     encargoStage: nextStage,
     orderStatus: nextStage === 'listo' ? 'listo' : 'en_proceso',
+    assignedMachineIds: nextAssignedIds,
+    assignedMachineLabels: nextAssignedLabels,
+    whatsappPreparedAt: nextStage === 'listo' ? now : order.whatsappPreparedAt,
+    whatsappMessage:
+      nextStage === 'listo'
+        ? buildOrderReadyWhatsappMessage(order, branchName, pendingCents)
+        : order.whatsappMessage,
   };
 
   return {
@@ -844,6 +1269,45 @@ export function advanceEncargoStage(state: DemoState, orderId: string): DomainRe
     state: {
       ...state,
       orders: state.orders.map((o) => (o.id === orderId ? updated : o)),
+      machines: nextMachines,
+    },
+    data: updated,
+  };
+}
+
+export function recordOrderWhatsappSent(
+  state: DemoState,
+  orderId: string,
+  actorLabel = 'Personal',
+  now = new Date().toISOString(),
+): DomainResult<Order> {
+  const order = state.orders.find((o) => o.id === orderId);
+  if (!order) return { ok: false, error: 'Orden no encontrada.' };
+  if (order.serviceType !== 'encargo' || (order.encargoStage !== 'listo' && order.encargoStage !== 'entregado')) {
+    return { ok: false, error: 'El encargo debe estar en etapa Listo para registrar el aviso de WhatsApp.' };
+  }
+  const branchName = getBranchInfo(order.branchId).name;
+  const pendingCents = getOrderPendingCents(state, order.id);
+  const updated: Order = {
+    ...order,
+    whatsappPreparedAt: order.whatsappPreparedAt ?? now,
+    whatsappMessage: order.whatsappMessage ?? buildOrderReadyWhatsappMessage(order, branchName, pendingCents),
+    whatsappSentAt: now,
+    whatsappSentBy: actorLabel,
+  };
+  const auditLogs = appendAudit(state, {
+    branchId: order.branchId,
+    category: 'aviso',
+    message: `Aviso de WhatsApp registrado como enviado para ${order.folio}`,
+    actor: actorLabel,
+    createdAt: now,
+  });
+  return {
+    ok: true,
+    state: {
+      ...state,
+      orders: state.orders.map((o) => (o.id === orderId ? updated : o)),
+      auditLogs,
     },
     data: updated,
   };

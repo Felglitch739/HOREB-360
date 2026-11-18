@@ -1930,6 +1930,145 @@ th {
   font-size: 0.76rem;
 }
 
+.machine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.machine-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.machine-card.status-en_uso {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.machine-card.status-fuera_de_servicio {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.machine-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.machine-code {
+  display: block;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.machine-name {
+  display: block;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.machine-card-meta {
+  display: grid;
+  gap: 2px;
+  font-size: 0.82rem;
+}
+
+.machine-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.machine-offline-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.machine-offline-row .input {
+  flex: 1 1 120px;
+}
+
+.machine-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.machine-chip {
+  min-height: 44px;
+  padding: 5px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-alt);
+  color: var(--text);
+  display: grid;
+  text-align: left;
+  cursor: pointer;
+  gap: 1px;
+}
+
+.machine-chip strong {
+  font-size: 0.86rem;
+}
+
+.machine-chip small {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.machine-chip.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.machine-chip.active small {
+  color: var(--primary);
+}
+
+.machine-chip:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.whatsapp-box {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-alt);
+  display: grid;
+  gap: 8px;
+}
+
+.whatsapp-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.whatsapp-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
 @page {
   size: 80mm auto;
   margin: 0;
