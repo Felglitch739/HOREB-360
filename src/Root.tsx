@@ -528,7 +528,7 @@ export function Root() {
               <strong>
                 HOREB <span>360</span>
               </strong>
-              <small>Panel de operación de Lavandería Horeb</small>
+              <small>Órdenes, equipos y caja</small>
             </div>
           </div>
         </div>
