@@ -495,20 +495,14 @@ export function getBranchSummary(state: DemoState, branchId: BranchId): BranchAd
   const branch = getBranchInfo(branchId);
   const branchOrders = state.orders.filter((o) => o.branchId === branchId);
   const orderIds = new Set(branchOrders.map((o) => o.id));
-  const lines = state.paymentLines.filter((p) => orderIds.has(p.orderId));
-
-  const cashCents = lines
-    .filter((p) => p.status === 'confirmado' && p.method === 'efectivo')
-    .reduce((s, p) => s + p.amountCents, 0);
-  const cardCents = lines
-    .filter((p) => p.status === 'confirmado' && p.method === 'tarjeta')
-    .reduce((s, p) => s + p.amountCents, 0);
-  const transferCents = lines
-    .filter((p) => p.status === 'confirmado' && p.method === 'transferencia')
-    .reduce((s, p) => s + p.amountCents, 0);
-  const pendingCents = branchOrders.reduce(
-    (sum, order) => sum + getOrderPendingCents(state, order.id), 0,
-  );
+  const confirmed = { efectivo: 0, tarjeta: 0, transferencia: 0 };
+  let pendingCents = branchOrders.reduce((sum, order) => sum + order.totalCents, 0);
+  for (const line of state.paymentLines) {
+    if (line.status !== 'confirmado' || !orderIds.has(line.orderId)) continue;
+    confirmed[line.method] += line.amountCents;
+    pendingCents -= line.amountCents;
+  }
+  const { efectivo: cashCents, tarjeta: cardCents, transferencia: transferCents } = confirmed;
 
   const openShift = getOpenShift(state, branchId);
 

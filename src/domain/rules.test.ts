@@ -250,5 +250,17 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
     expect(lomas.totalConfirmedCents).toBe(14000);
     expect(trevino.totalConfirmedCents).toBe(7000);
     expect(s3.totalConfirmedCents).toBe(14000);
+
+    const withPendingTransfer = getGlobalAdminTotals({
+      ...state,
+      paymentLines: state.paymentLines.map((line) =>
+        line.method === 'transferencia' ? { ...line, status: 'pendiente' } : line,
+      ),
+    });
+    expect(withPendingTransfer.totals).toMatchObject({
+      transferCents: 0,
+      totalConfirmedCents: 22000,
+      pendingCents: 13000,
+    });
   });
 });

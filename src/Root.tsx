@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
 import { Eye, EyeOff, WashingMachine } from 'lucide-react';
-import { App } from './App';
 import type { Operation } from './domain/operations';
 import {
   enqueueOfflineOperation,
@@ -32,6 +31,8 @@ import {
 } from './domain/sharedState';
 import type { BranchId, Customer, Order } from './domain/types';
 import { useBrandTheme } from './theme';
+
+const App = lazy(() => import('./App').then((module) => ({ default: module.App })));
 
 const url = import.meta.env.VITE_SUPABASE_URL || 'https://mekjctargwhadpyezqjc.supabase.co';
 const key =
@@ -301,6 +302,15 @@ export function Root() {
     };
   }, [reload, rows?.length, syncNow]);
 
+  const refreshWorkspace = useEffectEvent((userId: string) => {
+    if (interacting.current || syncingRef.current) return;
+    if (readOfflineQueue(userId).length > 0) {
+      void syncNow();
+    } else {
+      void reload();
+    }
+  });
+
   useEffect(() => {
     setRows(null);
     setMemberships([]);
@@ -323,16 +333,9 @@ export function Root() {
     }
 
     void reload();
-    const interval = window.setInterval(() => {
-      if (interacting.current || syncingRef.current) return;
-      if (readOfflineQueue(userId).length > 0) {
-        void syncNow();
-      } else {
-        void reload();
-      }
-    }, 8000);
+    const interval = window.setInterval(() => refreshWorkspace(userId), 8000);
     return () => window.clearInterval(interval);
-  }, [reload, session?.user.id, syncNow]);
+  }, [reload, session?.user.id]);
 
   function merge(row: BranchRow) {
     setRows((prior) => {
@@ -487,23 +490,25 @@ export function Root() {
         : { combinedState: combineBranches(rows, globalRecords) };
 
     return (
-      <App
-        shared={{
-          state: effective.combinedState,
-          roles,
-          isOnline,
-          pendingSyncCount: pendingQueue.length,
-          syncing,
-          syncWarning: syncWarning || undefined,
-          execute,
-          reload,
-          syncNow,
-          signOut: () => void signOut(),
-        }}
-        sharedNotice={error}
-        theme={theme}
-        onSetTheme={setTheme}
-      />
+      <Suspense fallback={<main className="auth-panel"><p role="status">Cargando panel…</p></main>}>
+        <App
+          shared={{
+            state: effective.combinedState,
+            roles,
+            isOnline,
+            pendingSyncCount: pendingQueue.length,
+            syncing,
+            syncWarning: syncWarning || undefined,
+            execute,
+            reload,
+            syncNow,
+            signOut: () => void signOut(),
+          }}
+          sharedNotice={error}
+          theme={theme}
+          onSetTheme={setTheme}
+        />
+      </Suspense>
     );
   }
 
