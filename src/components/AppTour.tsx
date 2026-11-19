@@ -1,259 +1,163 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ArrowLeft, ArrowRight, Compass, X } from 'lucide-react';
 import './AppTour.css';
 import { useModalFocus } from './useModalFocus';
 
-export type TourTabId = 'inicio' | 'mostrador' | 'ordenes' | 'caja' | 'admin' | 'ajustes';
+export type TourTabId = 'inicio' | 'mostrador' | 'ordenes' | 'equipos' | 'clientes' | 'caja' | 'admin' | 'ajustes';
 
-interface TourStep {
-  title: string;
-  description: string;
-  selector: string;
-  tab: TourTabId;
-}
-
-const TOUR_STEPS: TourStep[] = [
+const TOUR_STEPS: readonly { tab: TourTabId; selector: string; title: string; description: string }[] = [
   {
-    title: 'Sucursal, turno y rol',
-    description:
-      'Cambia entre Lomas, Treviño y Sucursal 3 desde la barra superior y revisa si el turno está abierto. Supervisión gestiona turnos y cortes; Caja opera su sucursal.',
+    tab: 'inicio',
     selector: '[data-tour="branch-bar"]',
-    tab: 'inicio',
+    title: 'Empieza por tu sucursal',
+    description: 'Aquí eliges una sucursal y ves si su turno está abierto. En Inicio puedes revisar cuánto se ha cobrado, qué falta y cuáles encargos están listos.',
   },
   {
-    title: 'Resumen operativo',
-    description:
-      'Consulta de un vistazo los cobros confirmados, el saldo pendiente por cobrar, los encargos por etapa y la gráfica semanal de ingresos.',
-    selector: '[data-tour="overview-stats"]',
-    tab: 'inicio',
-  },
-  {
-    title: 'Recepción en Mostrador',
-    description:
-      'Registra Autoservicio o Encargo, mezcla productos del catálogo (Combo, Edredón, Detergente, Bolsa), vincula cliente frecuente para lealtad 10+1 o realiza cobro rápido, asigna lavadoras disponibles y registra pagos mixtos.',
-    selector: '#checkout-form',
     tab: 'mostrador',
+    selector: '#checkout-heading',
+    title: 'Recibe una orden',
+    description: 'Elige Autoservicio o Encargo, agrega los servicios y registra el pago recibido. Si el cliente deja ropa y pagará al recoger, guarda el encargo con su folio.',
   },
   {
-    title: 'Flujo manual de etapas y pagos pendientes',
-    description:
-      'Busca órdenes por folio o cliente, avanza manualmente cada etapa (Iniciar lavado → Pasar a secado → Marcar listo → Entregar orden, preparado a futuro para enlazar equipos LG) y confirma transferencias o tarjetas pendientes.',
-    selector: '[data-tour="orders-panel"]',
     tab: 'ordenes',
+    selector: '[data-tour="orders-panel"] .order-toolbar',
+    title: 'Da seguimiento y cobra',
+    description: 'Busca el folio y actualiza la etapa del encargo. Cobrar abre el panel con el cliente y el importe. Desde el detalle de la orden puedes abrir su comprobante.',
   },
   {
-    title: 'Ticket térmico personalizado',
-    description:
-      'Desde cada orden emite el comprobante en formato térmico (80 mm o 58 mm), agrega notas de cuidado de prendas y mensaje al pie. Si falla la impresora, el folio y el cobro quedan resguardados para reintentar.',
-    selector: '[data-tour="orders-panel"]',
-    tab: 'ordenes',
+    tab: 'equipos',
+    selector: '[data-tour-page="equipos"]',
+    title: 'Consulta tus equipos',
+    description: 'Revisa cuáles máquinas están disponibles, en uso o fuera de servicio, y qué folio ocupa cada equipo asignado.',
   },
   {
-    title: 'Control de Caja y Cortes',
-    description:
-      'Supervisión abre turnos con fondo inicial, registra entradas o retiros con motivo y realiza el corte con efectivo contado. Los pagos pendientes confirmados después del corte caen en el turno nuevo sin alterar el corte anterior.',
-    selector: '[data-tour="caja-panel"]',
+    tab: 'clientes',
+    selector: '[data-tour-page="clientes"]',
+    title: 'Lleva el historial del cliente',
+    description: 'Registra la ficha y consulta sus beneficios de lealtad. El cliente puede acumular combos y recibir un boleto de rifa al completar un combo gratis.',
+  },
+  {
     tab: 'caja',
+    selector: '[data-tour="caja-panel"] .card-title',
+    title: 'Cuadra el turno',
+    description: 'Compara el efectivo esperado con el contado. Desde Caja puedes revisar cortes y verificar transferencias pendientes. Las acciones de supervisión dependen de tu rol.',
   },
   {
-    title: 'Reportes multi-sucursal y CSV',
-    description:
-      'Consolida en vivo el efectivo, tarjeta, transferencia y saldo pendiente de todas tus sucursales habilitadas, y descarga el reporte en CSV para Excel.',
-    selector: '[data-tour="admin-panel"]',
     tab: 'admin',
+    selector: '[data-tour="admin-panel"] .card-title',
+    title: 'Compara los cobros',
+    description: 'Revisa cuánto entró en efectivo, tarjeta y transferencia, y cuánto sigue pendiente en las sucursales a las que tienes acceso. Puedes descargar el resumen en CSV.',
   },
   {
-    title: 'Ajustes para Supervisión y Sesión',
-    description:
-      'En Ajustes los dueños o supervisores pueden modificar el precio del combo, personalizar el teléfono, horario y pie del ticket térmico, cambiar el color de marca (Verde/Azul), actualizar datos o cerrar sesión.',
-    selector: '[data-tour="settings-panel"]',
     tab: 'ajustes',
+    selector: '[data-tour-page="ajustes"]',
+    title: 'Deja listo el mostrador',
+    description: 'En Ajustes, Supervisión puede modificar el catálogo y los datos del comprobante. Desde el encabezado puedes volver a abrir esta guía cuando la necesites.',
   },
 ];
 
-interface AppTourProps {
-  open: boolean;
+export function AppTour({ onNavigate, onClose }: {
   onNavigate: (tab: TourTabId) => void;
   onClose: () => void;
-}
-
-interface SpotlightRect {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
-
-export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
+}) {
   const [stepIndex, setStepIndex] = useState(0);
-  const [rect, setRect] = useState<SpotlightRect | null>(null);
-  const dialogRef = useModalFocus(open, onClose);
-
-  const step = TOUR_STEPS[stepIndex] ?? TOUR_STEPS[0];
-
-  useEffect(() => {
-    if (!open) {
-      setStepIndex(0);
-      setRect(null);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    onNavigate(step.tab);
-
-    let cancelled = false;
-    function measure() {
-      if (cancelled) return;
-      const target = document.querySelector(step.selector);
-      if (!target) {
-        setRect(null);
-        return;
-      }
-      const box = target.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) {
-        setRect(null);
-        return;
-      }
-      const pad = 6;
-      setRect({
-        top: Math.max(8, box.top - pad),
-        left: Math.max(8, box.left - pad),
-        width: Math.min(window.innerWidth - 16, box.width + pad * 2),
-        height: Math.min(window.innerHeight - 16, box.height + pad * 2),
-      });
-    }
-
-    const timer = window.setTimeout(() => {
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      document.querySelector(step.selector)?.scrollIntoView({
-        block: 'nearest',
-        behavior: reduceMotion ? 'instant' : 'smooth',
-      });
-      measure();
-    }, 80);
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, [open, stepIndex, step.selector, step.tab]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === 'ArrowRight') {
-        if (stepIndex < TOUR_STEPS.length - 1) setStepIndex((i) => i + 1);
-      } else if (event.key === 'ArrowLeft') {
-        if (stepIndex > 0) setStepIndex((i) => i - 1);
-      }
-    }
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [open, stepIndex]);
-
-  if (!open) return null;
-
+  const [highlight, setHighlight] = useState<React.CSSProperties>();
+  const dialogRef = useModalFocus(true, onClose);
+  const navigate = useEffectEvent(onNavigate);
+  const step = TOUR_STEPS[stepIndex];
   const isLast = stepIndex === TOUR_STEPS.length - 1;
-  const cardWidth = Math.min(390, window.innerWidth - 24);
-  const estimatedHeight = 235;
 
-  let cardStyle: React.CSSProperties;
-  if (!rect || window.innerWidth <= 560) {
-    cardStyle = {
-      left: '50%',
-      bottom: 16,
-      transform: 'translateX(-50%)',
+  useEffect(() => {
+    setHighlight(undefined);
+    navigate(step.tab);
+
+    let target: HTMLElement | null = null;
+    let frame = 0;
+    function measure() {
+      if (!target) return;
+      const box = target.getBoundingClientRect();
+      const top = Math.max(4, box.top - 5);
+      const left = Math.max(4, box.left - 5);
+      const right = Math.min(document.documentElement.clientWidth - 4, box.right + 5);
+      const bottom = Math.min(window.innerHeight - 4, box.bottom + 5);
+      setHighlight(right > left && bottom > top ? { top, left, width: right - left, height: bottom - top } : undefined);
+    }
+
+    function scheduleMeasure() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    }
+
+    function findTarget() {
+      if (document.querySelector<HTMLElement>('.main-content')?.dataset.workspaceTab !== step.tab) return;
+      const candidate = document.querySelector<HTMLElement>(step.selector);
+      if (!candidate?.getClientRects().length) return;
+      target = candidate;
+      observer.disconnect();
+      const box = candidate.getBoundingClientRect();
+      if (box.top < 8 || box.bottom > window.innerHeight * 0.5) {
+        window.scrollBy({ top: box.top - 24, behavior: 'instant' });
+      }
+      measure();
+    }
+
+    const observer = new MutationObserver(findTarget);
+    const workspace = document.querySelector('.workspace');
+    if (workspace) observer.observe(workspace, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-workspace-tab', 'style'],
+    });
+    frame = requestAnimationFrame(findTarget);
+    window.addEventListener('resize', scheduleMeasure);
+    window.addEventListener('scroll', scheduleMeasure, true);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', scheduleMeasure);
+      window.removeEventListener('scroll', scheduleMeasure, true);
     };
-  } else {
-    const fitsBelow = rect.top + rect.height + 14 + estimatedHeight <= window.innerHeight;
-    const fitsAbove = rect.top - 14 - estimatedHeight >= 12;
-    const top = fitsBelow
-      ? rect.top + rect.height + 14
-      : fitsAbove
-        ? rect.top - estimatedHeight - 14
-        : Math.max(16, window.innerHeight - estimatedHeight - 16);
-    const left = Math.min(
-      Math.max(12, rect.left),
-      Math.max(12, window.innerWidth - cardWidth - 12),
-    );
-    cardStyle = { top, left };
-  }
+  }, [step]);
 
   return (
-    <div ref={dialogRef} className="app-tour-overlay" role="dialog" tabIndex={-1} aria-modal="true" aria-label="Guía interactiva">
-      {!rect && <div className="app-tour-backdrop" onClick={onClose} />}
-      {rect && (
-        <>
-          <div className="app-tour-backdrop" style={{ background: 'transparent' }} onClick={onClose} />
-          <div
-            className="app-tour-spotlight"
-            style={{
-              top: rect.top,
-              left: rect.left,
-              width: rect.width,
-              height: rect.height,
-            }}
-          />
-        </>
-      )}
-
-      <div className="app-tour-card" style={cardStyle}>
+    <div
+      ref={dialogRef}
+      className="app-tour-overlay"
+      role="dialog"
+      tabIndex={-1}
+      aria-modal="true"
+      aria-label="Guía interactiva"
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowRight' && !isLast) setStepIndex((index) => Math.min(index + 1, TOUR_STEPS.length - 1));
+        if (event.key === 'ArrowLeft' && stepIndex > 0) setStepIndex((index) => Math.max(index - 1, 0));
+      }}
+    >
+      <div className="app-tour-backdrop" data-highlight={highlight ? '' : undefined} />
+      {highlight && <div className="app-tour-spotlight" style={highlight} aria-hidden="true" />}
+      <div className="app-tour-card">
         <div className="app-tour-head">
-          <span className="app-tour-step">
-            <Compass size={14} aria-hidden="true" />
-            Paso {stepIndex + 1} de {TOUR_STEPS.length}
-          </span>
-          <button
-            type="button"
-            className="app-tour-close"
-            onClick={onClose}
-            aria-label="Cerrar guía"
-          >
-            <X size={16} />
+          <span><Compass size={16} aria-hidden="true" /> Guía de HOREB</span>
+          <button type="button" className="btn btn-secondary app-tour-close" onClick={onClose} aria-label="Cerrar guía">
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
-
-        <h3>{step.title}</h3>
-        <p>{step.description}</p>
-
-        <div className="app-tour-footer">
-          <div className="app-tour-dots" aria-hidden="true">
-            {TOUR_STEPS.map((item, idx) => (
-              <span
-                key={item.title}
-                className={`app-tour-dot ${idx === stepIndex ? 'active' : ''}`}
-              />
-            ))}
-          </div>
-
-          <div className="app-tour-nav">
-            {stepIndex > 0 && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
-              >
-                <ArrowLeft size={14} />
-                Anterior
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                if (isLast) onClose();
-                else setStepIndex((i) => Math.min(TOUR_STEPS.length - 1, i + 1));
-              }}
-            >
-              {isLast ? 'Finalizar' : 'Siguiente'}
-              {!isLast && <ArrowRight size={14} />}
-            </button>
-          </div>
+        <div className="app-tour-copy" aria-live="polite" aria-atomic="true">
+          <h2>{step.title}</h2>
+          <p>{step.description}</p>
+        </div>
+        <div className="app-tour-progress">
+          <label htmlFor="tour-progress">Paso {stepIndex + 1} de {TOUR_STEPS.length}</label>
+          <progress id="tour-progress" value={stepIndex + 1} max={TOUR_STEPS.length} />
+        </div>
+        <div className="app-tour-nav">
+          <button type="button" className="btn btn-secondary" disabled={stepIndex === 0} onClick={() => setStepIndex(stepIndex - 1)}>
+            <ArrowLeft size={16} aria-hidden="true" /> Atrás
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => isLast ? onClose() : setStepIndex(stepIndex + 1)}>
+            {isLast ? 'Terminar guía' : 'Siguiente'}
+            {!isLast && <ArrowRight size={16} aria-hidden="true" />}
+          </button>
         </div>
       </div>
     </div>

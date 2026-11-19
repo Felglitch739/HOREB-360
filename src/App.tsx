@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react';
-import { BarChart3, ClipboardList, LayoutDashboard, MapPin, Plus, Settings, Store, Users, Wallet, WashingMachine } from 'lucide-react';
+import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Plus, Settings, Store, Users, Wallet, WashingMachine } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -257,9 +257,12 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               options={visibleBranches.map((branch) => ({ value: branch.id, label: branch.name }))}
               onChange={(value) => setSelectedBranch(value)}
             />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
+              <Compass size={16} aria-hidden="true" /> Guía
+            </button>
           </div>
         </header>
-        <main className="main-content">
+        <main className="main-content" data-workspace-tab={activeTab}>
           {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
           {shared.syncWarning && <div className="alert alert-error" role="alert">{shared.syncWarning}</div>}
           {(!shared.isOnline || shared.pendingSyncCount > 0) && (
@@ -299,7 +302,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
           {activeTab !== 'inicio' && (
             <div className="page-intro">
               <div>
-                <h1>
+                <h1 data-tour-page={activeTab}>
                   {activeTab === 'ajustes'
                     ? 'Ajustes'
                     : navigation.find((entry) => entry.id === activeTab)?.label}
@@ -420,7 +423,6 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
 
         {tourOpen && (
           <AppTour
-            open={tourOpen}
             onNavigate={(tab: TourTabId) => navigate(tab)}
             onClose={() => setTourOpen(false)}
           />

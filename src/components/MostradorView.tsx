@@ -66,18 +66,18 @@ export function MostradorView({
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string; orderId?: string } | null>(null);
   const checkoutOrigin = useRef<HTMLButtonElement | null>(null);
   const checkoutSourceRect = useRef<DOMRect | undefined>(undefined);
+  const checkoutCue = useRef<Animation | null>(null);
   const checkoutOrder = state.orders.find((order) => order.id === checkoutId) ?? null;
 
   useLayoutEffect(() => {
     if (!checkoutOrder) return;
-    const target = revealCheckout();
+    const { target, inView } = revealCheckout();
     const source = checkoutSourceRect.current;
     if (!target || !source || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     const destination = target.getBoundingClientRect();
-    const bothVisible =
-      source.top >= 0 && source.bottom <= window.innerHeight &&
-      destination.top >= 0 && destination.bottom <= window.innerHeight;
+    const sourceCenter = source.top + source.height / 2;
+    const bothVisible = inView && sourceCenter > 0 && sourceCenter < window.innerHeight;
     if (!bothVisible || destination.right >= source.left || typeof target.animate !== 'function') return;
 
     const preview = target.cloneNode(true) as HTMLElement;
@@ -116,18 +116,24 @@ export function MostradorView({
     const heading = document.getElementById('checkout-heading');
     const target = document.querySelector<HTMLElement>('#checkout-form .checkout-active-order');
     const bounds = target?.getBoundingClientRect();
+    const headingTop = heading?.getBoundingClientRect().top;
+    const inView = Boolean(bounds && headingTop !== undefined && headingTop >= 0 && bounds.bottom <= window.innerHeight);
     heading?.focus({ preventScroll: true });
 
-    if (heading && bounds && (heading.getBoundingClientRect().top < 12 || bounds.bottom > window.innerHeight * 0.75)) {
+    checkoutCue.current?.cancel();
+    const highlight = { boxShadow: 'inset 0 0 0 2px var(--primary)' };
+    checkoutCue.current = target?.animate?.([highlight, highlight], { duration: 950 }) ?? null;
+
+    if (heading && !inView) {
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       heading.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'instant' : 'smooth' });
-      return null;
     }
 
-    return target;
+    return { target, inView };
   }
 
   function closeCheckout(restoreFocus = false) {
+    checkoutCue.current?.cancel();
     setCheckoutId(null);
     if (!restoreFocus) return;
     const origin = checkoutOrigin.current;
