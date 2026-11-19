@@ -1,5 +1,5 @@
-import { Suspense, lazy, useState } from 'react';
-import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Plus, Settings, Store, Users, Wallet, WashingMachine } from 'lucide-react';
+import { Suspense, lazy, useRef, useState } from 'react';
+import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Menu, Plus, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -54,6 +54,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
   const [orderQuery, setOrderQuery] = useState('');
   const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const mainContent = useRef<HTMLElement>(null);
 
   const activeBranchId =
     visibleBranches.find((branch) => branch.id === selectedBranch)?.id ??
@@ -71,6 +74,14 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
       setOrderQuery('');
     }
     window.scrollTo(0, 0);
+  }
+
+  function chooseSection(tab: TabId) {
+    navigate(tab);
+    setMenuOpen(false);
+    if (menuButton.current?.getClientRects().length) {
+      mainContent.current?.focus({ preventScroll: true });
+    }
   }
 
   function showOrders(filter = 'todas', query = '') {
@@ -206,35 +217,53 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" data-menu-open={menuOpen ? '' : undefined} onKeyDown={(event) => {
+        if (event.key === 'Escape' && menuOpen && menuButton.current?.getClientRects().length) {
+          setMenuOpen(false);
+          menuButton.current.focus();
+        }
+      }}>
         <div className="brand-block">
           <span className="brand-mark"><WashingMachine size={23} aria-hidden="true" /></span>
           <div><strong>HOREB <span>360</span></strong><small>Gestión de lavandería</small></div>
         </div>
-        <div className="nav-heading">Operación</div>
-        <nav className="workspace-nav" aria-label="Secciones principales">
-          {navigation.map(({ id, label, icon: Icon }) => (
-            <button key={id} type="button" className={activeTab === id ? 'active' : ''} aria-current={activeTab === id ? 'page' : undefined} onClick={() => navigate(id)}>
-              <Icon size={19} aria-hidden="true" /><span>{label}</span>
+        <button
+          ref={menuButton}
+          type="button"
+          className="mobile-menu-toggle"
+          aria-expanded={menuOpen}
+          aria-controls="workspace-menu"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+          Menú
+        </button>
+        <div className="workspace-menu" id="workspace-menu">
+          <div className="nav-heading">Operación</div>
+          <nav className="workspace-nav" aria-label="Secciones principales">
+            {navigation.map(({ id, label, icon: Icon }) => (
+              <button key={id} type="button" className={activeTab === id ? 'active' : ''} aria-current={activeTab === id ? 'page' : undefined} onClick={() => chooseSection(id)}>
+                <Icon size={19} aria-hidden="true" /><span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <SharedStatus
+            branchName={activeBranch.name}
+            role={activeRole}
+            isOnline={shared.isOnline}
+            pendingSyncCount={shared.pendingSyncCount}
+            syncing={shared.syncing}
+          />
+          <div className="sidebar-footer">
+            <button
+              type="button"
+              className={`reset-button ${activeTab === 'ajustes' ? 'active' : ''}`}
+              aria-current={activeTab === 'ajustes' ? 'page' : undefined}
+              onClick={() => chooseSection('ajustes')}
+            >
+              <Settings size={17} aria-hidden="true" /> Ajustes
             </button>
-          ))}
-        </nav>
-        <SharedStatus
-          branchName={activeBranch.name}
-          role={activeRole}
-          isOnline={shared.isOnline}
-          pendingSyncCount={shared.pendingSyncCount}
-          syncing={shared.syncing}
-        />
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            className={`reset-button ${activeTab === 'ajustes' ? 'active' : ''}`}
-            aria-current={activeTab === 'ajustes' ? 'page' : undefined}
-            onClick={() => navigate('ajustes')}
-          >
-            <Settings size={17} aria-hidden="true" /> Ajustes
-          </button>
+          </div>
         </div>
       </aside>
       <div className="workspace">
@@ -262,7 +291,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
             </button>
           </div>
         </header>
-        <main className="main-content" data-workspace-tab={activeTab}>
+        <main ref={mainContent} tabIndex={-1} className="main-content" data-workspace-tab={activeTab}>
           {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
           {shared.syncWarning && <div className="alert alert-error" role="alert">{shared.syncWarning}</div>}
           {(!shared.isOnline || shared.pendingSyncCount > 0) && (

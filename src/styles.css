@@ -539,6 +539,13 @@ select:focus-visible {
   .order-summary-right {
     justify-content: space-between;
   }
+  .order-summary-right .btn,
+  .order-expand-btn {
+    min-height: 44px;
+  }
+  .order-expand-btn {
+    width: 44px;
+  }
 }
 
 .payment-chips {
@@ -928,6 +935,14 @@ th {
   --bar-bg: #b8d3f6;
   --bar-current: #1d4ed8;
   --auth-glow: #cfe3fc;
+}
+
+.mobile-menu-toggle {
+  display: none;
+}
+
+.workspace-menu {
+  display: contents;
 }
 
 .app-shell {
@@ -1524,25 +1539,57 @@ th {
     height: auto;
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 9px;
-    padding: 11px 12px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+  }
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--sidebar-border);
+    border-radius: 9px;
+    background: var(--sidebar-hover);
+    color: #f4f7ef;
+    font-weight: 650;
+  }
+  .sidebar .brand-block {
+    padding: 0;
+    min-width: 0;
+  }
+  .sidebar .brand-block small {
+    display: none;
+  }
+  .sidebar .brand-mark {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    border-radius: 10px;
+  }
+  .workspace-menu {
+    display: none;
+    grid-column: 1 / -1;
+    gap: 10px;
+    padding-block: 10px 2px;
+    border-top: 1px solid var(--sidebar-border);
+  }
+  .sidebar[data-menu-open] .workspace-menu {
+    display: grid;
   }
   .nav-heading {
     display: none;
   }
   .workspace-nav {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
-    gap: 4px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
   .workspace-nav button {
     min-height: 44px;
-    justify-content: center;
-    flex-direction: column;
-    gap: 3px;
-    padding: 5px 2px;
-    font-size: 11px;
+    gap: 9px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
   }
   .workspace-nav svg {
     height: 16px;
@@ -1556,17 +1603,26 @@ th {
     align-self: center;
   }
   .reset-button {
-    font-size: 12px;
-    gap: 5px;
-    min-height: 36px;
-    margin: 0 0 0 auto;
-    padding: 4px 8px;
+    min-height: 44px;
+    margin: 0;
+    padding: 8px 10px;
   }
   .main-content {
     padding-block: 17px 30px;
   }
   .workspace-header {
     min-height: 0;
+    padding-block: 8px;
+  }
+  .workspace-header .breadcrumb {
+    display: none;
+  }
+  .workspace-actions {
+    width: 100%;
+  }
+  .workspace-actions .btn,
+  .workspace-actions .custom-select.compact .custom-select-trigger {
+    min-height: 44px;
   }
   .insight-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1589,7 +1645,14 @@ th {
   }
   .page-intro > button {
     flex: 0 0 auto;
-    font-size: 12px;
+    font-size: 0.85rem;
+  }
+  .page-intro {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .payment-confirm-inline .btn {
+    min-height: 44px;
   }
   .combo-preset-chip {
     min-height: 44px;
