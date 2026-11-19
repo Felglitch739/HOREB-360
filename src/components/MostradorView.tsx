@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { formatMxn } from '../domain/money';
 import {
   getBranchCatalog,
   getBranchInfo,
@@ -64,149 +63,84 @@ export function MostradorView({
   const [query, setQuery] = useState(initialQuery);
   const [filter, setFilter] = useState(initialFilter);
   const [checkoutId, setCheckoutId] = useState<string | null>(null);
-  const [flightNonce, setFlightNonce] = useState(0);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string; orderId?: string } | null>(null);
-  const pendingFlightRef = useRef<{
-    key: number;
-    orderId: string;
-    folio: string;
-    totalText: string;
-    fromRect: DOMRect;
-    sourceCard?: HTMLElement | null;
-  } | null>(null);
-  const activeGhostRef = useRef<HTMLDivElement | null>(null);
-
+  const checkoutOrigin = useRef<HTMLButtonElement | null>(null);
+  const checkoutSourceRect = useRef<DOMRect | undefined>(undefined);
   const checkoutOrder = state.orders.find((order) => order.id === checkoutId) ?? null;
 
   useLayoutEffect(() => {
-    activeGhostRef.current?.remove();
-    activeGhostRef.current = null;
-
     if (!checkoutOrder) return;
-    const targetEl = document.getElementById('checkout-form');
-    if (!targetEl) return;
+    const target = revealCheckout();
+    const source = checkoutSourceRect.current;
+    if (!target || !source || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-    const reducedMotion =
-      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const targetRect = targetEl.getBoundingClientRect();
+    const destination = target.getBoundingClientRect();
+    const bothVisible =
+      source.top >= 0 && source.bottom <= window.innerHeight &&
+      destination.top >= 0 && destination.bottom <= window.innerHeight;
+    if (!bothVisible || destination.right >= source.left || typeof target.animate !== 'function') return;
 
-    if (targetRect.top < 12 || targetRect.top > window.innerHeight * 0.55) {
-      targetEl.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
-    }
+    const preview = target.cloneNode(true) as HTMLElement;
+    preview.removeAttribute('id');
+    preview.classList.add('checkout-flight-ghost');
+    preview.setAttribute('aria-hidden', 'true');
+    preview.inert = true;
+    preview.style.width = `${destination.width}px`;
+    document.body.appendChild(preview);
 
-    const pending = pendingFlightRef.current;
-    if (!pending || pending.orderId !== checkoutOrder.id) return;
-
-    // Clear only after paint starts so React StrictMode's synchronous double-invoke does not drop the flight.
-    const clearTimer = requestAnimationFrame(() => {
-      if (pendingFlightRef.current?.key === pending.key) {
-        pendingFlightRef.current = null;
-      }
-    });
-
-    if (typeof targetEl.animate !== 'function') {
-      return () => cancelAnimationFrame(clearTimer);
-    }
-
-    const cleanups: Array<() => void> = [() => cancelAnimationFrame(clearTimer)];
-
-    const halo = document.createElement('div');
-    halo.className = 'checkout-receive-halo';
-    halo.setAttribute('aria-hidden', 'true');
-    targetEl.appendChild(halo);
-    const haloAnim = halo.animate(
-      reducedMotion
-        ? [{ opacity: 0.85 }, { opacity: 0 }]
-        : [
-            { opacity: 0.92, transform: 'scale(0.988)' },
-            { opacity: 0, transform: 'scale(1.015)' },
-          ],
-      { duration: reducedMotion ? 220 : 380, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
+    const flight = preview.animate(
+      [
+        {
+          transform: `translate3d(${source.left}px, ${source.top}px, 0) scale(${source.width / destination.width}, ${source.height / destination.height})`,
+          opacity: 1,
+        },
+        { transform: `translate3d(${destination.left}px, ${destination.top}px, 0)`, opacity: 1, offset: 0.88 },
+        { transform: `translate3d(${destination.left}px, ${destination.top}px, 0)`, opacity: 0 },
+      ],
+      { duration: 430, easing: 'cubic-bezier(0.25, 0.65, 0.3, 1)', fill: 'both' },
     );
-    haloAnim.finished.catch(() => {}).finally(() => halo.remove());
-    cleanups.push(() => {
-      haloAnim.cancel();
-      halo.remove();
-    });
-
-    if (!reducedMotion) {
-      if (pending.sourceCard && typeof pending.sourceCard.animate === 'function') {
-        const cardAnim = pending.sourceCard.animate(
-          [
-            { transform: 'scale(0.985)' },
-            { transform: 'scale(1)' },
-          ],
-          { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-        );
-        cleanups.push(() => cardAnim.cancel());
-      }
-
-      const panelAnim = targetEl.animate(
-        [
-          { opacity: 0.72, transform: 'translate3d(24px, 0, 0) scale(0.985)' },
-          { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
-        ],
-        { duration: 300, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
-      );
-      cleanups.push(() => panelAnim.cancel());
-
-      const startX = pending.fromRect.left;
-      const startY = pending.fromRect.top;
-      const badgeEl = targetEl.querySelector('.card-title .badge') as HTMLElement | null;
-      const destRect = badgeEl?.getBoundingClientRect() ?? targetRect;
-      const endX = badgeEl ? destRect.left : targetRect.left + 20;
-      const endY = Math.max(14, badgeEl ? destRect.top : targetRect.top + 18);
-
-      const ghost = document.createElement('div');
-      ghost.className = 'checkout-flight-ghost';
-      ghost.setAttribute('aria-hidden', 'true');
-      const folioSpan = document.createElement('strong');
-      folioSpan.textContent = pending.folio;
-      const amountSpan = document.createElement('span');
-      amountSpan.textContent = `${pending.totalText} → Cobrar`;
-      ghost.append(folioSpan, amountSpan);
-      document.body.appendChild(ghost);
-      activeGhostRef.current = ghost;
-
-      const midX = (startX + endX) / 2;
-      const midY = Math.min(startY, endY) - 18;
-      const flightAnim = ghost.animate(
-        [
-          {
-            opacity: 0.96,
-            transform: `translate3d(${startX}px, ${startY}px, 0) scale(0.96)`,
-          },
-          {
-            opacity: 1,
-            transform: `translate3d(${midX}px, ${midY}px, 0) scale(1.06)`,
-            offset: 0.45,
-          },
-          {
-            opacity: 0,
-            transform: `translate3d(${endX}px, ${endY}px, 0) scale(0.92)`,
-          },
-        ],
-        { duration: 340, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' },
-      );
-
-      flightAnim.finished
-        .catch(() => {})
-        .finally(() => {
-          if (activeGhostRef.current === ghost) activeGhostRef.current = null;
-          ghost.remove();
-        });
-
-      cleanups.push(() => {
-        flightAnim.cancel();
-        if (activeGhostRef.current === ghost) activeGhostRef.current = null;
-        ghost.remove();
-      });
-    }
+    const arrival = target.animate(
+      [{ opacity: 0 }, { opacity: 0, offset: 0.82 }, { opacity: 1 }],
+      { duration: 430 },
+    );
+    void flight.finished.then(() => preview.remove(), () => preview.remove());
 
     return () => {
-      for (const cleanup of cleanups) cleanup();
+      flight.cancel();
+      arrival.cancel();
+      preview.remove();
     };
-  }, [checkoutOrder?.id, flightNonce]);
+  }, [checkoutOrder?.id]);
+
+  function revealCheckout() {
+    const heading = document.getElementById('checkout-heading');
+    const target = document.querySelector<HTMLElement>('#checkout-form .checkout-active-order');
+    const bounds = target?.getBoundingClientRect();
+    heading?.focus({ preventScroll: true });
+
+    if (heading && bounds && (heading.getBoundingClientRect().top < 12 || bounds.bottom > window.innerHeight * 0.75)) {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      heading.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'instant' : 'smooth' });
+      return null;
+    }
+
+    return target;
+  }
+
+  function closeCheckout(restoreFocus = false) {
+    setCheckoutId(null);
+    if (!restoreFocus) return;
+    const origin = checkoutOrigin.current;
+    requestAnimationFrame(() => {
+      if (checkoutOrigin.current !== origin) return;
+      if (origin?.isConnected && !origin.disabled) {
+        origin.focus();
+      } else if (document.activeElement === document.body) {
+        document.querySelector<HTMLElement>('[aria-label="Órdenes registradas"] input')?.focus();
+      }
+    });
+  }
+
   const suggestedFolio = suggestNextFolio(state, branchId);
 
   const term = normalizeSearch(query.trim());
@@ -254,7 +188,7 @@ export function MostradorView({
           checkoutOrder={checkoutOrder}
           feedback={feedback}
           onFeedback={setFeedback}
-          onCancelCheckout={() => setCheckoutId(null)}
+          onCancelCheckout={closeCheckout}
           onCreateOrder={(input) => onCreateOrder({ ...input, branchId })}
           onCapturePayment={onCapturePayment}
           onUpsertCustomer={onUpsertCustomer}
@@ -276,21 +210,12 @@ export function MostradorView({
         feedback={feedback}
         showFeedback={ordersOnly && !checkoutOrder}
         onStartCheckout={(order, sourceElement) => {
-          const fromRect = sourceElement?.getBoundingClientRect();
-          const sourceCard = sourceElement?.closest<HTMLElement>('.order-card') ?? null;
-          const nextNonce = flightNonce + 1;
-          pendingFlightRef.current =
-            fromRect && fromRect.width > 0 && fromRect.height > 0
-              ? {
-                  key: nextNonce,
-                  orderId: order.id,
-                  folio: order.folio,
-                  totalText: formatMxn(order.totalCents),
-                  fromRect,
-                  sourceCard,
-                }
-              : null;
-          setFlightNonce(nextNonce);
+          if (order.id === checkoutId) {
+            revealCheckout();
+            return;
+          }
+          checkoutOrigin.current = sourceElement instanceof HTMLButtonElement ? sourceElement : null;
+          checkoutSourceRect.current = sourceElement?.closest('.order-summary-row')?.getBoundingClientRect();
           setCheckoutId(order.id);
           setFeedback(null);
         }}

@@ -112,11 +112,12 @@ export function OrderCard({
       return (
         <button
           type="button"
-          className="btn btn-primary btn-sm"
-          disabled={!hasOpenShift}
+          className={`btn btn-sm ${activeCheckout ? 'btn-secondary' : 'btn-primary'}`}
+          disabled={!hasOpenShift && !activeCheckout}
+          aria-controls={activeCheckout ? 'checkout-form' : undefined}
           onClick={(event) => onStartCheckout(order, event.currentTarget)}
         >
-          Cobrar
+          {activeCheckout ? 'Ir al cobro' : 'Cobrar'}
         </button>
       );
     }
@@ -212,7 +213,9 @@ export function OrderCard({
             ) : (
               <span className="badge badge-info">Autoservicio</span>
             )}
-            {pendingCents > 0 && (
+            {activeCheckout ? (
+              <span className="badge badge-info">Cobro en curso</span>
+            ) : pendingCents > 0 && (
               <span className="badge badge-warning">Pendiente {formatMxn(pendingCents)}</span>
             )}
           </div>
@@ -443,11 +446,12 @@ export function OrderCard({
             {paymentLines.length === 0 && order.serviceType === 'encargo' && order.totalCents > 0 && (
               <button
                 type="button"
-                className="btn btn-primary btn-sm"
-                disabled={!hasOpenShift}
+                className={`btn btn-sm ${activeCheckout ? 'btn-secondary' : 'btn-primary'}`}
+                disabled={!hasOpenShift && !activeCheckout}
+                aria-controls={activeCheckout ? 'checkout-form' : undefined}
                 onClick={(event) => onStartCheckout(order, event.currentTarget)}
               >
-                Cobrar encargo
+                {activeCheckout ? 'Ir al cobro' : 'Cobrar encargo'}
               </button>
             )}
 

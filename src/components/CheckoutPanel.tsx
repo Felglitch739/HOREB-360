@@ -17,7 +17,7 @@ interface CheckoutPanelProps {
   checkoutOrder: Order | null;
   feedback: { type: 'error' | 'success'; text: string; orderId?: string } | null;
   onFeedback: (next: { type: 'error' | 'success'; text: string; orderId?: string } | null) => void;
-  onCancelCheckout: () => void;
+  onCancelCheckout: (restoreFocus?: boolean) => void;
   onCreateOrder: (
     input: Omit<CreateOrderInput, 'branchId'>,
   ) => Promise<{ ok: boolean; error?: string; order?: Order }>;
@@ -247,13 +247,24 @@ export function CheckoutPanel({
   }
 
   return (
-    <section id="checkout-form" className="card" aria-label="Registrar orden en mostrador">
-      <h2 className="card-title">
-        <span>{checkoutOrder ? `Cobrar ${checkoutOrder.folio}` : 'Nueva orden'}</span>
-        <span className="badge badge-info">
-          {checkoutOrder ? 'Cobro pendiente' : `Próx. folio ${suggestedFolio}`}
-        </span>
+    <section id="checkout-form" className="card" aria-labelledby="checkout-heading" data-active-payment={checkoutOrder ? '' : undefined}>
+      <h2 id="checkout-heading" className="card-title" tabIndex={-1} aria-describedby={checkoutOrder ? 'checkout-order-summary' : undefined}>
+        <span>{checkoutOrder ? 'Cobro en curso' : 'Nueva orden'}</span>
+        {!checkoutOrder && <span className="badge badge-info">Próx. folio {suggestedFolio}</span>}
       </h2>
+
+      {checkoutOrder && (
+        <div id="checkout-order-summary" className="checkout-active-order">
+          <div className="checkout-order-identity">
+            <strong>{checkoutOrder.folio}</strong>
+            {checkoutOrder.customerAlias && <span>{checkoutOrder.customerAlias}</span>}
+          </div>
+          <div className="checkout-order-amount">
+            <span>Importe a cobrar</span>
+            <strong>{formatMxn(totalCents)}</strong>
+          </div>
+        </div>
+      )}
 
       {!openShift && (
         <div className="alert alert-error">
@@ -262,11 +273,7 @@ export function CheckoutPanel({
       )}
 
       <form onSubmit={handleSubmit}>
-        {checkoutOrder ? (
-          <p className="muted">
-            Encargo de <strong>{checkoutOrder.customerAlias}</strong> · {formatMxn(checkoutOrder.totalCents)}
-          </p>
-        ) : (
+        {!checkoutOrder && (
           <>
             <div className="field">
               <span className="checkout-field-label" id="checkout-service-label">Tipo de servicio</span>
@@ -676,7 +683,7 @@ export function CheckoutPanel({
             className="btn btn-secondary btn-full"
             style={{ marginTop: 8 }}
             onClick={() => {
-              onCancelCheckout();
+              onCancelCheckout(true);
               resetPaymentInputs();
               onFeedback(null);
             }}
