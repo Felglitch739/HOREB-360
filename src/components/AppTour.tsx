@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Compass, X } from 'lucide-react';
 import './AppTour.css';
+import { useModalFocus } from './useModalFocus';
 
 export type TourTabId = 'inicio' | 'mostrador' | 'ordenes' | 'caja' | 'admin' | 'ajustes';
 
@@ -86,6 +87,7 @@ interface SpotlightRect {
 export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const dialogRef = useModalFocus(open, onClose);
 
   const step = TOUR_STEPS[stepIndex] ?? TOUR_STEPS[0];
 
@@ -108,7 +110,6 @@ export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
         setRect(null);
         return;
       }
-      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       const box = target.getBoundingClientRect();
       if (box.width === 0 || box.height === 0) {
         setRect(null);
@@ -123,7 +124,14 @@ export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
       });
     }
 
-    const timer = window.setTimeout(measure, 80);
+    const timer = window.setTimeout(() => {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      document.querySelector(step.selector)?.scrollIntoView({
+        block: 'nearest',
+        behavior: reduceMotion ? 'instant' : 'smooth',
+      });
+      measure();
+    }, 80);
     window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, true);
 
@@ -138,9 +146,7 @@ export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
   useEffect(() => {
     if (!open) return;
     function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      } else if (event.key === 'ArrowRight') {
+      if (event.key === 'ArrowRight') {
         if (stepIndex < TOUR_STEPS.length - 1) setStepIndex((i) => i + 1);
       } else if (event.key === 'ArrowLeft') {
         if (stepIndex > 0) setStepIndex((i) => i - 1);
@@ -148,7 +154,7 @@ export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, stepIndex, onClose]);
+  }, [open, stepIndex]);
 
   if (!open) return null;
 
@@ -179,7 +185,7 @@ export function AppTour({ open, onNavigate, onClose }: AppTourProps) {
   }
 
   return (
-    <div className="app-tour-overlay" role="dialog" aria-modal="true" aria-label="Guía interactiva">
+    <div ref={dialogRef} className="app-tour-overlay" role="dialog" tabIndex={-1} aria-modal="true" aria-label="Guía interactiva">
       {!rect && <div className="app-tour-backdrop" onClick={onClose} />}
       {rect && (
         <>

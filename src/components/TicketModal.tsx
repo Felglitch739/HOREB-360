@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Printer, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo, getOrderLineItems } from '../domain/rules';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchSettings, Order, PaymentLine, TicketState } from '../domain/types';
+import { useModalFocus } from './useModalFocus';
 
 interface TicketModalProps {
   order: Order;
@@ -54,25 +55,7 @@ export function TicketModal({
   const [footerMessage, setFooterMessage] = useState(
     branchSettings.ticketFooter || DEFAULT_FOOTER,
   );
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const previousFocus = document.activeElement as HTMLElement | null;
-    closeBtnRef.current?.focus();
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      previousFocus?.focus?.();
-    };
-  }, [onClose]);
+  const dialogRef = useModalFocus(true, onClose);
 
   const stageLabel = order.encargoStage
     ? ENCARGO_STAGES.find((stage) => stage.id === order.encargoStage)?.label
@@ -121,8 +104,10 @@ export function TicketModal({
 
   return (
     <div
+      ref={dialogRef}
       className="modal-backdrop"
       role="dialog"
+      tabIndex={-1}
       aria-modal="true"
       aria-labelledby="ticket-modal-title"
       onClick={(event) => {
@@ -134,7 +119,6 @@ export function TicketModal({
         <div className="card-title">
           <span id="ticket-modal-title">Comprobante · {order.folio}</span>
           <button
-            ref={closeBtnRef}
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={onClose}

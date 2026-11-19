@@ -331,11 +331,19 @@ select:focus-visible {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 4px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  font-weight: 700;
-  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkout-total > span {
+  color: var(--text-muted);
+  margin-inline-end: 4px;
+}
+
+.checkout-total > strong {
+  font-size: 1.2rem;
 }
 
 /* Order cards (compact by default, expandable on click) */
@@ -573,6 +581,61 @@ select:focus-visible {
 /* Table */
 .table-wrap {
   overflow-x: auto;
+}
+
+.stacked-table {
+  container-type: inline-size;
+}
+
+@container (max-width: 740px) {
+  .stacked-table table,
+  .stacked-table tbody {
+    display: block;
+  }
+
+  .stacked-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .stacked-table tbody {
+    display: grid;
+    gap: 8px;
+  }
+
+  .stacked-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .stacked-table td {
+    padding: 0;
+    border: 0;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+
+  .stacked-table td[data-row-heading] {
+    grid-column: 1 / -1;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stacked-table td[data-label]::before {
+    content: attr(data-label) / "";
+    display: block;
+    margin-bottom: 2px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
 }
 
 table {
@@ -1391,6 +1454,7 @@ th {
 .two-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: 15px;
 }
 
@@ -1617,13 +1681,55 @@ th {
   text-align: center;
 }
 
+.checkout-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.checkout-payment-head {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.checkout-payment-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.checkout-payment-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#checkout-form .catalog-head-row {
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+#checkout-form .catalog-head-row .checkout-field-label {
+  margin: 0;
+}
+
+#checkout-form .catalog-head-row .ticket-fallback-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+}
+
 .checkout-footer-bar {
-  position: sticky;
-  bottom: 0;
-  background: var(--surface);
-  padding-top: 8px;
-  padding-bottom: 4px;
-  z-index: 5;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-alt);
 }
 
 .checkout-submit-btn {
@@ -1882,6 +1988,14 @@ th {
   text-align: center;
   font-weight: 800;
   font-size: 0.94rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px), (pointer: coarse) {
+  .qty-btn {
+    min-height: 44px;
+    width: 44px;
+  }
 }
 
 .payment-chip {

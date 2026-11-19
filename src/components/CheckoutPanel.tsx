@@ -249,9 +249,9 @@ export function CheckoutPanel({
   return (
     <section id="checkout-form" className="card" aria-label="Registrar orden en mostrador">
       <h2 className="card-title">
-        <span>{checkoutOrder ? `Cobrar ${checkoutOrder.folio}` : `Mostrador · ${branchName}`}</span>
+        <span>{checkoutOrder ? `Cobrar ${checkoutOrder.folio}` : 'Nueva orden'}</span>
         <span className="badge badge-info">
-          {checkoutOrder ? 'Cobro pendiente' : `Sig. folio ${suggestedFolio}`}
+          {checkoutOrder ? 'Cobro pendiente' : `Próx. folio ${suggestedFolio}`}
         </span>
       </h2>
 
@@ -269,11 +269,12 @@ export function CheckoutPanel({
         ) : (
           <>
             <div className="field">
-              <label>Tipo de servicio</label>
-              <div className="segmented">
+              <span className="checkout-field-label" id="checkout-service-label">Tipo de servicio</span>
+              <div className="segmented" role="group" aria-labelledby="checkout-service-label">
                 <button
                   type="button"
                   className={`seg-btn ${serviceType === 'autoservicio' ? 'active' : ''}`}
+                  aria-pressed={serviceType === 'autoservicio'}
                   onClick={() => setServiceType('autoservicio')}
                 >
                   Autoservicio
@@ -281,6 +282,7 @@ export function CheckoutPanel({
                 <button
                   type="button"
                   className={`seg-btn ${serviceType === 'encargo' ? 'active' : ''}`}
+                  aria-pressed={serviceType === 'encargo'}
                   onClick={() => setServiceType('encargo')}
                 >
                   Encargo
@@ -290,15 +292,15 @@ export function CheckoutPanel({
 
             <div className="field">
               <div className="catalog-head-row">
-                <label style={{ marginBottom: 0 }}>Cliente / Lealtad</label>
+                <span className="checkout-field-label">Cliente y lealtad</span>
                 <button
                   type="button"
                   className="ticket-fallback-link"
-                  style={{ padding: 0 }}
+                  aria-expanded={showNewCustomer}
                   onClick={() => setShowNewCustomer((prev) => !prev)}
                 >
-                  <UserPlus size={13} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />
-                  {showNewCustomer ? 'Cerrar alta' : '+ Nuevo cliente'}
+                  <UserPlus size={15} aria-hidden="true" />
+                  {showNewCustomer ? 'Cerrar alta' : 'Nuevo cliente'}
                 </button>
               </div>
 
@@ -333,6 +335,7 @@ export function CheckoutPanel({
                 <div className="quick-customer-box">
                   <input
                     className="input input-sm"
+                    aria-label="Nombre del cliente"
                     placeholder="Nombre del cliente *"
                     value={newCustName}
                     onChange={(e) => setNewCustName(e.target.value)}
@@ -341,6 +344,8 @@ export function CheckoutPanel({
                   <input
                     className="input input-sm"
                     type="tel"
+                    aria-label="Teléfono del cliente"
+                    inputMode="tel"
                     placeholder="Teléfono 10 dígitos *"
                     value={newCustPhone}
                     onChange={(e) => setNewCustPhone(e.target.value)}
@@ -398,12 +403,9 @@ export function CheckoutPanel({
             )}
 
             <div className="field">
-              <div className="catalog-head-row">
-                <label style={{ marginBottom: 0 }}>Servicios y productos</label>
-                <small className="muted">Folio único asignado al guardar</small>
-              </div>
+              <span className="checkout-field-label" id="checkout-catalog-label">Servicios y productos</span>
 
-              <div className="catalog-grid">
+              <div className="catalog-grid" role="group" aria-labelledby="checkout-catalog-label">
                 {activeCatalog.map((item) => {
                   const qty = quantities[item.id] ?? 0;
                   return (
@@ -509,17 +511,17 @@ export function CheckoutPanel({
           </div>
         ) : (
           <>
-            <div className="field">
-              <label>Atajos de pago único</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <div className="checkout-payment-head">
+              <h3>Pago</h3>
+              <div className="checkout-payment-shortcuts" role="group" aria-label="Aplicar el total a un método de pago">
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSingleMethod('efectivo')}>
-                  Todo Efectivo
+                  Todo en efectivo
                 </button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSingleMethod('tarjeta')}>
-                  Todo Tarjeta
+                  Todo con tarjeta
                 </button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSingleMethod('transferencia')}>
-                  Todo Transferencia
+                  Todo por transferencia
                 </button>
               </div>
             </div>
@@ -641,7 +643,7 @@ export function CheckoutPanel({
 
         <div className="checkout-footer-bar">
           <div className="summary-bar" aria-live="polite">
-            <span>Total {formatMxn(totalCents)}</span>
+            <span className="checkout-total"><span>Total</span> <strong>{formatMxn(totalCents)}</strong></span>
             {deferPayment ? (
               <strong>Por cobrar</strong>
             ) : freeCoverAll ? (
@@ -649,8 +651,8 @@ export function CheckoutPanel({
             ) : tender.ok ? (
               <strong style={{ color: tender.remaining > 0 ? 'var(--warning)' : 'var(--success)' }}>
                 {tender.remaining > 0
-                  ? `Falta ${formatMxn(tender.remaining)}`
-                  : `Cambio ${formatMxn(tender.change)}`}
+                  ? `Faltan ${formatMxn(tender.remaining)}`
+                  : tender.change > 0 ? `Cambio ${formatMxn(tender.change)}` : 'Monto completo'}
               </strong>
             ) : null}
           </div>
@@ -660,13 +662,11 @@ export function CheckoutPanel({
             className="btn btn-primary btn-full checkout-submit-btn"
             disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
           >
-            <Plus size={18} />
-            {checkoutOrder
-              ? 'Guardar cobro'
-              : deferPayment
-                ? 'Guardar encargo'
-                : 'Guardar folio y pago'}{' '}
-            ({formatMxn(totalCents)})
+            {submitting ? 'Guardando…'
+              : checkoutOrder ? 'Guardar cobro'
+              : deferPayment ? 'Guardar encargo'
+              : freeCoverAll ? 'Guardar orden'
+              : 'Guardar orden y pago'}
           </button>
         </div>
 

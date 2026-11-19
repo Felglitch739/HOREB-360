@@ -13,6 +13,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { parsePesosToCents } from '../domain/money';
+import type { SharedWorkspace } from '../Root';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchAuditEntry, BranchId, BranchSettings, CatalogItem } from '../domain/types';
 import type { BrandTheme } from '../theme';
@@ -21,6 +22,7 @@ interface AjustesViewProps {
   branchId: BranchId;
   branchName: string;
   role: BranchRole;
+  isOnline: boolean;
   settings: BranchSettings;
   catalog: CatalogItem[];
   auditLogs: BranchAuditEntry[];
@@ -31,7 +33,7 @@ interface AjustesViewProps {
     patch: Partial<BranchSettings>,
   ) => Promise<{ ok: boolean; error?: string }>;
   onStartTour: () => void;
-  onReload: () => Promise<void>;
+  onReload: SharedWorkspace['reload'];
   onSignOut: () => void;
 }
 
@@ -39,6 +41,7 @@ export function AjustesView({
   branchId,
   branchName,
   role,
+  isOnline,
   settings,
   catalog,
   auditLogs,
@@ -68,6 +71,7 @@ export function AjustesView({
 
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [reloadFeedback, setReloadFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
@@ -139,9 +143,19 @@ export function AjustesView({
   async function handleReload() {
     if (reloading) return;
     setReloading(true);
+    setReloadFeedback(null);
     try {
-      await onReload();
-      setFeedback({ type: 'success', text: 'Datos actualizados desde Supabase.' });
+      const result = await onReload();
+      if (result === 'updated') {
+        setReloadFeedback({ type: 'success', text: 'Datos actualizados desde Supabase.' });
+      } else {
+        setReloadFeedback({
+          type: 'error',
+          text: result === 'partial'
+            ? 'Algunos datos no se pudieron actualizar. Conservamos los últimos datos disponibles.'
+            : 'No se pudieron actualizar los datos. Revisa la conexión e inténtalo de nuevo.',
+        });
+      }
     } finally {
       setReloading(false);
     }
@@ -358,8 +372,15 @@ export function AjustesView({
               <span className="badge badge-info">{isSupervisor ? 'Supervisión' : 'Caja'}</span>
             </h2>
             <p className="muted" style={{ marginTop: 0 }}>
-              Conectado en línea con la sucursal <strong>{branchName}</strong>. El panel sincroniza automáticamente cada 8 segundos.
+              {isOnline
+                ? <>Conectado con <strong>{branchName}</strong>. El panel se actualiza automáticamente.</>
+                : <>Sin conexión con el servidor. Se muestran los últimos datos disponibles de <strong>{branchName}</strong>.</>}
             </p>
+            {reloadFeedback && (
+              <div className={`alert alert-${reloadFeedback.type}`} role={reloadFeedback.type === 'error' ? 'alert' : 'status'}>
+                {reloadFeedback.text}
+              </div>
+            )}
             <div className="order-actions">
               <button type="button" className="btn btn-secondary" onClick={onStartTour}>
                 <Compass size={16} />

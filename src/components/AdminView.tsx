@@ -104,51 +104,51 @@ export function AdminView({
           </div>
         </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Sucursal</th>
-                <th>Turno activo</th>
-                <th className="num">Folios</th>
-                <th className="num">Efectivo</th>
-                <th className="num">Tarjeta</th>
-                <th className="num">Transferencia</th>
-                <th className="num">Pendiente</th>
-                <th className="num">Total confirmado</th>
+        <div className="table-wrap stacked-table">
+          <table role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader">Sucursal</th>
+                <th role="columnheader">Turno activo</th>
+                <th role="columnheader" className="num">Folios</th>
+                <th role="columnheader" className="num">Efectivo</th>
+                <th role="columnheader" className="num">Tarjeta</th>
+                <th role="columnheader" className="num">Transferencia</th>
+                <th role="columnheader" className="num">Pendiente</th>
+                <th role="columnheader" className="num">Total confirmado</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {byBranch.map((row) => (
-                <tr key={row.branch.id}>
-                  <td>
+                <tr role="row" key={row.branch.id}>
+                  <td role="cell" data-row-heading>
                     <strong>{row.branch.name}</strong>
                   </td>
-                  <td>
+                  <td role="cell" data-label="Turno activo">
                     {row.openShiftNumber ? (
                       <span className="badge badge-success">Turno #{row.openShiftNumber}</span>
                     ) : (
                       <span className="badge badge-warning">Cerrada</span>
                     )}
                   </td>
-                  <td className="num">{row.orderCount}</td>
-                  <td className="num">{formatMxn(row.cashCents)}</td>
-                  <td className="num">{formatMxn(row.cardCents)}</td>
-                  <td className="num">{formatMxn(row.transferCents)}</td>
-                  <td className="num">{formatMxn(row.pendingCents)}</td>
-                  <td className="num">
+                  <td role="cell" data-label="Folios" className="num">{row.orderCount}</td>
+                  <td role="cell" data-label="Efectivo" className="num">{formatMxn(row.cashCents)}</td>
+                  <td role="cell" data-label="Tarjeta" className="num">{formatMxn(row.cardCents)}</td>
+                  <td role="cell" data-label="Transferencia" className="num">{formatMxn(row.transferCents)}</td>
+                  <td role="cell" data-label="Pendiente" className="num">{formatMxn(row.pendingCents)}</td>
+                  <td role="cell" data-label="Total confirmado" className="num">
                     <strong>{formatMxn(row.totalConfirmedCents)}</strong>
                   </td>
                 </tr>
               ))}
-              <tr style={{ background: 'var(--surface-alt)', fontWeight: 800 }}>
-                <td colSpan={2}>Total general</td>
-                <td className="num">{totals.orderCount}</td>
-                <td className="num">{formatMxn(totals.cashCents)}</td>
-                <td className="num">{formatMxn(totals.cardCents)}</td>
-                <td className="num">{formatMxn(totals.transferCents)}</td>
-                <td className="num">{formatMxn(totals.pendingCents)}</td>
-                <td className="num">{formatMxn(totals.totalConfirmedCents)}</td>
+              <tr role="row" style={{ background: 'var(--surface-alt)', fontWeight: 800 }}>
+                <td role="cell" data-row-heading colSpan={2}>Total general</td>
+                <td role="cell" data-label="Folios" className="num">{totals.orderCount}</td>
+                <td role="cell" data-label="Efectivo" className="num">{formatMxn(totals.cashCents)}</td>
+                <td role="cell" data-label="Tarjeta" className="num">{formatMxn(totals.cardCents)}</td>
+                <td role="cell" data-label="Transferencia" className="num">{formatMxn(totals.transferCents)}</td>
+                <td role="cell" data-label="Pendiente" className="num">{formatMxn(totals.pendingCents)}</td>
+                <td role="cell" data-label="Total confirmado" className="num">{formatMxn(totals.totalConfirmedCents)}</td>
               </tr>
             </tbody>
           </table>
@@ -239,27 +239,27 @@ export function AdminView({
               No hay boletos elegibles disponibles para {raffleYear}. Se generan cuando un cliente completa su combo gratis tras 10 combos pagados.
             </p>
           ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Boleto</th>
-                    <th>Cliente</th>
-                    <th>Teléfono</th>
-                    <th>Sucursal</th>
-                    <th>Folio origen</th>
-                    <th>Emitido</th>
+            <div className="table-wrap stacked-table">
+              <table role="table">
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th role="columnheader">Boleto</th>
+                    <th role="columnheader">Cliente</th>
+                    <th role="columnheader">Teléfono</th>
+                    <th role="columnheader">Sucursal</th>
+                    <th role="columnheader">Folio origen</th>
+                    <th role="columnheader">Emitido</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody role="rowgroup">
                   {eligibleTickets.map((ticket) => (
-                    <tr key={ticket.id}>
-                      <td><strong>{ticket.ticketCode}</strong></td>
-                      <td>{ticket.customerName}</td>
-                      <td>{ticket.customerPhone}</td>
-                      <td>{getBranchInfo(ticket.branchId).name}</td>
-                      <td>{ticket.orderFolio}</td>
-                      <td>{new Date(ticket.issuedAt).toLocaleDateString('es-MX')}</td>
+                    <tr role="row" key={ticket.id}>
+                      <td role="cell" data-row-heading><strong>{ticket.ticketCode}</strong></td>
+                      <td role="cell" data-label="Cliente">{ticket.customerName}</td>
+                      <td role="cell" data-label="Teléfono">{ticket.customerPhone}</td>
+                      <td role="cell" data-label="Sucursal">{getBranchInfo(ticket.branchId).name}</td>
+                      <td role="cell" data-label="Folio origen">{ticket.orderFolio}</td>
+                      <td role="cell" data-label="Emitido">{new Date(ticket.issuedAt).toLocaleDateString('es-MX')}</td>
                     </tr>
                   ))}
                 </tbody>

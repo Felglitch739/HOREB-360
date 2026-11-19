@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Upload } from 'lucide-react';
 import { formatMxn } from '../domain/money';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../domain/reconciliation';
 import { getBranchInfo } from '../domain/rules';
 import type { BranchId, DemoState } from '../domain/types';
+import { usePendingAction } from './usePendingAction';
 
 interface TransferInboxPanelProps {
   state: DemoState;
@@ -29,7 +30,8 @@ export function TransferInboxPanel({
   const pendingTransfers = getPendingTransfersForBranch(state, branchId);
   const [refDrafts, setRefDrafts] = useState<Record<string, string>>({});
   const [csvMatches, setCsvMatches] = useState<CsvMatchResult[] | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending, run } = usePendingAction();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   function processCsvContent(text: string) {
@@ -43,12 +45,36 @@ export function TransferInboxPanel({
     setCsvMatches(parsed.rows);
   }
 
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
     if (!file) return;
-    const text = await file.text();
-    processCsvContent(text);
-    event.target.value = '';
+    void run('file', async () => {
+      setFeedback(null);
+      setCsvMatches(null);
+      processCsvContent(await file.text());
+    }, () => setFeedback({ type: 'error', text: 'No se pudo leer el archivo. Vuelve a seleccionar el CSV.' }));
+  }
+
+  function verifyTransfers(
+    action: string,
+    save: () => Promise<{ ok: boolean; error?: string }>,
+    success: string,
+  ) {
+    return run(action, async () => {
+      setFeedback(null);
+      const result = await save();
+      if (result.ok) {
+        setFeedback({ type: 'success', text: success });
+        setCsvMatches(null);
+      } else {
+        setFeedback({ type: 'error', text: result.error ?? 'No se pudieron comprobar las transferencias.' });
+      }
+    }, () => setFeedback({
+      type: 'error',
+      text: 'No se pudo verificar el resultado. Revisa las transferencias pendientes antes de confirmar de nuevo.',
+    }));
   }
 
   function loadDevSampleCsv() {
@@ -126,21 +152,14 @@ export function TransferInboxPanel({
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    setFeedback(null);
-                    const res = await onConfirmPaymentLine(line.id, refDrafts[line.id]?.trim() || undefined);
-                    setBusy(false);
-                    if (!res.ok) {
-                      setFeedback({ type: 'error', text: res.error ?? 'No se pudo confirmar la transferencia.' });
-                    } else {
-                      setFeedback({ type: 'success', text: `Transferencia de ${order.folio} marcada como verificada.` });
-                      setCsvMatches(null);
-                    }
-                  }}
+                  disabled={pending !== null}
+                  onClick={() => void verifyTransfers(
+                    `line-${line.id}`,
+                    () => onConfirmPaymentLine(line.id, refDrafts[line.id]?.trim() || undefined),
+                    `Transferencia de ${order.folio} marcada como verificada.`,
+                  )}
                 >
-                  Marcar transferencia verificada
+                  {pending === `line-${line.id}` ? 'Verificando…' : 'Marcar transferencia verificada'}
                 </button>
               </div>
             </div>
@@ -154,18 +173,18 @@ export function TransferInboxPanel({
           <small className="muted">Columnas: fecha, referencia, importe, concepto</small>
         </div>
         <div className="order-actions">
-          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={pending !== null}
+            onClick={() => fileInput.current?.click()}
+          >
             <Upload size={15} />
-            Seleccionar CSV
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => void handleFileChange(e)}
-              style={{ display: 'none' }}
-            />
-          </label>
+            {pending === 'file' ? 'Leyendo CSV…' : 'Seleccionar CSV'}
+          </button>
+          <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={handleFileChange} hidden />
           {import.meta.env.DEV && (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={loadDevSampleCsv}>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={pending !== null} onClick={loadDevSampleCsv}>
               Probar con CSV ficticio (desarrollo)
             </button>
           )}
@@ -173,26 +192,26 @@ export function TransferInboxPanel({
 
         {csvMatches && (
           <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Fila</th>
-                    <th>Ref. CSV</th>
-                    <th className="num">Importe</th>
-                    <th>Resultado</th>
+            <div className="table-wrap stacked-table">
+              <table role="table">
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th role="columnheader">Fila</th>
+                    <th role="columnheader">Ref. CSV</th>
+                    <th role="columnheader" className="num">Importe</th>
+                    <th role="columnheader">Resultado</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody role="rowgroup">
                   {csvMatches.map((row) => (
-                    <tr key={`${row.rowNumber}-${row.referencia}`}>
-                      <td>#{row.rowNumber}</td>
-                      <td>
+                    <tr role="row" key={`${row.rowNumber}-${row.referencia}`}>
+                      <td role="cell" data-row-heading>#{row.rowNumber}</td>
+                      <td role="cell" data-label="Referencia CSV">
                         <strong>{row.referencia}</strong>
                         {row.concepto && <div className="muted" style={{ fontSize: '0.78rem' }}>{row.concepto}</div>}
                       </td>
-                      <td className="num">{formatMxn(row.amountCents)}</td>
-                      <td>
+                      <td role="cell" data-label="Importe" className="num">{formatMxn(row.amountCents)}</td>
+                      <td role="cell" data-label="Resultado">
                         {row.status === 'exact' ? (
                           <span className="badge badge-success">
                             <CheckCircle2 size={12} /> Exacta: {row.matchedFolio}
@@ -226,27 +245,17 @@ export function TransferInboxPanel({
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  setFeedback(null);
-                  const res = await onConfirmTransferBatch(
+                disabled={pending !== null}
+                onClick={() => void verifyTransfers(
+                  'batch',
+                  () => onConfirmTransferBatch(
                     branchId,
                     exactMatches.map((m) => ({ lineId: m.matchedLineId, reference: m.referencia })),
-                  );
-                  setBusy(false);
-                  if (!res.ok) {
-                    setFeedback({ type: 'error', text: res.error ?? 'No se pudieron confirmar las coincidencias.' });
-                  } else {
-                    setFeedback({
-                      type: 'success',
-                      text: `${exactMatches.length} transferencia(s) verificada(s) desde el CSV.`,
-                    });
-                    setCsvMatches(null);
-                  }
-                }}
+                  ),
+                  `${exactMatches.length} transferencia(s) verificada(s) desde el CSV.`,
+                )}
               >
-                Confirmar {exactMatches.length} coincidencia(s) exacta(s)
+                {pending === 'batch' ? 'Confirmando coincidencias…' : `Confirmar ${exactMatches.length} coincidencia(s) exacta(s)`}
               </button>
             )}
           </div>

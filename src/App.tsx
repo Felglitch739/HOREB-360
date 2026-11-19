@@ -384,9 +384,11 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
 
             {activeTab === 'ajustes' && (
               <AjustesView
+                key={activeBranchId}
                 branchId={activeBranchId}
                 branchName={activeBranch.name}
                 role={activeRole}
+                isOnline={shared.isOnline}
                 settings={activeSettings}
                 catalog={getBranchCatalog(state, activeBranchId)}
                 auditLogs={(state.auditLogs ?? []).filter((entry) => entry.branchId === activeBranchId)}

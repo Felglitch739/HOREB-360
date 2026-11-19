@@ -64,7 +64,7 @@ export interface SharedWorkspace {
     branch: BranchId,
     operation: Operation,
   ) => Promise<{ ok: boolean; error?: string; order?: Order; customer?: Customer }>;
-  reload: () => Promise<void>;
+  reload: () => Promise<'updated' | 'partial' | 'unavailable'>;
   syncNow: () => Promise<void>;
   signOut: () => void;
 }
@@ -128,22 +128,22 @@ export function Root() {
     }
     const nextMemberships = access.data as Membership[];
     const nextRows = data.data as BranchRow[];
-    const nextGlobal: GlobalRecordsBundle = {
-      customers: custRes.data ? (custRes.data as DbCustomerRow[]).map(mapDbCustomer) : [],
-      loyaltyEvents: loyaltyRes.data ? (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent) : [],
-      raffleTickets: ticketsRes.data ? (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket) : [],
-      raffleDraws: drawsRes.data ? (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw) : [],
-      nightClosings: ncRes.data ? (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing) : [],
-    };
-    return { memberships: nextMemberships, rows: nextRows, globalRecords: nextGlobal };
+    const nextGlobal: GlobalRecordsBundle = {};
+    if (custRes.data) nextGlobal.customers = (custRes.data as DbCustomerRow[]).map(mapDbCustomer);
+    if (loyaltyRes.data) nextGlobal.loyaltyEvents = (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent);
+    if (ticketsRes.data) nextGlobal.raffleTickets = (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket);
+    if (drawsRes.data) nextGlobal.raffleDraws = (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw);
+    if (ncRes.data) nextGlobal.nightClosings = (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing);
+    const complete = [custRes, loyaltyRes, ticketsRes, drawsRes, ncRes].every((result) => result.data !== null);
+    return { memberships: nextMemberships, rows: nextRows, globalRecords: nextGlobal, complete };
   }, []);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback<SharedWorkspace['reload']>(async () => {
     const userId = session?.user.id;
-    if (!userId) return;
+    if (!userId) return 'unavailable';
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setIsOnline(false);
-      return;
+      return 'unavailable';
     }
     try {
       const fresh = await fetchRemoteState();
@@ -154,7 +154,7 @@ export function Root() {
           setErrorKind('offline');
           setError('Sin conexión con el servidor. Revisa tu internet y vuelve a intentar.');
         }
-        return;
+        return 'unavailable';
       }
       setIsOnline(true);
       setError('');
@@ -170,14 +170,17 @@ export function Root() {
           return current && current.version > freshRow.version ? current : freshRow;
         }),
       );
-      setGlobalRecords(fresh.globalRecords);
-      persistSnapshot(userId, fresh.memberships, fresh.rows, fresh.globalRecords);
+      setGlobalRecords((prior) => ({ ...prior, ...fresh.globalRecords }));
+      const cachedGlobal = fresh.complete ? undefined : readOfflineSnapshot(userId)?.globalRecords;
+      persistSnapshot(userId, fresh.memberships, fresh.rows, { ...cachedGlobal, ...fresh.globalRecords });
+      return fresh.complete ? 'updated' : 'partial';
     } catch {
       setIsOnline(false);
       if (!readOfflineSnapshot(userId)) {
         setErrorKind('offline');
         setError('Sin conexión con el servidor. Revisa tu internet y vuelve a intentar.');
       }
+      return 'unavailable';
     }
   }, [fetchRemoteState, persistSnapshot, session?.user.id]);
 
@@ -252,7 +255,7 @@ export function Root() {
         invokeRemote: invokeSingleRemote,
         reloadRemote: async () => {
           const fresh = await fetchRemoteState();
-          return fresh ? { rows: fresh.rows, globalRecords: fresh.globalRecords } : null;
+          return fresh ? { rows: fresh.rows, globalRecords: { ...globalRecords, ...fresh.globalRecords } } : null;
         },
       });
       writeOfflineQueue(userId, flushed.queue);
@@ -378,8 +381,8 @@ export function Root() {
     if (!base) return { ok: false, error: 'Esta sucursal no está disponible para tu cuenta.' };
     if (interacting.current) return { ok: false, error: 'Espera a que termine la operación anterior.' };
     interacting.current = true;
-    const operationId = crypto.randomUUID();
     try {
+      const operationId = crypto.randomUUID();
       const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       if (browserOffline || !isOnline || pendingQueue.length > 0) {
         return runLocallyOffline(branch, operation, operationId);
