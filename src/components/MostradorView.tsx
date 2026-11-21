@@ -211,6 +211,7 @@ export function MostradorView({
 
   const orderListProps = {
     state,
+    branchId,
     branchOrdersCount: branchOrders.length,
     matchingOrders,
     ordersOnly,

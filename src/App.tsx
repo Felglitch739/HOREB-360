@@ -359,6 +359,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
               branchId={activeBranchId}
               onNew={() => navigate('mostrador')}
               onOrders={showOrders}
+              onOpenCaja={() => navigate('caja')}
             />
           )}
           {activeTab !== 'inicio' && (

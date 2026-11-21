@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Award, Download, Sparkles, Ticket } from 'lucide-react';
+import { Award, Download, FileSpreadsheet, Sparkles, Ticket } from 'lucide-react';
+import { exportAdminConsolidatedToExcel } from '../domain/excelExport';
 import { formatMxn } from '../domain/money';
 import { getBranchInfo, getEligibleRaffleTickets, getGlobalAdminTotals } from '../domain/rules';
 import type { BranchRole } from '../domain/sharedState';
@@ -76,7 +77,18 @@ export function AdminView({
       <section className="card">
         <h2 className="card-title">
           <span>Cobros por sucursal</span>
-          <button className="btn btn-secondary btn-sm" onClick={exportReport}><Download size={16} /> Exportar CSV</button>
+          <div className="card-title-actions">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => exportAdminConsolidatedToExcel(state, branches)}
+            >
+              <FileSpreadsheet size={16} aria-hidden="true" /> Exportar Excel (.xlsx)
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={exportReport}>
+              <Download size={15} aria-hidden="true" /> CSV
+            </button>
+          </div>
         </h2>
 
         <div className="metrics-grid">

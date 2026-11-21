@@ -1,6 +1,7 @@
-import { ArrowRight, Banknote, CalendarDays, Plus, ScrollText, WashingMachine } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowRight, Banknote, CalendarDays, Plus, ScrollText, Wallet, WashingMachine } from 'lucide-react';
 import { formatMxn } from '../domain/money';
-import { ENCARGO_STAGES, getBranchInfo, getBranchSummary, getOrderPendingCents } from '../domain/rules';
+import { ENCARGO_STAGES, getBranchInfo, getBranchSummary, getOpenShift, getOrderPendingCents } from '../domain/rules';
 import type { BranchId, DemoState } from '../domain/types';
 
 const weekday = new Intl.DateTimeFormat('es-MX', { weekday: 'short' });
@@ -11,10 +12,13 @@ interface Props {
   branchId: BranchId;
   onNew: () => void;
   onOrders: (filter?: string, query?: string) => void;
+  onOpenCaja?: () => void;
 }
 
-export function Overview({ state, branchId, onNew, onOrders }: Props) {
+export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props) {
+  const [selectedDayIdx, setSelectedDayIdx] = useState<number | null>(null);
   const branch = getBranchInfo(branchId);
+  const openShift = getOpenShift(state, branchId);
   const summary = getBranchSummary(state, branchId);
   const orders = state.orders.filter((order) => order.branchId === branchId);
   const ready = orders.filter((order) => order.encargoStage === 'listo').length;
@@ -50,6 +54,19 @@ export function Overview({ state, branchId, onNew, onOrders }: Props) {
           <Plus size={17} /> Nueva orden
         </button>
       </div>
+
+      {!openShift && (
+        <div className="alert alert-error offline-sync-bar" role="status">
+          <span>
+            <strong>Caja cerrada en {branch.name}.</strong> Abre un turno para registrar ventas y confirmar cobros.
+          </span>
+          {onOpenCaja && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onOpenCaja}>
+              <Wallet size={15} aria-hidden="true" /> Ir a Caja
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="kpi-strip" data-tour="overview-stats">
         {kpis.map(({ label, value, note, filter, warn }) => {
@@ -90,26 +107,42 @@ export function Overview({ state, branchId, onNew, onOrders }: Props) {
           </div>
           <div className="chart-summary">
             <Banknote size={17} aria-hidden="true" />
-            <strong>{formatMxn(days.reduce((sum, day) => sum + day.total, 0))}</strong>
-            <span>MXN</span>
+            <strong>
+              {formatMxn(
+                selectedDayIdx !== null
+                  ? days[selectedDayIdx].total
+                  : days.reduce((sum, day) => sum + day.total, 0),
+              )}
+            </strong>
+            <span>
+              {selectedDayIdx !== null
+                ? `MXN · ${dayLabel.format(days[selectedDayIdx].date)}`
+                : 'MXN · 7 días (toca un día para ver detalle)'}
+            </span>
           </div>
           <div className="histogram" aria-label="Importes por día">
-            {days.map((day, index) => (
-              <div
-                key={day.date.toISOString()}
-                className="chart-column"
-                title={dayLabel.format(day.date) + ' · ' + formatMxn(day.total)}
-              >
-                <div className="bar-track">
-                  <div
-                    className={'bar-fill' + (index === 6 ? ' current' : '')}
-                    style={{ height: Math.max(day.total ? 5 : 2, (day.total / max) * 100) + '%' }}
-                  />
-                </div>
-                <span>{weekday.format(day.date).replace('.', '')}</span>
-                <span className="sr-only">{formatMxn(day.total)}</span>
-              </div>
-            ))}
+            {days.map((day, index) => {
+              const isSelected = selectedDayIdx === index;
+              return (
+                <button
+                  type="button"
+                  key={day.date.toISOString()}
+                  className={`chart-column chart-column-btn${isSelected ? ' selected' : ''}`}
+                  aria-pressed={isSelected}
+                  title={dayLabel.format(day.date) + ' · ' + formatMxn(day.total)}
+                  onClick={() => setSelectedDayIdx((prev) => (prev === index ? null : index))}
+                >
+                  <div className="bar-track">
+                    <div
+                      className={'bar-fill' + (index === 6 ? ' current' : '') + (isSelected ? ' selected' : '')}
+                      style={{ height: Math.max(day.total ? 6 : 2, (day.total / max) * 100) + '%' }}
+                    />
+                  </div>
+                  <span>{weekday.format(day.date).replace('.', '')}</span>
+                  <span className="sr-only">{formatMxn(day.total)}</span>
+                </button>
+              );
+            })}
           </div>
         </section>
 

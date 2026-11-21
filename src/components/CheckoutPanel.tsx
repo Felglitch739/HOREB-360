@@ -69,6 +69,8 @@ export function CheckoutPanel({
   const [savingCustomer, setSavingCustomer] = useState(false);
 
   const [customerAlias, setCustomerAlias] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState<'todos' | 'servicios' | 'extras'>('todos');
+  const [catalogSearch, setCatalogSearch] = useState('');
   const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
     [activeCatalog[0]?.id ?? 'combo']: 1,
   }));
@@ -177,6 +179,15 @@ export function CheckoutPanel({
   const washers = machines.filter((m) => m.kind === 'lavadora');
   const availableWashersCount = washers.filter((m) => m.status === 'disponible').length;
   const needsMachine = selectedItems.some((entry) => entry.item.requiresMachine);
+  const hasMachineItems = activeCatalog.some((item) => item.requiresMachine);
+  const hasExtraItems = activeCatalog.some((item) => !item.requiresMachine);
+  const normalizedCatSearch = catalogSearch.trim().toLowerCase();
+  const visibleCatalog = activeCatalog.filter((item) => {
+    if (catalogCategory === 'servicios' && !item.requiresMachine) return false;
+    if (catalogCategory === 'extras' && item.requiresMachine) return false;
+    if (normalizedCatSearch && !item.name.toLowerCase().includes(normalizedCatSearch)) return false;
+    return true;
+  });
 
   function toggleMachine(machineId: string) {
     setSelectedMachineIds((prev) =>
@@ -843,8 +854,43 @@ export function CheckoutPanel({
             )}
           </div>
 
+          {(hasMachineItems && hasExtraItems) || activeCatalog.length >= 6 ? (
+            <div className="pos-catalog-toolbar">
+              {hasMachineItems && hasExtraItems && (
+                <div className="filter-pills-bar" style={{ marginBottom: 0 }} role="group" aria-label="Categoría del catálogo">
+                  {(
+                    [
+                      { id: 'todos', label: 'Todos' },
+                      { id: 'servicios', label: 'Lavado / Secado' },
+                      { id: 'extras', label: 'Insumos y extras' },
+                    ] as const
+                  ).map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      className={`filter-pill${catalogCategory === cat.id ? ' active' : ''}`}
+                      aria-pressed={catalogCategory === cat.id}
+                      onClick={() => setCatalogCategory(cat.id)}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeCatalog.length >= 6 && (
+                <input
+                  className="input input-sm pos-catalog-search"
+                  aria-label="Filtrar catálogo"
+                  placeholder="Filtrar producto o servicio…"
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                />
+              )}
+            </div>
+          ) : null}
+
           <div className="catalog-grid pos-catalog-grid" role="group" aria-labelledby="checkout-catalog-label">
-            {activeCatalog.map((item) => {
+            {visibleCatalog.map((item) => {
               const qty = quantities[item.id] ?? 0;
               return (
                 <div key={item.id} className={`catalog-row ${qty > 0 ? 'selected' : ''}`}>

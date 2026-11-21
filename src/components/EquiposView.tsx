@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { Activity, CheckCircle2, Edit3, Plus, Trash2, Unlock, WashingMachine, Wrench } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, CheckCircle2, Clock, Edit3, Plus, Trash2, Unlock, WashingMachine, Wrench, X } from 'lucide-react';
 import { getBranchInfo, getBranchMachines } from '../domain/rules';
 import { buildMockThinqPreviewFeed, formatThinqStateLabel } from '../domain/telemetry';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchId, DemoState, Machine, MachineKind, MachineStatus } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
+
+const TYPICAL_CYCLE_MINUTES = 45;
 
 interface EquiposViewProps {
   state: DemoState;
@@ -45,9 +47,9 @@ export function EquiposView({
   const isSupervisor = role === 'supervisor';
   const branch = getBranchInfo(branchId);
   const machines = getBranchMachines(state, branchId);
-  const washers = machines.filter((m) => m.kind === 'lavadora');
-  const dryers = machines.filter((m) => m.kind === 'secadora');
 
+  const [statusFilter, setStatusFilter] = useState<'todos' | MachineStatus>('todos');
+  const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -55,6 +57,19 @@ export function EquiposView({
   const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const filteredMachines =
+    statusFilter === 'todos' ? machines : machines.filter((m) => m.status === statusFilter);
+  const washers = filteredMachines.filter((m) => m.kind === 'lavadora');
+  const dryers = filteredMachines.filter((m) => m.kind === 'secadora');
+  const totalWashers = machines.filter((m) => m.kind === 'lavadora').length;
+  const totalDryers = machines.filter((m) => m.kind === 'secadora').length;
 
   const countAvailable = machines.filter((m) => m.status === 'disponible').length;
   const countInUse = machines.filter((m) => m.status === 'en_uso').length;
@@ -65,6 +80,7 @@ export function EquiposView({
     setCode(machine.code);
     setName(machine.name);
     setKind(machine.kind);
+    setShowAddForm(true);
     setFeedback(null);
   }
 
@@ -73,6 +89,7 @@ export function EquiposView({
     setCode('');
     setName('');
     setKind('lavadora');
+    setShowAddForm(false);
   }
 
   async function handleSaveMachine(event: React.FormEvent) {
@@ -137,6 +154,25 @@ export function EquiposView({
                 {machine.status === 'en_uso' && machine.currentOrderFolio && (
                   <span>Folio: <strong>{machine.currentOrderFolio}</strong></span>
                 )}
+                {machine.status === 'en_uso' && (() => {
+                  const elapsedMin = Math.max(0, Math.floor((nowMs - new Date(machine.updatedAt).getTime()) / 60000));
+                  const remainingMin = Math.max(0, TYPICAL_CYCLE_MINUTES - elapsedMin);
+                  const pct = Math.min(100, Math.round((elapsedMin / TYPICAL_CYCLE_MINUTES) * 100));
+                  return (
+                    <div className="machine-timer">
+                      <div className="machine-timer-label">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Clock size={12} aria-hidden="true" />
+                          {elapsedMin} min transcurridos
+                        </span>
+                        <strong>{remainingMin > 0 ? `~${remainingMin} min rest.` : 'Ciclo por concluir'}</strong>
+                      </div>
+                      <div className="machine-timer-track">
+                        <div className="machine-timer-fill" style={{ width: `${Math.max(8, pct)}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
                 {machine.status === 'fuera_de_servicio' && machine.outOfServiceReason && (
                   <span>Motivo: {machine.outOfServiceReason}</span>
                 )}
@@ -228,26 +264,75 @@ export function EquiposView({
 
   return (
     <div style={{ display: 'grid', gap: 15 }}>
-      <div className="kpi-strip">
-        <div className="kpi-cell">
+      <div className="kpi-strip" role="group" aria-label="Filtrar equipos por estado">
+        <button
+          type="button"
+          className={`kpi-cell interactive${statusFilter === 'disponible' ? ' active-filter' : ''}`}
+          aria-pressed={statusFilter === 'disponible'}
+          onClick={() => setStatusFilter((prev) => (prev === 'disponible' ? 'todos' : 'disponible'))}
+        >
           <span className="kpi-label">Disponibles</span>
           <strong className="kpi-value" style={{ color: 'var(--success)' }}>{countAvailable}</strong>
           <span className="kpi-note">Listos para asignar</span>
-        </div>
-        <div className="kpi-cell">
+        </button>
+        <button
+          type="button"
+          className={`kpi-cell interactive${statusFilter === 'en_uso' ? ' active-filter' : ''}`}
+          aria-pressed={statusFilter === 'en_uso'}
+          onClick={() => setStatusFilter((prev) => (prev === 'en_uso' ? 'todos' : 'en_uso'))}
+        >
           <span className="kpi-label">En uso</span>
           <strong className="kpi-value" style={{ color: 'var(--primary)' }}>{countInUse}</strong>
           <span className="kpi-note">Ocupados por un folio</span>
-        </div>
-        <div className="kpi-cell">
+        </button>
+        <button
+          type="button"
+          className={`kpi-cell interactive${statusFilter === 'fuera_de_servicio' ? ' active-filter' : ''}`}
+          aria-pressed={statusFilter === 'fuera_de_servicio'}
+          onClick={() => setStatusFilter((prev) => (prev === 'fuera_de_servicio' ? 'todos' : 'fuera_de_servicio'))}
+        >
           <span className="kpi-label">Fuera de servicio</span>
           <strong className="kpi-value" style={{ color: countOffline > 0 ? 'var(--danger)' : 'inherit' }}>{countOffline}</strong>
           <span className="kpi-note">Bloqueados en mostrador</span>
-        </div>
-        <div className="kpi-cell">
+        </button>
+        <button
+          type="button"
+          className={`kpi-cell interactive${statusFilter === 'todos' ? ' active-filter' : ''}`}
+          aria-pressed={statusFilter === 'todos'}
+          onClick={() => setStatusFilter('todos')}
+        >
           <span className="kpi-label">Total padrón · {branch.name}</span>
           <strong className="kpi-value">{machines.length}</strong>
-          <span className="kpi-note">{washers.length} lav. · {dryers.length} sec.</span>
+          <span className="kpi-note">{totalWashers} lav. · {totalDryers} sec.</span>
+        </button>
+      </div>
+
+      <div className="equipos-toolbar">
+        <span className="muted" style={{ fontSize: '0.86rem' }}>
+          {statusFilter === 'todos'
+            ? `Mostrando todos los equipos (${filteredMachines.length})`
+            : `Filtro activo: ${STATUS_META[statusFilter].label} (${filteredMachines.length})`}
+        </span>
+        <div className="card-title-actions">
+          {statusFilter !== 'todos' && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setStatusFilter('todos')}>
+              Ver todos
+            </button>
+          )}
+          {isSupervisor && (
+            <button
+              type="button"
+              className={`btn ${showAddForm ? 'btn-secondary' : 'btn-primary'} btn-sm`}
+              aria-expanded={showAddForm}
+              onClick={() => {
+                if (showAddForm) resetForm();
+                else setShowAddForm(true);
+              }}
+            >
+              {showAddForm ? <X size={15} aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
+              {showAddForm ? 'Cerrar formulario' : 'Agregar equipo'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -289,7 +374,7 @@ export function EquiposView({
         </div>
       )}
 
-      {isSupervisor && (
+      {isSupervisor && showAddForm && (
         <form className="card" onSubmit={handleSaveMachine}>
           <h2 className="card-title">
             <span>{editingId ? 'Editar equipo del padrón' : `Agregar equipo al padrón · ${branch.name}`}</span>
@@ -333,11 +418,9 @@ export function EquiposView({
               <Plus size={16} />
               {editingId ? 'Guardar cambios' : 'Agregar equipo'}
             </button>
-            {editingId && (
-              <button type="button" className="btn btn-secondary" onClick={resetForm}>
-                Cancelar
-              </button>
-            )}
+            <button type="button" className="btn btn-secondary" onClick={resetForm}>
+              Cancelar
+            </button>
           </div>
         </form>
       )}

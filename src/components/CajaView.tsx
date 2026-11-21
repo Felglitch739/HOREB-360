@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Lock, MoonStar, PlayCircle } from 'lucide-react';
+import { Calculator, FileSpreadsheet, Lock, MoonStar, PlayCircle, RotateCcw } from 'lucide-react';
+import { exportShiftsToExcel } from '../domain/excelExport';
 import { formatMxn, parsePesosToCents } from '../domain/money';
 import { getBranchInfo, getOpenShift, getShiftMetrics } from '../domain/rules';
 import type { BranchId, CashMovement, DemoState } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
 import { TransferInboxPanel } from './TransferInboxPanel';
 import { usePendingAction } from './usePendingAction';
+
+const MXN_DENOMINATIONS = [
+  { key: '1000', label: '$1,000', cents: 100000, group: 'billete' },
+  { key: '500', label: '$500', cents: 50000, group: 'billete' },
+  { key: '200', label: '$200', cents: 20000, group: 'billete' },
+  { key: '100', label: '$100', cents: 10000, group: 'billete' },
+  { key: '50', label: '$50', cents: 5000, group: 'billete' },
+  { key: '20', label: '$20', cents: 2000, group: 'billete' },
+  { key: '10', label: '$10', cents: 1000, group: 'moneda' },
+  { key: '5', label: '$5', cents: 500, group: 'moneda' },
+  { key: '2', label: '$2', cents: 200, group: 'moneda' },
+  { key: '1', label: '$1', cents: 100, group: 'moneda' },
+  { key: '0.5', label: '$0.50', cents: 50, group: 'moneda' },
+] as const;
 
 interface CajaViewProps {
   state: DemoState;
@@ -52,6 +67,8 @@ export function CajaView({
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
   const [countedCashInput, setCountedCashInput] = useState('0');
+  const [showDenomCounter, setShowDenomCounter] = useState(false);
+  const [denomCounts, setDenomCounts] = useState<Record<string, number>>({});
   const [controlledDate, setControlledDate] = useState(() => new Date().toISOString().slice(0, 10));
   const { pending, run } = usePendingAction();
   const [nightFeedback, setNightFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
@@ -61,8 +78,33 @@ export function CajaView({
   useEffect(() => {
     if (openMetrics) {
       setCountedCashInput((openMetrics.expectedCashCents / 100).toFixed(2));
+      setDenomCounts({});
     }
   }, [branchId, openShift?.id, openMetrics?.expectedCashCents]);
+
+  function updateDenom(key: string, rawValue: string) {
+    const parsed = Math.max(0, Math.min(9999, Math.floor(Number(rawValue) || 0)));
+    setDenomCounts((prev) => {
+      const next = { ...prev, [key]: parsed };
+      const sumCents = MXN_DENOMINATIONS.reduce(
+        (acc, item) => acc + (next[item.key] ?? 0) * item.cents,
+        0,
+      );
+      setCountedCashInput((sumCents / 100).toFixed(2));
+      return next;
+    });
+  }
+
+  function clearDenoms() {
+    setDenomCounts({});
+    setCountedCashInput('0.00');
+  }
+
+  const parsedCountedCents = parsePesosToCents(countedCashInput);
+  const liveDiffCents =
+    openMetrics && parsedCountedCents !== null
+      ? parsedCountedCents - openMetrics.expectedCashCents
+      : null;
 
   function saveCashAction(
     action: 'close' | 'open' | 'movement',
@@ -182,21 +224,94 @@ export function CajaView({
               </div>
             </div>
 
-            {canManage && <form onSubmit={handleClose} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
-              <div className="field" style={{ marginBottom: 0, minWidth: 220, flex: '1 1 220px' }}>
-                <label htmlFor="counted-cash">Efectivo contado al cierre (MXN)</label>
-                <input
-                  id="counted-cash"
-                  className="input"
-                  value={countedCashInput}
-                  onChange={(e) => setCountedCashInput(e.target.value)}
-                />
+            {canManage && (
+              <div className="caja-close-panel">
+                <div className="caja-close-head">
+                  <button
+                    type="button"
+                    className={`btn btn-secondary btn-sm${showDenomCounter ? ' active' : ''}`}
+                    aria-expanded={showDenomCounter}
+                    onClick={() => setShowDenomCounter((prev) => !prev)}
+                  >
+                    <Calculator size={15} aria-hidden="true" />
+                    {showDenomCounter ? 'Ocultar desglose de efectivo' : 'Contar billetes y monedas'}
+                  </button>
+                  {liveDiffCents !== null && (
+                    <span
+                      className={`badge ${
+                        liveDiffCents === 0
+                          ? 'badge-success'
+                          : liveDiffCents > 0
+                            ? 'badge-info'
+                            : 'badge-danger'
+                      }`}
+                    >
+                      {liveDiffCents === 0
+                        ? 'Cuadrado ($0.00)'
+                        : liveDiffCents > 0
+                          ? `Sobrante +${formatMxn(liveDiffCents)}`
+                          : `Faltante ${formatMxn(liveDiffCents)}`}
+                    </span>
+                  )}
+                </div>
+
+                {showDenomCounter && (
+                  <div className="denom-panel">
+                    <div className="denom-panel-head">
+                      <span>Captura cuántas piezas tienes de cada denominación</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={clearDenoms}
+                      >
+                        <RotateCcw size={13} aria-hidden="true" /> Limpiar
+                      </button>
+                    </div>
+                    <div className="denom-grid">
+                      {MXN_DENOMINATIONS.map((item) => {
+                        const qty = denomCounts[item.key] ?? 0;
+                        return (
+                          <label key={item.key} className={`denom-cell${qty > 0 ? ' active' : ''}`}>
+                            <span className="denom-label">{item.label}</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={9999}
+                              inputMode="numeric"
+                              className="input input-sm denom-input"
+                              aria-label={`Cantidad de ${item.label}`}
+                              value={qty === 0 ? '' : String(qty)}
+                              placeholder="0"
+                              onChange={(e) => updateDenom(item.key, e.target.value)}
+                            />
+                            <small className="denom-sub">
+                              {qty > 0 ? formatMxn(qty * item.cents) : '—'}
+                            </small>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleClose} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+                  <div className="field" style={{ marginBottom: 0, minWidth: 220, flex: '1 1 220px' }}>
+                    <label htmlFor="counted-cash">Efectivo contado al cierre (MXN)</label>
+                    <input
+                      id="counted-cash"
+                      className="input"
+                      inputMode="decimal"
+                      value={countedCashInput}
+                      onChange={(e) => setCountedCashInput(e.target.value)}
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-danger" disabled={pending !== null}>
+                    <Lock size={18} />
+                    {pending === 'close' ? 'Guardando corte…' : `Cerrar turno #${openShift.number} y guardar corte`}
+                  </button>
+                </form>
               </div>
-              <button type="submit" className="btn btn-danger" disabled={pending !== null}>
-                <Lock size={18} />
-                {pending === 'close' ? 'Guardando corte…' : `Cerrar turno #${openShift.number} y guardar corte`}
-              </button>
-            </form>}
+            )}
           </>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -268,6 +383,14 @@ export function CajaView({
       <section className="card">
         <h2 className="card-title">
           <span>Historial de turnos · {branch.name}</span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={branchShifts.length === 0}
+            onClick={() => exportShiftsToExcel(state, branchShifts, branchId)}
+          >
+            <FileSpreadsheet size={15} aria-hidden="true" /> Exportar Excel
+          </button>
         </h2>
         <div className="table-wrap stacked-table">
           <table role="table">

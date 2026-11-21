@@ -2843,6 +2843,434 @@ th {
   }
 }
 
+/* Audit UX improvements: toolbars, pills, Kanban, Cash Arqueo, Master-Detail, Timers */
+.card-title-main {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.card-title-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.view-toggle-group {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  gap: 3px;
+}
+
+.view-toggle-btn {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.view-toggle-btn:hover {
+  color: var(--text);
+}
+
+.view-toggle-btn.active {
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.filter-pills-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.filter-pill {
+  min-height: 32px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.filter-pill:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.filter-pill.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.filter-pill-action {
+  margin-left: auto;
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.filter-pill-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Kanban board for active encargos */
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.kanban-column {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kanban-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kanban-column-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.9rem;
+}
+
+.kanban-column-body {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.kanban-empty {
+  margin: 4px 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 12px 6px;
+}
+
+.kanban-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.kanban-card.charging {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.kanban-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kanban-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 0.82rem;
+}
+
+.kanban-machines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.kanban-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.kanban-card-actions .btn-sm {
+  min-height: 34px;
+  padding: 4px 9px;
+  font-size: 0.8rem;
+}
+
+.kanban-footnote {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.86rem;
+}
+
+/* Caja denomination counter (arqueo) */
+.caja-close-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.caja-close-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.denom-panel {
+  padding: 12px;
+  border-radius: 11px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+}
+
+.denom-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.denom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.denom-cell {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.denom-cell.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.denom-label {
+  font-weight: 800;
+  font-size: 0.88rem;
+}
+
+.denom-input {
+  text-align: right;
+  font-weight: 700;
+}
+
+.denom-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Clientes master-detail & loyalty progress bar */
+.clientes-master-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (min-width: 860px) {
+  .clientes-master-detail {
+    grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.18fr);
+    align-items: start;
+  }
+}
+
+.clientes-list-col,
+.clientes-detail-col {
+  min-width: 0;
+}
+
+.clientes-list-scroll {
+  max-height: 460px;
+}
+
+.clientes-detail-col {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.empty-state-box {
+  padding: 18px;
+  border-radius: 11px;
+  background: var(--surface-alt);
+  border: 1px dashed var(--border-strong);
+}
+
+.loyalty-progress-wrap {
+  margin-top: 12px;
+  display: grid;
+  gap: 5px;
+}
+
+.loyalty-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.loyalty-progress-meta strong {
+  color: var(--primary);
+}
+
+.loyalty-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.loyalty-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.25s ease;
+}
+
+/* Equipos interactive KPI filter & cycle timer */
+.kpi-cell.active-filter {
+  background: var(--primary-soft);
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
+.equipos-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.machine-timer {
+  margin: 4px 0;
+  display: grid;
+  gap: 4px;
+}
+
+.machine-timer-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--primary);
+}
+
+.machine-timer-track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+  overflow: hidden;
+}
+
+.machine-timer-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+/* Interactive overview chart column */
+.chart-column-btn {
+  border: 0;
+  padding: 4px 2px;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+
+.chart-column-btn:hover {
+  background: var(--surface-alt);
+}
+
+.chart-column-btn.selected {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.bar-fill.selected {
+  background: var(--primary);
+}
+
+/* POS catalog quick filter toolbar */
+.pos-catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pos-catalog-search {
+  width: min(230px, 100%);
+}
+
 @page {
   size: 80mm auto;
   margin: 0;
