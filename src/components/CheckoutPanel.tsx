@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Gift, Minus, Plus, Receipt, UserPlus } from 'lucide-react';
+import { ArrowLeftRight, Banknote, CreditCard, Gift, Layers, Minus, Plus, Receipt, UserPlus } from 'lucide-react';
 import { calculateTender, formatMxn } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
 import type { BranchId, CatalogItem, Customer, Machine, Order, ServiceType } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
+
+type PaymentMode = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
+
+const QUICK_CASH_BILLS_CENTS = [5000, 10000, 20000, 50000, 100000];
+
+function formatInputPesos(cents: number): string {
+  if (cents <= 0) return '0';
+  return (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
+}
 
 interface CheckoutPanelProps {
   branchId: BranchId;
@@ -67,6 +76,7 @@ export function CheckoutPanel({
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
   const [payAtPickup, setPayAtPickup] = useState(true);
 
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('efectivo');
   const [cashInput, setCashInput] = useState('');
   const [cardInput, setCardInput] = useState('0');
   const [transferInput, setTransferInput] = useState('0');
@@ -77,18 +87,6 @@ export function CheckoutPanel({
   const [submitting, setSubmitting] = useState(false);
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) ?? null;
-
-  useEffect(() => {
-    if (checkoutOrder) {
-      setCashInput('');
-      setCardInput('0');
-      setTransferInput('0');
-      setConfirmCardNow(false);
-      setCardReference('');
-      setConfirmTransferNow(false);
-      setTransferReference('');
-    }
-  }, [checkoutOrder?.id]);
 
   const selectedItems = activeCatalog
     .map((item) => ({ item, quantity: quantities[item.id] ?? 0 }))
@@ -114,7 +112,29 @@ export function CheckoutPanel({
   const freeCoverAll = !checkoutOrder && cartTotalCents === 0 && loyaltyDiscountCents > 0;
   const tender = calculateTender(totalCents, cashInput, cardInput, transferInput);
 
+  useEffect(() => {
+    if (checkoutOrder) {
+      setPaymentMode('efectivo');
+      setCashInput('');
+      setCardInput('0');
+      setTransferInput('0');
+      setConfirmCardNow(false);
+      setCardReference('');
+      setConfirmTransferNow(false);
+      setTransferReference('');
+    }
+  }, [checkoutOrder?.id]);
+
+  useEffect(() => {
+    if (paymentMode === 'tarjeta') {
+      setCardInput(totalCents > 0 ? formatInputPesos(totalCents) : '0');
+    } else if (paymentMode === 'transferencia') {
+      setTransferInput(totalCents > 0 ? formatInputPesos(totalCents) : '0');
+    }
+  }, [totalCents, paymentMode]);
+
   function resetPaymentInputs() {
+    setPaymentMode('efectivo');
     setCashInput('');
     setCardInput('0');
     setTransferInput('0');
@@ -122,6 +142,28 @@ export function CheckoutPanel({
     setCardReference('');
     setConfirmTransferNow(false);
     setTransferReference('');
+  }
+
+  function selectPaymentMode(mode: PaymentMode) {
+    setPaymentMode(mode);
+    onFeedback(null);
+    if (mode === 'efectivo') {
+      setCardInput('0');
+      setTransferInput('0');
+      setConfirmCardNow(false);
+      setConfirmTransferNow(false);
+      if (cashInput === '0') setCashInput('');
+    } else if (mode === 'tarjeta') {
+      setCashInput('0');
+      setCardInput(totalCents > 0 ? formatInputPesos(totalCents) : '0');
+      setTransferInput('0');
+      setConfirmTransferNow(false);
+    } else if (mode === 'transferencia') {
+      setCashInput('0');
+      setCardInput('0');
+      setTransferInput(totalCents > 0 ? formatInputPesos(totalCents) : '0');
+      setConfirmCardNow(false);
+    }
   }
 
   function updateItemQuantity(itemId: string, delta: number) {
@@ -132,16 +174,8 @@ export function CheckoutPanel({
     onFeedback(null);
   }
 
-  function setSingleMethod(method: 'efectivo' | 'tarjeta' | 'transferencia') {
-    if (totalCents <= 0) return;
-    const pesos = (totalCents / 100).toFixed(totalCents % 100 === 0 ? 0 : 2);
-    setCashInput(method === 'efectivo' ? pesos : '0');
-    setCardInput(method === 'tarjeta' ? pesos : '0');
-    setTransferInput(method === 'transferencia' ? pesos : '0');
-    onFeedback(null);
-  }
-
   const washers = machines.filter((m) => m.kind === 'lavadora');
+  const availableWashersCount = washers.filter((m) => m.status === 'disponible').length;
   const needsMachine = selectedItems.some((entry) => entry.item.requiresMachine);
 
   function toggleMachine(machineId: string) {
@@ -149,6 +183,16 @@ export function CheckoutPanel({
       prev.includes(machineId) ? prev.filter((id) => id !== machineId) : [...prev, machineId],
     );
   }
+
+  const quickCashOptions =
+    totalCents > 0
+      ? [
+          { label: 'Exacto', cents: totalCents },
+          ...QUICK_CASH_BILLS_CENTS.filter((bill) => bill > totalCents)
+            .slice(0, 3)
+            .map((bill) => ({ label: `$${bill / 100}`, cents: bill })),
+        ]
+      : [];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -246,325 +290,218 @@ export function CheckoutPanel({
     }
   }
 
-  return (
-    <section id="checkout-form" className="card" aria-labelledby="checkout-heading" data-active-payment={checkoutOrder ? '' : undefined}>
-      <h2 id="checkout-heading" className="card-title" tabIndex={-1} aria-describedby={checkoutOrder ? 'checkout-order-summary' : undefined}>
-        <span>{checkoutOrder ? 'Cobro en curso' : 'Nueva orden'}</span>
-        {!checkoutOrder && <span className="badge badge-info">Próx. folio {suggestedFolio}</span>}
-      </h2>
+  const paymentSection = deferPayment ? (
+    <div className="alert alert-info">
+      El encargo se registrará con saldo pendiente ({formatMxn(totalCents)}) para cobrarse al entregar.
+    </div>
+  ) : freeCoverAll ? (
+    <div className="alert alert-success">
+      Orden cubierta al 100% con <strong>1 combo gratis de lealtad ($0.00)</strong>. Al completar la orden se emitirá su boleto de rifa.
+    </div>
+  ) : (
+    <div className="pos-payment-block">
+      <div className="pos-section-label">Método de pago</div>
+      <div className="payment-mode-tabs" role="group" aria-label="Método de pago">
+        <button
+          type="button"
+          className={`payment-mode-btn${paymentMode === 'efectivo' ? ' active' : ''}`}
+          aria-pressed={paymentMode === 'efectivo'}
+          onClick={() => selectPaymentMode('efectivo')}
+        >
+          <Banknote size={15} aria-hidden="true" />
+          <span>Efectivo</span>
+        </button>
+        <button
+          type="button"
+          className={`payment-mode-btn${paymentMode === 'tarjeta' ? ' active' : ''}`}
+          aria-pressed={paymentMode === 'tarjeta'}
+          onClick={() => selectPaymentMode('tarjeta')}
+        >
+          <CreditCard size={15} aria-hidden="true" />
+          <span>Tarjeta</span>
+        </button>
+        <button
+          type="button"
+          className={`payment-mode-btn${paymentMode === 'transferencia' ? ' active' : ''}`}
+          aria-pressed={paymentMode === 'transferencia'}
+          onClick={() => selectPaymentMode('transferencia')}
+        >
+          <ArrowLeftRight size={15} aria-hidden="true" />
+          <span>Transf.</span>
+        </button>
+        <button
+          type="button"
+          className={`payment-mode-btn${paymentMode === 'mixto' ? ' active' : ''}`}
+          aria-pressed={paymentMode === 'mixto'}
+          onClick={() => selectPaymentMode('mixto')}
+        >
+          <Layers size={15} aria-hidden="true" />
+          <span>Mixto</span>
+        </button>
+      </div>
 
-      {checkoutOrder && (
-        <div id="checkout-order-summary" className="checkout-active-order">
-          <div className="checkout-order-identity">
-            <strong>{checkoutOrder.folio}</strong>
-            {checkoutOrder.customerAlias && <span>{checkoutOrder.customerAlias}</span>}
-          </div>
-          <div className="checkout-order-amount">
-            <span>Importe a cobrar</span>
-            <strong>{formatMxn(totalCents)}</strong>
-          </div>
-        </div>
-      )}
-
-      {!openShift && (
-        <div className="alert alert-error">
-          No hay turno abierto en {branchName}. Ve a <strong>Caja</strong> para abrir un turno antes de cobrar.
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        {!checkoutOrder && (
-          <>
-            <div className="field">
-              <span className="checkout-field-label" id="checkout-service-label">Tipo de servicio</span>
-              <div className="segmented" role="group" aria-labelledby="checkout-service-label">
-                <button
-                  type="button"
-                  className={`seg-btn ${serviceType === 'autoservicio' ? 'active' : ''}`}
-                  aria-pressed={serviceType === 'autoservicio'}
-                  onClick={() => setServiceType('autoservicio')}
-                >
-                  Autoservicio
-                </button>
-                <button
-                  type="button"
-                  className={`seg-btn ${serviceType === 'encargo' ? 'active' : ''}`}
-                  aria-pressed={serviceType === 'encargo'}
-                  onClick={() => setServiceType('encargo')}
-                >
-                  Encargo
-                </button>
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="catalog-head-row">
-                <span className="checkout-field-label">Cliente y lealtad</span>
-                <button
-                  type="button"
-                  className="ticket-fallback-link"
-                  aria-expanded={showNewCustomer}
-                  onClick={() => setShowNewCustomer((prev) => !prev)}
-                >
-                  <UserPlus size={15} aria-hidden="true" />
-                  {showNewCustomer ? 'Cerrar alta' : 'Nuevo cliente'}
-                </button>
-              </div>
-
-              <CustomSelect
-                ariaLabel="Cliente para la orden"
-                value={selectedCustomerId}
-                options={[
-                  { value: '', label: 'Cobro rápido (sin ficha de cliente)' },
-                  ...customers.map((c) => ({
-                    value: c.id,
-                    label: `${c.name} (${c.combosTowardFree}/10${c.freeCombosAvailable > 0 ? ` · ${c.freeCombosAvailable} gratis` : ''})`,
-                  })),
-                ]}
-                onChange={(val) => {
-                  setSelectedCustomerId(val);
-                  setRedeemFreeCombo(false);
-                }}
+      {paymentMode === 'efectivo' && (
+        <div className="pos-single-payment">
+          <div className="split-row-top">
+            <label htmlFor="cash-received-input" className="pos-input-label">
+              Efectivo recibido
+            </label>
+            <div className="split-amount-wrap">
+              <span>$</span>
+              <input
+                id="cash-received-input"
+                aria-label="Monto efectivo MXN"
+                placeholder="0.00"
+                inputMode="decimal"
+                className="input"
+                value={cashInput}
+                onChange={(e) => setCashInput(e.target.value)}
               />
-
-              {selectedCustomer && (
-                <div className="loyalty-inline-pill">
-                  <span>
-                    Lealtad: <strong>{selectedCustomer.combosTowardFree}/10 combos</strong>
-                    {selectedCustomer.freeCombosAvailable > 0
-                      ? ` · ¡Tiene ${selectedCustomer.freeCombosAvailable} combo(s) gratis!`
-                      : ''}
-                  </span>
-                </div>
-              )}
-
-              {showNewCustomer && (
-                <div className="quick-customer-box">
-                  <input
-                    className="input input-sm"
-                    aria-label="Nombre del cliente"
-                    placeholder="Nombre del cliente *"
-                    value={newCustName}
-                    onChange={(e) => setNewCustName(e.target.value)}
-                    maxLength={80}
-                  />
-                  <input
-                    className="input input-sm"
-                    type="tel"
-                    aria-label="Teléfono del cliente"
-                    inputMode="tel"
-                    placeholder="Teléfono 10 dígitos *"
-                    value={newCustPhone}
-                    onChange={(e) => setNewCustPhone(e.target.value)}
-                    maxLength={20}
-                  />
-                  <label className="checkbox-row" style={{ minHeight: 34, padding: '4px 8px' }}>
-                    <input
-                      type="checkbox"
-                      checked={newCustConsent}
-                      onChange={(e) => setNewCustConsent(e.target.checked)}
-                    />
-                    Autoriza avisos por WhatsApp
-                  </label>
+            </div>
+          </div>
+          {quickCashOptions.length > 0 && (
+            <div className="quick-cash-chips" role="group" aria-label="Montos rápidos en efectivo">
+              {quickCashOptions.map((option) => {
+                const valueStr = formatInputPesos(option.cents);
+                const isSelected = cashInput === valueStr;
+                return (
                   <button
+                    key={option.label}
                     type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={savingCustomer}
-                    onClick={async () => {
-                      setSavingCustomer(true);
-                      const res = await onUpsertCustomer(branchId, {
-                        name: newCustName,
-                        phone: newCustPhone,
-                        contactConsent: newCustConsent,
-                      });
-                      setSavingCustomer(false);
-                      if (!res.ok) {
-                        onFeedback({ type: 'error', text: res.error ?? 'No se pudo registrar el cliente.' });
-                        return;
-                      }
-                      if (res.customer) {
-                        setSelectedCustomerId(res.customer.id);
-                      }
-                      setNewCustName('');
-                      setNewCustPhone('');
-                      setShowNewCustomer(false);
+                    className={`quick-cash-chip${isSelected ? ' active' : ''}`}
+                    aria-pressed={isSelected}
+                    onClick={() => {
+                      setCashInput(valueStr);
+                      onFeedback(null);
                     }}
                   >
-                    Guardar ficha y seleccionar
+                    {option.label}
                   </button>
-                </div>
-              )}
+                );
+              })}
             </div>
+          )}
+        </div>
+      )}
 
-            {serviceType === 'encargo' && (
-              <div className="field">
-                <label htmlFor="alias-input">Referencia de encargo</label>
+      {paymentMode === 'tarjeta' && (
+        <div className="pos-single-payment">
+          <div className="split-row-top">
+            <label htmlFor="card-amount-input" className="pos-input-label">
+              Tarjeta (terminal)
+            </label>
+            <div className="split-amount-wrap">
+              <span>$</span>
+              <input
+                id="card-amount-input"
+                aria-label="Monto tarjeta MXN"
+                inputMode="decimal"
+                className="input"
+                value={cardInput}
+                onChange={(e) => setCardInput(e.target.value)}
+              />
+            </div>
+          </div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={confirmCardNow}
+              onChange={(e) => setConfirmCardNow(e.target.checked)}
+            />
+            Registrar pago aprobado en terminal
+          </label>
+          {confirmCardNow && (
+            <input
+              className="input input-sm"
+              aria-label="Referencia de pago en terminal"
+              placeholder="Referencia / folio terminal (opcional)"
+              value={cardReference}
+              onChange={(e) => setCardReference(e.target.value)}
+              maxLength={60}
+            />
+          )}
+        </div>
+      )}
+
+      {paymentMode === 'transferencia' && (
+        <div className="pos-single-payment">
+          <div className="split-row-top">
+            <label htmlFor="transfer-amount-input" className="pos-input-label">
+              Transferencia
+            </label>
+            <div className="split-amount-wrap">
+              <span>$</span>
+              <input
+                id="transfer-amount-input"
+                aria-label="Monto transferencia MXN"
+                inputMode="decimal"
+                className="input"
+                value={transferInput}
+                onChange={(e) => setTransferInput(e.target.value)}
+              />
+            </div>
+          </div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={confirmTransferNow}
+              onChange={(e) => setConfirmTransferNow(e.target.checked)}
+            />
+            Marcar transferencia verificada
+          </label>
+          {isOffline && (
+            <small className="muted" style={{ display: 'block' }}>
+              Sin internet: valida manualmente en terminal o app bancaria antes de confirmar.
+            </small>
+          )}
+          {confirmTransferNow && (
+            <input
+              className="input input-sm"
+              aria-label="Referencia de transferencia verificada"
+              placeholder="Referencia bancaria / clave rastreo (opcional)"
+              value={transferReference}
+              onChange={(e) => setTransferReference(e.target.value)}
+              maxLength={60}
+            />
+          )}
+        </div>
+      )}
+
+      {paymentMode === 'mixto' && (
+        <div className="split-grid">
+          <div className="split-row">
+            <div className="split-row-top">
+              <strong>Efectivo recibido</strong>
+              <div className="split-amount-wrap">
+                <span>$</span>
                 <input
-                  id="alias-input"
+                  aria-label="Monto efectivo MXN"
+                  placeholder="0.00"
+                  inputMode="decimal"
                   className="input"
-                  value={customerAlias}
-                  onChange={(e) => setCustomerAlias(e.target.value)}
-                  placeholder={selectedCustomer ? selectedCustomer.name : 'Ej. María López'}
+                  value={cashInput}
+                  onChange={(e) => setCashInput(e.target.value)}
                 />
-              </div>
-            )}
-
-            <div className="field">
-              <span className="checkout-field-label" id="checkout-catalog-label">Servicios y productos</span>
-
-              <div className="catalog-grid" role="group" aria-labelledby="checkout-catalog-label">
-                {activeCatalog.map((item) => {
-                  const qty = quantities[item.id] ?? 0;
-                  return (
-                    <div key={item.id} className={`catalog-row ${qty > 0 ? 'selected' : ''}`}>
-                      <div className="catalog-row-info">
-                        <strong>{item.name}</strong>
-                        <small>
-                          {formatMxn(item.priceCents)} c/u
-                          {item.pricePendingConfirmation ? ' · Precio ref.' : ''}
-                        </small>
-                      </div>
-                      <div className="catalog-qty-controls">
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm qty-btn"
-                          onClick={() => updateItemQuantity(item.id, -1)}
-                          disabled={qty === 0}
-                          aria-label={`Quitar ${item.name}`}
-                        >
-                          <Minus size={14} />
-                        </button>
-                        <span className="qty-value" aria-live="polite">
-                          {qty}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm qty-btn"
-                          onClick={() => updateItemQuantity(item.id, 1)}
-                          aria-label={`Agregar ${item.name}`}
-                        >
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </div>
-
-            {canRedeemFreeCombo && comboEntry && (
-              <label className="checkbox-row field" style={{ border: '1px solid var(--success-border)', background: 'var(--success-soft)' }}>
-                <input
-                  type="checkbox"
-                  checked={redeemFreeCombo}
-                  onChange={(event) => setRedeemFreeCombo(event.target.checked)}
-                />
-                <Gift size={16} aria-hidden="true" />
-                Aplicar 1 combo gratis disponible (-{formatMxn(comboEntry.item.priceCents)}) y generar boleto rifa al completar
-              </label>
-            )}
-
-            {needsMachine && washers.length > 0 && (
-              <div className="field">
-                <label>Asignar lavadora (opcional)</label>
-                <div className="machine-picker" role="group" aria-label="Lavadoras de la sucursal">
-                  {washers.map((machine) => {
-                    const available = machine.status === 'disponible';
-                    const active = selectedMachineIds.includes(machine.id);
-                    return (
-                      <button
-                        key={machine.id}
-                        type="button"
-                        disabled={!available}
-                        aria-pressed={active}
-                        className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
-                        onClick={() => toggleMachine(machine.id)}
-                      >
-                        <strong>{machine.code}</strong>
-                        <small>
-                          {machine.status === 'disponible'
-                            ? 'Disponible'
-                            : machine.status === 'en_uso'
-                              ? `En uso (${machine.currentOrderFolio ?? ''})`
-                              : 'Fuera de serv.'}
-                        </small>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {serviceType === 'encargo' && (
-              <label className="checkbox-row field">
-                <input
-                  type="checkbox"
-                  checked={payAtPickup}
-                  onChange={(event) => setPayAtPickup(event.target.checked)}
-                />
-                Cobrar al recoger
-              </label>
-            )}
-          </>
-        )}
-
-        {deferPayment ? (
-          <div className="alert alert-info">
-            El encargo se registrará con saldo pendiente ({formatMxn(totalCents)}) para cobrarse al entregar.
           </div>
-        ) : freeCoverAll ? (
-          <div className="alert alert-success">
-            Orden cubierta al 100% con <strong>1 combo gratis de lealtad ($0.00)</strong>. Al completar la orden se emitirá su boleto de rifa.
-          </div>
-        ) : (
-          <>
-            <div className="checkout-payment-head">
-              <h3>Pago</h3>
-              <div className="checkout-payment-shortcuts" role="group" aria-label="Aplicar el total a un método de pago">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSingleMethod('efectivo')}>
-                  Todo en efectivo
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSingleMethod('tarjeta')}>
-                  Todo con tarjeta
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSingleMethod('transferencia')}>
-                  Todo por transferencia
-                </button>
+
+          <div className="split-row">
+            <div className="split-row-top">
+              <strong>Tarjeta (terminal)</strong>
+              <div className="split-amount-wrap">
+                <span>$</span>
+                <input
+                  aria-label="Monto tarjeta MXN"
+                  inputMode="decimal"
+                  className="input"
+                  value={cardInput}
+                  onChange={(e) => setCardInput(e.target.value)}
+                />
               </div>
             </div>
-
-            <div className="split-grid">
-              <div className="split-row">
-                <div className="split-row-top">
-                  <strong>Efectivo recibido</strong>
-                  <div className="split-amount-wrap">
-                    <span>$</span>
-                    <input
-                      aria-label="Monto efectivo MXN"
-                      placeholder="0.00"
-                      inputMode="decimal"
-                      className="input"
-                      value={cashInput}
-                      onChange={(e) => setCashInput(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="split-row">
-                <div className="split-row-top">
-                  <strong>Tarjeta (terminal)</strong>
-                  <div className="split-amount-wrap">
-                    <span>$</span>
-                    <input
-                      aria-label="Monto tarjeta MXN"
-                      inputMode="decimal"
-                      className="input"
-                      value={cardInput}
-                      onChange={(e) => setCardInput(e.target.value)}
-                    />
-                  </div>
-                </div>
+            {(tender.ok && tender.card > 0) || confirmCardNow ? (
+              <>
                 <label className="checkbox-row">
                   <input
                     type="checkbox"
@@ -583,22 +520,26 @@ export function CheckoutPanel({
                     maxLength={60}
                   />
                 )}
-              </div>
+              </>
+            ) : null}
+          </div>
 
-              <div className="split-row">
-                <div className="split-row-top">
-                  <strong>Transferencia</strong>
-                  <div className="split-amount-wrap">
-                    <span>$</span>
-                    <input
-                      aria-label="Monto transferencia MXN"
-                      inputMode="decimal"
-                      className="input"
-                      value={transferInput}
-                      onChange={(e) => setTransferInput(e.target.value)}
-                    />
-                  </div>
-                </div>
+          <div className="split-row">
+            <div className="split-row-top">
+              <strong>Transferencia</strong>
+              <div className="split-amount-wrap">
+                <span>$</span>
+                <input
+                  aria-label="Monto transferencia MXN"
+                  inputMode="decimal"
+                  className="input"
+                  value={transferInput}
+                  onChange={(e) => setTransferInput(e.target.value)}
+                />
+              </div>
+            </div>
+            {(tender.ok && tender.transfer > 0) || confirmTransferNow ? (
+              <>
                 <label className="checkbox-row">
                   <input
                     type="checkbox"
@@ -608,7 +549,7 @@ export function CheckoutPanel({
                   Marcar transferencia verificada
                 </label>
                 {isOffline && (
-                  <small className="muted" style={{ display: 'block', marginTop: 4 }}>
+                  <small className="muted" style={{ display: 'block' }}>
                     Sin internet: valida manualmente en terminal o app bancaria antes de confirmar.
                   </small>
                 )}
@@ -622,62 +563,95 @@ export function CheckoutPanel({
                     maxLength={60}
                   />
                 )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {feedback && (
-          <div
-            role={feedback.type === 'error' ? 'alert' : 'status'}
-            className={`alert ${feedback.type === 'error' ? 'alert-error' : 'alert-success'}`}
-          >
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span>{feedback.text}</span>
-              {feedback.type === 'success' && feedback.orderId && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => onOpenTicket(feedback.orderId!)}
-                >
-                  <Receipt size={15} />
-                  Ver / emitir comprobante
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="checkout-footer-bar">
-          <div className="summary-bar" aria-live="polite">
-            <span className="checkout-total"><span>Total</span> <strong>{formatMxn(totalCents)}</strong></span>
-            {deferPayment ? (
-              <strong>Por cobrar</strong>
-            ) : freeCoverAll ? (
-              <strong style={{ color: 'var(--success)' }}>Lealtad 10+1</strong>
-            ) : tender.ok ? (
-              <strong style={{ color: tender.remaining > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                {tender.remaining > 0
-                  ? `Faltan ${formatMxn(tender.remaining)}`
-                  : tender.change > 0 ? `Cambio ${formatMxn(tender.change)}` : 'Monto completo'}
-              </strong>
+              </>
             ) : null}
           </div>
+        </div>
+      )}
+    </div>
+  );
 
+  const feedbackBanner = feedback && (
+    <div
+      role={feedback.type === 'error' ? 'alert' : 'status'}
+      className={`alert ${feedback.type === 'error' ? 'alert-error' : 'alert-success'}`}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span>{feedback.text}</span>
+        {feedback.type === 'success' && feedback.orderId && (
           <button
-            type="submit"
-            className="btn btn-primary btn-full checkout-submit-btn"
-            disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => onOpenTicket(feedback.orderId!)}
           >
-            {submitting ? 'Guardando…'
-              : checkoutOrder ? 'Guardar cobro'
-              : deferPayment ? 'Guardar encargo'
-              : freeCoverAll ? 'Guardar orden'
-              : 'Guardar orden y pago'}
+            <Receipt size={15} />
+            Ver / emitir comprobante
           </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const footerBar = (
+    <div className="checkout-footer-bar">
+      <div className="summary-bar" aria-live="polite">
+        <span className="checkout-total"><span>Total</span> <strong>{formatMxn(totalCents)}</strong></span>
+        {deferPayment ? (
+          <strong>Por cobrar</strong>
+        ) : freeCoverAll ? (
+          <strong style={{ color: 'var(--success)' }}>Lealtad 10+1</strong>
+        ) : tender.ok ? (
+          <strong style={{ color: tender.remaining > 0 ? 'var(--warning)' : 'var(--success)' }}>
+            {tender.remaining > 0
+              ? `Faltan ${formatMxn(tender.remaining)}`
+              : tender.change > 0 ? `Cambio ${formatMxn(tender.change)}` : 'Monto completo'}
+          </strong>
+        ) : null}
+      </div>
+
+      <button
+        type="submit"
+        className="btn btn-primary btn-full checkout-submit-btn"
+        disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
+      >
+        {submitting ? 'Guardando…'
+          : checkoutOrder ? 'Guardar cobro'
+          : deferPayment ? 'Guardar encargo'
+          : freeCoverAll ? 'Guardar orden'
+          : 'Guardar orden y pago'}
+      </button>
+    </div>
+  );
+
+  if (checkoutOrder) {
+    return (
+      <section id="checkout-form" className="card pos-checkout-single" aria-labelledby="checkout-heading" data-active-payment="">
+        <h2 id="checkout-heading" className="card-title" tabIndex={-1} aria-describedby="checkout-order-summary">
+          <span>Cobro en curso</span>
+        </h2>
+
+        <div id="checkout-order-summary" className="checkout-active-order">
+          <div className="checkout-order-identity">
+            <strong>{checkoutOrder.folio}</strong>
+            {checkoutOrder.customerAlias && <span>{checkoutOrder.customerAlias}</span>}
+          </div>
+          <div className="checkout-order-amount">
+            <span>Importe a cobrar</span>
+            <strong>{formatMxn(totalCents)}</strong>
+          </div>
         </div>
 
-        {checkoutOrder && (
+        {!openShift && (
+          <div className="alert alert-error">
+            No hay turno abierto en {branchName}. Ve a <strong>Caja</strong> para abrir un turno antes de cobrar.
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          {paymentSection}
+          {feedbackBanner}
+          {footerBar}
+
           <button
             type="button"
             className="btn btn-secondary btn-full"
@@ -690,8 +664,309 @@ export function CheckoutPanel({
           >
             Cancelar cobro
           </button>
+        </form>
+      </section>
+    );
+  }
+
+  return (
+    <form id="checkout-form" className="pos-layout" onSubmit={handleSubmit} aria-labelledby="checkout-heading">
+      <section className="card pos-builder">
+        <h2 id="checkout-heading" className="card-title" tabIndex={-1}>
+          <span>Nueva orden</span>
+          <span className="badge badge-info">Próx. folio {suggestedFolio}</span>
+        </h2>
+
+        {!openShift && (
+          <div className="alert alert-error">
+            No hay turno abierto en {branchName}. Ve a <strong>Caja</strong> para abrir un turno antes de cobrar.
+          </div>
         )}
-      </form>
-    </section>
+
+        <div className="pos-top-grid">
+          <div className="field">
+            <span className="checkout-field-label" id="checkout-service-label">Tipo de servicio</span>
+            <div className="segmented" role="group" aria-labelledby="checkout-service-label">
+              <button
+                type="button"
+                className={`seg-btn ${serviceType === 'autoservicio' ? 'active' : ''}`}
+                aria-pressed={serviceType === 'autoservicio'}
+                onClick={() => setServiceType('autoservicio')}
+              >
+                Autoservicio
+              </button>
+              <button
+                type="button"
+                className={`seg-btn ${serviceType === 'encargo' ? 'active' : ''}`}
+                aria-pressed={serviceType === 'encargo'}
+                onClick={() => setServiceType('encargo')}
+              >
+                Encargo
+              </button>
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="catalog-head-row">
+              <span className="checkout-field-label">Cliente y lealtad</span>
+              <button
+                type="button"
+                className="ticket-fallback-link"
+                aria-expanded={showNewCustomer}
+                onClick={() => setShowNewCustomer((prev) => !prev)}
+              >
+                <UserPlus size={15} aria-hidden="true" />
+                {showNewCustomer ? 'Cerrar alta' : 'Nuevo cliente'}
+              </button>
+            </div>
+
+            <CustomSelect
+              ariaLabel="Cliente para la orden"
+              value={selectedCustomerId}
+              options={[
+                { value: '', label: 'Cobro rápido (sin ficha)' },
+                ...customers.map((c) => ({
+                  value: c.id,
+                  label: `${c.name} (${c.combosTowardFree}/10${c.freeCombosAvailable > 0 ? ` · ${c.freeCombosAvailable} gratis` : ''})`,
+                })),
+              ]}
+              onChange={(val) => {
+                setSelectedCustomerId(val);
+                setRedeemFreeCombo(false);
+              }}
+            />
+          </div>
+        </div>
+
+        {selectedCustomer && (
+          <div className="loyalty-inline-pill" style={{ marginTop: 0, marginBottom: 12 }}>
+            <span>
+              Lealtad: <strong>{selectedCustomer.combosTowardFree}/10 combos</strong>
+              {selectedCustomer.freeCombosAvailable > 0
+                ? ` · ¡Tiene ${selectedCustomer.freeCombosAvailable} combo(s) gratis!`
+                : ''}
+            </span>
+          </div>
+        )}
+
+        {showNewCustomer && (
+          <div className="quick-customer-box" style={{ marginTop: 0, marginBottom: 14 }}>
+            <div className="quick-customer-inputs">
+              <input
+                className="input input-sm"
+                aria-label="Nombre del cliente"
+                placeholder="Nombre del cliente *"
+                value={newCustName}
+                onChange={(e) => setNewCustName(e.target.value)}
+                maxLength={80}
+              />
+              <input
+                className="input input-sm"
+                type="tel"
+                aria-label="Teléfono del cliente"
+                inputMode="tel"
+                placeholder="Teléfono 10 dígitos *"
+                value={newCustPhone}
+                onChange={(e) => setNewCustPhone(e.target.value)}
+                maxLength={20}
+              />
+            </div>
+            <div className="quick-customer-actions">
+              <label className="checkbox-row" style={{ minHeight: 36, padding: '4px 10px' }}>
+                <input
+                  type="checkbox"
+                  checked={newCustConsent}
+                  onChange={(e) => setNewCustConsent(e.target.checked)}
+                />
+                Autoriza avisos por WhatsApp
+              </label>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={savingCustomer}
+                onClick={async () => {
+                  setSavingCustomer(true);
+                  const res = await onUpsertCustomer(branchId, {
+                    name: newCustName,
+                    phone: newCustPhone,
+                    contactConsent: newCustConsent,
+                  });
+                  setSavingCustomer(false);
+                  if (!res.ok) {
+                    onFeedback({ type: 'error', text: res.error ?? 'No se pudo registrar el cliente.' });
+                    return;
+                  }
+                  if (res.customer) {
+                    setSelectedCustomerId(res.customer.id);
+                  }
+                  setNewCustName('');
+                  setNewCustPhone('');
+                  setShowNewCustomer(false);
+                }}
+              >
+                Guardar ficha y seleccionar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {serviceType === 'encargo' && (
+          <div className="pos-encargo-row field">
+            <div>
+              <label htmlFor="alias-input">Referencia de encargo</label>
+              <input
+                id="alias-input"
+                className="input"
+                value={customerAlias}
+                onChange={(e) => setCustomerAlias(e.target.value)}
+                placeholder={selectedCustomer ? selectedCustomer.name : 'Ej. María López'}
+              />
+            </div>
+            <label className="checkbox-row pos-encargo-pickup">
+              <input
+                type="checkbox"
+                checked={payAtPickup}
+                onChange={(event) => setPayAtPickup(event.target.checked)}
+              />
+              Cobrar al recoger
+            </label>
+          </div>
+        )}
+
+        <div className="field">
+          <div className="catalog-head-row">
+            <span className="checkout-field-label" id="checkout-catalog-label">Servicios y productos</span>
+            {selectedItems.length > 0 && (
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                {selectedItems.reduce((sum, entry) => sum + entry.quantity, 0)} seleccionado(s)
+              </span>
+            )}
+          </div>
+
+          <div className="catalog-grid pos-catalog-grid" role="group" aria-labelledby="checkout-catalog-label">
+            {activeCatalog.map((item) => {
+              const qty = quantities[item.id] ?? 0;
+              return (
+                <div key={item.id} className={`catalog-row ${qty > 0 ? 'selected' : ''}`}>
+                  <div className="catalog-row-info">
+                    <strong>{item.name}</strong>
+                    <small>
+                      {formatMxn(item.priceCents)} c/u
+                      {item.pricePendingConfirmation ? ' · Ref.' : ''}
+                    </small>
+                  </div>
+                  <div className="catalog-qty-controls">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm qty-btn"
+                      onClick={() => updateItemQuantity(item.id, -1)}
+                      disabled={qty === 0}
+                      aria-label={`Quitar ${item.name}`}
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <span className="qty-value" aria-live="polite">
+                      {qty}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm qty-btn"
+                      onClick={() => updateItemQuantity(item.id, 1)}
+                      aria-label={`Agregar ${item.name}`}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {canRedeemFreeCombo && comboEntry && (
+          <label className="checkbox-row field" style={{ border: '1px solid var(--success-border)', background: 'var(--success-soft)' }}>
+            <input
+              type="checkbox"
+              checked={redeemFreeCombo}
+              onChange={(event) => setRedeemFreeCombo(event.target.checked)}
+            />
+            <Gift size={16} aria-hidden="true" />
+            Aplicar 1 combo gratis disponible (-{formatMxn(comboEntry.item.priceCents)}) y generar boleto rifa al completar
+          </label>
+        )}
+
+        {needsMachine && washers.length > 0 && (
+          <div className="field" style={{ marginBottom: 0 }}>
+            <div className="catalog-head-row">
+              <span className="checkout-field-label">Asignar lavadora (opcional)</span>
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                {availableWashersCount} de {washers.length} disponible(s)
+              </span>
+            </div>
+            <div className="machine-picker" role="group" aria-label="Lavadoras de la sucursal">
+              {washers.map((machine) => {
+                const available = machine.status === 'disponible';
+                const active = selectedMachineIds.includes(machine.id);
+                return (
+                  <button
+                    key={machine.id}
+                    type="button"
+                    disabled={!available}
+                    aria-pressed={active}
+                    className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
+                    onClick={() => toggleMachine(machine.id)}
+                  >
+                    <strong>{machine.code}</strong>
+                    <small>
+                      {machine.status === 'disponible'
+                        ? 'Disponible'
+                        : machine.status === 'en_uso'
+                          ? `En uso (${machine.currentOrderFolio ?? ''})`
+                          : 'Fuera de serv.'}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <aside className="card pos-payment-col" aria-label="Resumen y pago">
+        <h3 className="card-title pos-payment-title">
+          <span>Resumen y pago</span>
+          <span className="badge badge-info">{serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'}</span>
+        </h3>
+
+        <div className="pos-summary-box">
+          {selectedItems.length === 0 ? (
+            <p className="muted" style={{ margin: 0, fontSize: '0.86rem' }}>
+              Agrega servicios del catálogo para calcular el total.
+            </p>
+          ) : (
+            <ul className="pos-summary-list">
+              {selectedItems.map(({ item, quantity }) => (
+                <li key={item.id}>
+                  <span>
+                    <strong>{quantity}×</strong> {item.name}
+                  </span>
+                  <span>{formatMxn(item.priceCents * quantity)}</span>
+                </li>
+              ))}
+              {loyaltyDiscountCents > 0 && (
+                <li className="pos-summary-discount">
+                  <span>Combo gratis (lealtad)</span>
+                  <span>-{formatMxn(loyaltyDiscountCents)}</span>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+
+        {paymentSection}
+        {feedbackBanner}
+        {footerBar}
+      </aside>
+    </form>
   );
 }

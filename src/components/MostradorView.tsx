@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import {
   getBranchCatalog,
   getBranchInfo,
@@ -18,6 +19,8 @@ interface MostradorViewProps {
   state: DemoState;
   branchId: BranchId;
   ordersOnly: boolean;
+  ordersDrawerOpen?: boolean;
+  onOrdersDrawerOpenChange?: (open: boolean) => void;
   isOffline?: boolean;
   initialFilter: string;
   initialQuery: string;
@@ -42,6 +45,8 @@ export function MostradorView({
   state,
   branchId,
   ordersOnly,
+  ordersDrawerOpen = false,
+  onOrdersDrawerOpenChange,
   isOffline = false,
   initialFilter,
   initialQuery,
@@ -68,6 +73,17 @@ export function MostradorView({
   const checkoutSourceRect = useRef<DOMRect | undefined>(undefined);
   const checkoutCue = useRef<Animation | null>(null);
   const checkoutOrder = state.orders.find((order) => order.id === checkoutId) ?? null;
+
+  useEffect(() => {
+    if (ordersOnly || !ordersDrawerOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onOrdersDrawerOpenChange?.(false);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [ordersOnly, ordersDrawerOpen, onOrdersDrawerOpenChange]);
 
   useLayoutEffect(() => {
     if (!checkoutOrder) return;
@@ -179,9 +195,108 @@ export function MostradorView({
     if (!result.ok && result.error) setFeedback({ type: 'error', text: result.error });
   }
 
+  function handleStartCheckout(order: Order, sourceElement?: HTMLElement | null) {
+    if (!ordersOnly) {
+      onOrdersDrawerOpenChange?.(false);
+    }
+    if (order.id === checkoutId) {
+      revealCheckout();
+      return;
+    }
+    checkoutOrigin.current = sourceElement instanceof HTMLButtonElement ? sourceElement : null;
+    checkoutSourceRect.current = sourceElement?.closest('.order-summary-row')?.getBoundingClientRect();
+    setCheckoutId(order.id);
+    setFeedback(null);
+  }
+
+  const orderListProps = {
+    state,
+    branchOrdersCount: branchOrders.length,
+    matchingOrders,
+    ordersOnly,
+    query,
+    filter,
+    onQueryChange: setQuery,
+    onFilterChange: setFilter,
+    hasOpenShift: openShift,
+    activeCheckoutId: checkoutId,
+    feedback,
+    showFeedback: ordersOnly && !checkoutOrder,
+    onStartCheckout: handleStartCheckout,
+    onConfirmPaymentLine: handleConfirmPaymentLine,
+    onOpenTicket,
+    onAdvanceEncargo: handleAdvanceEncargo,
+    onDeliverEncargo: handleDeliverEncargo,
+    onRecordWhatsappSent: handleRecordWhatsappSent,
+  };
+
+  if (!ordersOnly) {
+    return (
+      <div className="mostrador-stage">
+        <CheckoutPanel
+          branchId={branchId}
+          branchName={branch.name}
+          catalog={catalog}
+          machines={machines}
+          customers={customers}
+          openShift={openShift}
+          isOffline={isOffline}
+          suggestedFolio={suggestedFolio}
+          checkoutOrder={checkoutOrder}
+          feedback={feedback}
+          onFeedback={setFeedback}
+          onCancelCheckout={closeCheckout}
+          onCreateOrder={(input) => onCreateOrder({ ...input, branchId })}
+          onCapturePayment={onCapturePayment}
+          onUpsertCustomer={onUpsertCustomer}
+          onOpenTicket={onOpenTicket}
+        />
+
+        {ordersDrawerOpen && (
+          <div
+            className="orders-drawer-backdrop"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                onOrdersDrawerOpenChange?.(false);
+              }
+            }}
+          >
+            <aside
+              id="mostrador-orders-drawer"
+              className="orders-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="orders-drawer-title"
+            >
+              <div className="orders-drawer-head">
+                <div className="orders-drawer-title-group">
+                  <h2 id="orders-drawer-title">Órdenes de la sucursal</h2>
+                  <span className="badge badge-info">
+                    {matchingOrders.length} de {branchOrders.length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm orders-drawer-close"
+                  aria-label="Cerrar panel de órdenes"
+                  onClick={() => onOrdersDrawerOpenChange?.(false)}
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="orders-drawer-body">
+                <OrderList {...orderListProps} embedded />
+              </div>
+            </aside>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className={ordersOnly && !checkoutOrder ? 'orders-page' : 'two-col'}>
-      {(!ordersOnly || checkoutOrder) && (
+    <div className={!checkoutOrder ? 'orders-page' : 'two-col'}>
+      {checkoutOrder && (
         <CheckoutPanel
           branchId={branchId}
           branchName={branch.name}
@@ -202,35 +317,7 @@ export function MostradorView({
         />
       )}
 
-      <OrderList
-        state={state}
-        branchOrdersCount={branchOrders.length}
-        matchingOrders={matchingOrders}
-        ordersOnly={ordersOnly}
-        query={query}
-        filter={filter}
-        onQueryChange={setQuery}
-        onFilterChange={setFilter}
-        hasOpenShift={openShift}
-        activeCheckoutId={checkoutId}
-        feedback={feedback}
-        showFeedback={ordersOnly && !checkoutOrder}
-        onStartCheckout={(order, sourceElement) => {
-          if (order.id === checkoutId) {
-            revealCheckout();
-            return;
-          }
-          checkoutOrigin.current = sourceElement instanceof HTMLButtonElement ? sourceElement : null;
-          checkoutSourceRect.current = sourceElement?.closest('.order-summary-row')?.getBoundingClientRect();
-          setCheckoutId(order.id);
-          setFeedback(null);
-        }}
-        onConfirmPaymentLine={handleConfirmPaymentLine}
-        onOpenTicket={onOpenTicket}
-        onAdvanceEncargo={handleAdvanceEncargo}
-        onDeliverEncargo={handleDeliverEncargo}
-        onRecordWhatsappSent={handleRecordWhatsappSent}
-      />
+      <OrderList {...orderListProps} />
     </div>
   );
 }

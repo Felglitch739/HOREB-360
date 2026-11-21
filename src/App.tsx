@@ -1,5 +1,5 @@
-import { Suspense, lazy, useRef, useState } from 'react';
-import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Menu, Plus, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -12,6 +12,7 @@ import {
   getBranchSettings,
   getOpenShift,
   getOrderPaymentLines,
+  getOrderPendingCents,
   type CreateOrderInput,
   type PaymentInputLine,
 } from './domain/rules';
@@ -55,8 +56,24 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
   const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('horeb-sidebar-collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [mostradorOrdersOpen, setMostradorOrdersOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const mainContent = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('horeb-sidebar-collapsed', String(sidebarCollapsed));
+    } catch {
+      // ignore storage errors
+    }
+  }, [sidebarCollapsed]);
 
   const activeBranchId =
     visibleBranches.find((branch) => branch.id === selectedBranch)?.id ??
@@ -66,9 +83,13 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
   const activeRole = shared.roles[activeBranchId] ?? 'operator';
   const activeSettings = getBranchSettings(state, activeBranchId);
   const openShift = getOpenShift(state, activeBranchId);
+  const branchOrders = state.orders.filter((order) => order.branchId === activeBranchId);
+  const branchOrdersCount = branchOrders.length;
+  const branchPendingCount = branchOrders.filter((order) => getOrderPendingCents(state, order.id) > 0).length;
 
   function navigate(tab: TabId) {
     setActiveTab(tab);
+    setMostradorOrdersOpen(false);
     if (tab === 'ordenes') {
       setOrderFilter('todas');
       setOrderQuery('');
@@ -216,7 +237,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
   const ticketState = ticketOrderId ? state.tickets[ticketOrderId] : null;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <aside className="sidebar" data-menu-open={menuOpen ? '' : undefined} onKeyDown={(event) => {
         if (event.key === 'Escape' && menuOpen && menuButton.current?.getClientRects().length) {
           setMenuOpen(false);
@@ -268,13 +289,25 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
       </aside>
       <div className="workspace">
         <header className="workspace-header">
-          <div className="breadcrumb">
-            Operación <span>/</span>{' '}
-            <strong>
-              {activeTab === 'ajustes'
-                ? 'Ajustes'
-                : navigation.find((entry) => entry.id === activeTab)?.label}
-            </strong>
+          <div className="workspace-header-left">
+            <button
+              type="button"
+              className="sidebar-collapse-btn"
+              aria-label={sidebarCollapsed ? 'Mostrar menú lateral' : 'Ocultar menú lateral'}
+              aria-expanded={!sidebarCollapsed}
+              title={sidebarCollapsed ? 'Mostrar menú' : 'Ocultar menú'}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={19} aria-hidden="true" /> : <PanelLeftClose size={19} aria-hidden="true" />}
+            </button>
+            <div className="breadcrumb">
+              Operación <span>/</span>{' '}
+              <strong>
+                {activeTab === 'ajustes'
+                  ? 'Ajustes'
+                  : navigation.find((entry) => entry.id === activeTab)?.label}
+              </strong>
+            </div>
           </div>
           <div className="workspace-actions" data-tour="branch-bar">
             <span className={'shift-pill' + (openShift ? ' open' : '')}><i aria-hidden="true" />{openShift ? 'Turno ' + openShift.number + ' abierto' : 'Caja cerrada'}</span>
@@ -338,6 +371,22 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
                 </h1>
                 <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranch.name}</p>
               </div>
+              {activeTab === 'mostrador' && (
+                <button
+                  type="button"
+                  className={`btn btn-secondary mostrador-orders-toggle${mostradorOrdersOpen ? ' active' : ''}`}
+                  aria-expanded={mostradorOrdersOpen}
+                  aria-controls="mostrador-orders-drawer"
+                  onClick={() => setMostradorOrdersOpen((open) => !open)}
+                >
+                  <ClipboardList size={17} aria-hidden="true" />
+                  <span>Órdenes</span>
+                  <span className="badge badge-info">{branchOrdersCount}</span>
+                  {branchPendingCount > 0 && (
+                    <span className="badge badge-warning">{branchPendingCount} por cobrar</span>
+                  )}
+                </button>
+              )}
               {activeTab === 'ordenes' && (
                 <button type="button" className="btn btn-primary" onClick={() => navigate('mostrador')}>
                   <Plus size={17} /> Nueva orden
@@ -349,6 +398,8 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
             <MostradorView
               key={activeBranchId + activeTab}
               ordersOnly={activeTab === 'ordenes'}
+              ordersDrawerOpen={mostradorOrdersOpen}
+              onOrdersDrawerOpenChange={setMostradorOrdersOpen}
               initialFilter={orderFilter}
               initialQuery={orderQuery}
               state={state}

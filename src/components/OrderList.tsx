@@ -15,6 +15,7 @@ interface OrderListProps {
   branchOrdersCount: number;
   matchingOrders: Order[];
   ordersOnly: boolean;
+  embedded?: boolean;
   query: string;
   filter: string;
   onQueryChange: (value: string) => void;
@@ -36,6 +37,7 @@ export function OrderList({
   branchOrdersCount,
   matchingOrders,
   ordersOnly,
+  embedded = false,
   query,
   filter,
   onQueryChange,
@@ -58,14 +60,16 @@ export function OrderList({
     ...ENCARGO_STAGES.map((stage) => ({ value: stage.id, label: stage.label })),
   ];
 
-  return (
-    <section className="card" aria-label="Órdenes registradas" data-tour="orders-panel">
-      <h2 className="card-title">
-        <span>{ordersOnly ? 'Seguimiento' : 'Órdenes de la sucursal'}</span>
-        <span className="badge badge-info">
-          {matchingOrders.length} de {branchOrdersCount}
-        </span>
-      </h2>
+  const content = (
+    <>
+      {!embedded && (
+        <h2 className="card-title">
+          <span>{ordersOnly ? 'Seguimiento' : 'Órdenes de la sucursal'}</span>
+          <span className="badge badge-info">
+            {matchingOrders.length} de {branchOrdersCount}
+          </span>
+        </h2>
+      )}
 
       <div className="order-toolbar">
         <label className="search-field">
@@ -133,6 +137,20 @@ export function OrderList({
           ))}
         </div>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="orders-embedded-body" aria-label="Órdenes registradas">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <section className="card" aria-label="Órdenes registradas" data-tour="orders-panel">
+      {content}
     </section>
   );
 }
