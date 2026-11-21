@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   BarChart3,
+  BookOpen,
   Building2,
   CheckCircle2,
   Clock,
@@ -13,6 +14,7 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  RotateCcw,
   Settings,
   Store,
   Users,
@@ -21,6 +23,7 @@ import {
 } from 'lucide-react';
 import { exportAdminConsolidatedToExcel, exportShiftsToExcel } from '../domain/excelExport';
 import { formatMxn } from '../domain/money';
+import type { AdminTourTabId, TourTabId } from '../domain/sandboxManual';
 import {
   BRANCHES,
   ENCARGO_STAGES,
@@ -43,6 +46,7 @@ import { SharedStatus } from './SharedStatus';
 
 const AdminView = lazy(() => import('./AdminView').then((m) => ({ default: m.AdminView })));
 const AjustesView = lazy(() => import('./AjustesView').then((m) => ({ default: m.AjustesView })));
+const AppTour = lazy(() => import('./AppTour').then((m) => ({ default: m.AppTour })));
 const CajaView = lazy(() => import('./CajaView').then((m) => ({ default: m.CajaView })));
 const ClientesView = lazy(() => import('./ClientesView').then((m) => ({ default: m.ClientesView })));
 
@@ -95,6 +99,7 @@ export function AdminPortal({
   const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>('activas');
   const [inspectBranchId, setInspectBranchId] = useState<BranchId | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('caja');
+  const [tourOpen, setTourOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -320,6 +325,29 @@ export function AdminPortal({
 
       <div className="workspace admin-workspace">
         <main ref={mainContent} tabIndex={-1} className="main-content admin-main" data-workspace-tab={activeTab}>
+          {shared.isPracticeMode && (
+            <div className="practice-mode-banner" role="status">
+              <div className="practice-mode-copy">
+                <strong>MODO PRÁCTICA ACTIVO</strong>
+                <span>Estás usando datos falsos de demostración (nada se guarda en la base de datos).</span>
+              </div>
+              <div className="practice-mode-actions">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
+                  <BookOpen size={14} aria-hidden="true" /> Manual de flujos
+                </button>
+                {shared.resetPractice && (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={shared.resetPractice}>
+                    <RotateCcw size={14} aria-hidden="true" /> Reiniciar demo
+                  </button>
+                )}
+                {shared.exitPractice && (
+                  <button type="button" className="btn btn-primary btn-sm" onClick={shared.exitPractice}>
+                    Salir a datos reales
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {sharedNotice && (
             <div className="alert alert-error" role="alert">
               {sharedNotice}
@@ -401,6 +429,14 @@ export function AdminPortal({
                   Excel (.xlsx)
                 </button>
               )}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setTourOpen(true)}
+              >
+                <BookOpen size={15} aria-hidden="true" />
+                Manual
+              </button>
             </div>
           </div>
 
@@ -465,7 +501,7 @@ export function AdminPortal({
               )}
 
               {/* Executive KPI Strip */}
-              <div className="admin-kpi-grid">
+              <div className="admin-kpi-grid" data-tour="overview-stats">
                 <div className="admin-kpi-card accent">
                   <span className="admin-eyebrow">Ingresos confirmados</span>
                   <strong className="admin-kpi-number">{formatMxn(totals.totalConfirmedCents)}</strong>
@@ -759,26 +795,28 @@ export function AdminPortal({
 
           {/* ================= TAB 2: MAPA VISUAL DE EQUIPOS ================= */}
           {activeTab === 'equipos' && (
-            <AdminFloorPlan
-              state={state}
-              branchIds={branchIds}
-              scopeBranch={scopeBranch}
-              onScopeBranchChange={(next) => {
-                setScopeBranch(next);
-                if (next !== 'all') setFocusedBranch(next);
-              }}
-              onUpsertMachine={(branch, machine: { id?: string; code: string; name: string; kind: MachineKind }) =>
-                run(branch, { action: 'upsertMachine', machine })
-              }
-              onDeleteMachine={(branch, machineId) => run(branch, { action: 'deleteMachine', machineId })}
-              onSeedSampleMachines={(branch) => run(branch, { action: 'seedSampleMachines' })}
-              onSetMachineStatus={(
-                branch,
-                machineId,
-                status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>,
-                reason?: string,
-              ) => run(branch, { action: 'setMachineStatus', machineId, status, reason })}
-            />
+            <div data-tour-page="equipos">
+              <AdminFloorPlan
+                state={state}
+                branchIds={branchIds}
+                scopeBranch={scopeBranch}
+                onScopeBranchChange={(next) => {
+                  setScopeBranch(next);
+                  if (next !== 'all') setFocusedBranch(next);
+                }}
+                onUpsertMachine={(branch, machine: { id?: string; code: string; name: string; kind: MachineKind }) =>
+                  run(branch, { action: 'upsertMachine', machine })
+                }
+                onDeleteMachine={(branch, machineId) => run(branch, { action: 'deleteMachine', machineId })}
+                onSeedSampleMachines={(branch) => run(branch, { action: 'seedSampleMachines' })}
+                onSetMachineStatus={(
+                  branch,
+                  machineId,
+                  status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>,
+                  reason?: string,
+                ) => run(branch, { action: 'setMachineStatus', machineId, status, reason })}
+              />
+            </div>
           )}
 
           {/* ================= TAB 3: FINANZAS Y CORTES ================= */}
@@ -974,7 +1012,7 @@ export function AdminPortal({
 
             {/* ================= TAB 4: CLIENTES Y RIFA ================= */}
             {activeTab === 'clientes' && (
-              <div style={{ display: 'grid', gap: 16 }}>
+              <div style={{ display: 'grid', gap: 16 }} data-tour-page="clientes">
                 <ClientesView
                   state={state}
                   branchId={activeBranchId}
@@ -1017,7 +1055,7 @@ export function AdminPortal({
                 onSaveSettings={(branch, settings: Partial<BranchSettings>) =>
                   run(branch, { action: 'updateSettings', settings })
                 }
-                onStartTour={onSwitchToEmployeeView}
+                onStartTour={() => setTourOpen(true)}
                 onReload={shared.reload}
                 onSignOut={shared.signOut}
                 modeSwitcher={{
@@ -1300,6 +1338,28 @@ export function AdminPortal({
           </aside>
         </div>
       )}
+      <Suspense fallback={null}>
+        {tourOpen && (
+          <AppTour
+            mode="admin"
+            branchId={activeBranchId}
+            isPracticeMode={shared.isPracticeMode}
+            onStartPractice={shared.startPractice}
+            onExitPractice={shared.exitPractice}
+            onResetPractice={shared.resetPractice}
+            onSimulateStep={(simulator) => shared.applyPracticeState?.(simulator)}
+            onNavigate={(tab: TourTabId) => {
+              if (tab === 'equipos') navigate('equipos');
+              else if (tab === 'clientes') navigate('clientes');
+              else if (tab === 'caja' || tab === 'admin') navigate('finanzas');
+              else if (tab === 'ajustes') navigate('ajustes');
+              else navigate('resumen');
+            }}
+            onNavigateAdmin={(adminTab: AdminTourTabId) => navigate(adminTab)}
+            onClose={() => setTourOpen(false)}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

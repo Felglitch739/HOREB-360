@@ -1,3 +1,128 @@
+/* Catalog Menu Modal */
+.app-tour-catalog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: rgb(15 23 42 / 0.52);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 3vw, 24px);
+}
+
+.app-tour-catalog-card {
+  width: min(860px, 100%);
+  max-height: min(90dvh, 820px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: clamp(16px, 2.5vw, 24px);
+  box-shadow: 0 24px 60px rgb(15 23 42 / 0.28);
+  display: grid;
+  gap: 16px;
+}
+
+.app-tour-sandbox-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  border: 1px solid var(--info-border);
+  color: var(--text);
+}
+
+.app-tour-sandbox-notice svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--primary);
+}
+
+.app-tour-sandbox-notice strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--primary);
+  margin-bottom: 2px;
+}
+
+.app-tour-sandbox-notice p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.42;
+}
+
+.app-tour-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.app-tour-flow-btn {
+  text-align: left;
+  padding: 14px;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s ease, transform 0.14s ease, background-color 0.15s ease;
+}
+
+.app-tour-flow-btn:hover {
+  border-color: var(--primary);
+  background: var(--surface);
+  transform: translateY(-2px);
+}
+
+.app-tour-flow-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.app-tour-flow-btn strong {
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.app-tour-flow-btn p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  flex: 1 1 auto;
+}
+
+.app-tour-flow-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.app-tour-catalog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* Non-blocking Active Walkthrough Floating Coachmark */
 .app-tour-overlay {
   position: fixed;
   inset: 0;
@@ -5,39 +130,42 @@
   isolation: isolate;
 }
 
-.app-tour-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgb(15 23 42 / 0.48);
-}
-
-.app-tour-backdrop[data-highlight] {
-  background: transparent;
+.app-tour-overlay.non-blocking {
+  pointer-events: none;
 }
 
 .app-tour-spotlight {
   position: absolute;
-  border: 2px solid var(--brand-accent);
-  border-radius: 10px;
-  box-shadow: 0 0 0 200vmax rgb(15 23 42 / 0.48);
+  border: 2.5px solid var(--primary);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--primary) 22%, transparent),
+    0 0 0 200vmax rgb(15 23 42 / 0.18);
   pointer-events: none;
+  transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
 }
 
 .app-tour-card {
+  pointer-events: auto;
   position: absolute;
-  inset-inline-end: max(12px, env(safe-area-inset-right));
-  inset-block-end: max(12px, env(safe-area-inset-bottom));
-  width: min(400px, calc(100% - 24px));
-  max-height: calc(100% - 24px);
+  inset-inline-end: max(14px, env(safe-area-inset-right));
+  inset-block-end: max(14px, env(safe-area-inset-bottom));
+  width: min(410px, calc(100% - 24px));
+  max-height: calc(100dvh - 28px);
   overflow-y: auto;
   overscroll-behavior: contain;
   display: grid;
-  gap: 14px;
+  gap: 12px;
   padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 15px;
+  border: 1.5px solid var(--primary);
+  border-radius: 16px;
   background: var(--surface);
-  box-shadow: 0 16px 40px rgb(15 23 42 / 0.24);
+  box-shadow: 0 18px 46px rgb(15 23 42 / 0.26);
+}
+
+.app-tour-overlay.dock-top .app-tour-card {
+  inset-block-end: auto;
+  inset-block-start: max(14px, env(safe-area-inset-top));
 }
 
 .app-tour-head,
@@ -60,27 +188,51 @@
 }
 
 .app-tour-close {
-  width: 44px;
+  width: 38px;
+  min-height: 36px;
   padding: 0;
 }
 
+.app-tour-flow-crumb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .app-tour-copy h2 {
-  margin: 0 0 5px;
-  font-size: 1.2rem;
-  line-height: 1.2;
+  margin: 0 0 6px;
+  font-size: 1.12rem;
+  line-height: 1.25;
 }
 
 .app-tour-copy p {
   margin: 0;
   color: var(--text-muted);
+  font-size: 0.9rem;
   line-height: 1.45;
+}
+
+.app-tour-tip {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.38;
+}
+
+.app-tour-sim-box {
+  padding-top: 2px;
 }
 
 .app-tour-progress {
   display: grid;
   gap: 5px;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -92,4 +244,15 @@
 
 .app-tour-nav {
   flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .app-tour-flow-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-tour-card {
+    inset-inline-start: 12px;
+    inset-inline-end: 12px;
+    width: auto;
+  }
 }

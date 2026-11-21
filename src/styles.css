@@ -862,6 +862,12 @@ th {
 
 /* Workspace Theme Tokens */
 :root {
+  --phi: 1.618;
+  --space-xs: 5px;
+  --space-sm: 8px;
+  --space-md: 13px;
+  --space-lg: 21px;
+  --space-xl: 34px;
   --bg: #f5f6f2;
   --surface: #ffffff;
   --surface-alt: #f7f8f5;
@@ -4158,6 +4164,152 @@ th {
   border-radius: 12px;
   background: var(--surface-alt);
   border: 1px solid var(--border);
+}
+
+/* =========================================================================
+   PRACTICE SANDBOX BANNER, GOLDEN RATIO GRIDS & TABLET RESPONSIVENESS
+   ========================================================================= */
+
+.practice-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #fffbeb 0%, var(--warning-soft) 100%);
+  border: 1.5px solid var(--warning-border);
+  color: var(--warning);
+  box-shadow: var(--shadow);
+}
+
+.practice-mode-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.practice-mode-copy strong {
+  font-size: 0.86rem;
+  letter-spacing: 0.04em;
+}
+
+.practice-mode-copy span {
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.practice-mode-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* Golden Ratio (1.618 : 1) proportions and harmonic padding */
+.card {
+  padding: clamp(16px, 1.8vw, var(--space-lg));
+}
+
+.main-content {
+  padding: var(--space-lg) clamp(16px, 2.8vw, var(--space-xl)) var(--space-xl);
+}
+
+@media (min-width: 1024px) {
+  .pos-layout {
+    grid-template-columns: minmax(0, 1.618fr) minmax(320px, 1fr);
+    gap: var(--space-lg);
+  }
+}
+
+@media (min-width: 1060px) {
+  .admin-two-col-exec {
+    grid-template-columns: minmax(0, 1.618fr) minmax(300px, 1fr);
+    gap: var(--space-lg);
+  }
+}
+
+@media (min-width: 880px) {
+  .clientes-master-detail {
+    grid-template-columns: minmax(260px, 1fr) minmax(0, 1.618fr);
+    gap: var(--space-lg);
+  }
+}
+
+.insight-grid {
+  grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+
+@media (max-width: 960px) {
+  .insight-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tablet Ergonomics & Responsive Refinements (761px – 1080px, iPad Portrait & Landscape) */
+@media (min-width: 761px) and (max-width: 1080px) {
+  .app-shell {
+    grid-template-columns: 204px minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 0px minmax(0, 1fr);
+  }
+
+  .kpi-strip,
+  .admin-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pos-builder,
+  .pos-payment-col {
+    padding: var(--space-md) 18px;
+  }
+
+  .pos-catalog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  }
+
+  .kanban-board {
+    grid-template-columns: repeat(4, minmax(240px, 1fr));
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kanban-column {
+    scroll-snap-align: start;
+  }
+
+  .floor-tile-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .admin-hero-bar {
+    gap: var(--space-md);
+  }
+}
+
+/* Coarse pointer (tablets & touchscreens) minimum 40–44px touch targets */
+@media (pointer: coarse) {
+  .filter-pill,
+  .admin-branch-pill,
+  .payment-mode-btn,
+  .view-toggle-btn,
+  .quick-cash-chip,
+  .pipeline-stage-pill {
+    min-height: 42px;
+    padding-inline: 14px;
+  }
+
+  .catalog-row-tap {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
 }
 
 @page {

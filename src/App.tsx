@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { BarChart3, ClipboardList, Compass, LayoutDashboard, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
+import { BarChart3, BookOpen, ClipboardList, LayoutDashboard, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -321,11 +321,34 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
               onChange={(value) => setSelectedBranch(value)}
             />
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
-              <Compass size={16} aria-hidden="true" /> Guía
+              <BookOpen size={16} aria-hidden="true" /> Manual
             </button>
           </div>
         </header>
         <main ref={mainContent} tabIndex={-1} className="main-content" data-workspace-tab={activeTab}>
+          {shared.isPracticeMode && (
+            <div className="practice-mode-banner" role="status">
+              <div className="practice-mode-copy">
+                <strong>MODO PRÁCTICA ACTIVO</strong>
+                <span>Estás usando datos falsos de demostración (nada se guarda en la base de datos).</span>
+              </div>
+              <div className="practice-mode-actions">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
+                  <BookOpen size={14} aria-hidden="true" /> Manual de flujos
+                </button>
+                {shared.resetPractice && (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={shared.resetPractice}>
+                    <RotateCcw size={14} aria-hidden="true" /> Reiniciar demo
+                  </button>
+                )}
+                {shared.exitPractice && (
+                  <button type="button" className="btn btn-primary btn-sm" onClick={shared.exitPractice}>
+                    Salir a datos reales
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {sharedNotice && <div className="alert alert-error" role="alert">{sharedNotice}</div>}
           {shared.syncWarning && <div className="alert alert-error" role="alert">{shared.syncWarning}</div>}
           {(!shared.isOnline || shared.pendingSyncCount > 0) && (
@@ -516,6 +539,13 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
 
         {tourOpen && (
           <AppTour
+            mode="pos"
+            branchId={activeBranchId}
+            isPracticeMode={shared.isPracticeMode}
+            onStartPractice={shared.startPractice}
+            onExitPractice={shared.exitPractice}
+            onResetPractice={shared.resetPractice}
+            onSimulateStep={(simulator) => shared.applyPracticeState?.(simulator)}
             onNavigate={(tab: TourTabId) => navigate(tab)}
             onClose={() => setTourOpen(false)}
           />

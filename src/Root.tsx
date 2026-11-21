@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
 import { Eye, EyeOff, WashingMachine } from 'lucide-react';
-import type { Operation } from './domain/operations';
+import { operate, type Operation } from './domain/operations';
+import { createTrainingSandboxState } from './domain/sandboxManual';
 import {
   enqueueOfflineOperation,
   flushOfflineQueue,
@@ -29,7 +30,7 @@ import {
   type DbRaffleTicketRow,
   type GlobalRecordsBundle,
 } from './domain/sharedState';
-import type { BranchId, Customer, Order } from './domain/types';
+import type { BranchId, Customer, DemoState, Order } from './domain/types';
 import { useBrandTheme } from './theme';
 
 const App = lazy(() => import('./App').then((module) => ({ default: module.App })));
@@ -63,6 +64,11 @@ export interface SharedWorkspace {
   pendingSyncCount: number;
   syncing: boolean;
   syncWarning?: string;
+  isPracticeMode?: boolean;
+  startPractice?: () => void;
+  exitPractice?: () => void;
+  resetPractice?: () => void;
+  applyPracticeState?: (updater: (prev: DemoState) => DemoState) => void;
   execute: (
     branch: BranchId,
     operation: Operation,
@@ -89,6 +95,8 @@ export function Root() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<'admin' | 'pos'>('admin');
+  const [practiceMode, setPracticeMode] = useState(false);
+  const [practiceState, setPracticeState] = useState<DemoState | null>(null);
   const interacting = useRef(false);
   const syncingRef = useRef(false);
 
@@ -479,7 +487,29 @@ export function Root() {
   async function signOut() {
     const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
     if (signOutError) setError('No se pudo cerrar la sesión. Vuelve a intentar.');
-    else setWorkspaceMode('admin');
+    else {
+      setWorkspaceMode('admin');
+      setPracticeMode(false);
+      setPracticeState(null);
+    }
+  }
+
+  function startPractice() {
+    setPracticeState((prev) => prev ?? createTrainingSandboxState());
+    setPracticeMode(true);
+  }
+
+  function exitPractice() {
+    setPracticeMode(false);
+    setPracticeState(null);
+  }
+
+  function resetPractice() {
+    setPracticeState(createTrainingSandboxState());
+  }
+
+  function applyPracticeState(updater: (prev: DemoState) => DemoState) {
+    setPracticeState((prev) => updater(prev ?? createTrainingSandboxState()));
   }
 
   if (session && rows?.length && memberships.length > 0) {
@@ -498,14 +528,34 @@ export function Root() {
           )
         : { combinedState: combineBranches(rows, globalRecords) };
 
+    const activePractice = practiceMode && practiceState !== null;
+
+    const executePractice: SharedWorkspace['execute'] = async (branch, operation) => {
+      const current = practiceState ?? createTrainingSandboxState();
+      const result = operate(current, branch, operation, {
+        role: roles[branch] ?? 'supervisor',
+        actorLabel: 'Modo Práctica',
+      });
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      setPracticeState(result.state);
+      return { ok: true, order: result.order, customer: result.customer };
+    };
+
     const sharedProps: SharedWorkspace = {
-      state: effective.combinedState,
+      state: activePractice ? practiceState : effective.combinedState,
       roles,
       isOnline,
-      pendingSyncCount: pendingQueue.length,
-      syncing,
-      syncWarning: syncWarning || undefined,
-      execute,
+      pendingSyncCount: activePractice ? 0 : pendingQueue.length,
+      syncing: activePractice ? false : syncing,
+      syncWarning: activePractice ? undefined : syncWarning || undefined,
+      isPracticeMode: activePractice,
+      startPractice,
+      exitPractice,
+      resetPractice,
+      applyPracticeState,
+      execute: activePractice ? executePractice : execute,
       reload,
       syncNow,
       signOut: () => void signOut(),
