@@ -11,6 +11,7 @@ interface AdminViewProps {
   branches: BranchId[];
   activeBranchId: BranchId;
   role: BranchRole;
+  section?: 'all' | 'finanzas' | 'rifa';
   onRunRaffleDraw: (
     branchId: BranchId,
     options: { year?: number; notes?: string },
@@ -22,6 +23,7 @@ export function AdminView({
   branches,
   activeBranchId,
   role,
+  section = 'all',
   onRunRaffleDraw,
 }: AdminViewProps) {
   const { byBranch, totals } = getGlobalAdminTotals(state, branches);
@@ -72,102 +74,113 @@ export function AdminView({
     }
   }
 
+  const showFinanzas = section === 'all' || section === 'finanzas';
+  const showRifa = (section === 'all' || section === 'rifa') && isSupervisor;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} data-tour="admin-panel">
-      <section className="card">
-        <h2 className="card-title">
-          <span>Cobros por sucursal</span>
-          <div className="card-title-actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => exportAdminConsolidatedToExcel(state, branches)}
-            >
-              <FileSpreadsheet size={16} aria-hidden="true" /> Exportar Excel (.xlsx)
-            </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={exportReport}>
-              <Download size={15} aria-hidden="true" /> CSV
-            </button>
-          </div>
-        </h2>
+      {showFinanzas && (
+        <section className="card">
+          <h2 className="card-title">
+            <span>
+              {branches.length > 1
+                ? `Cobros consolidados (${branches.length} sucursales)`
+                : `Cobros · ${getBranchInfo(branches[0] ?? activeBranchId).name}`}
+            </span>
+            <div className="card-title-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => exportAdminConsolidatedToExcel(state, branches)}
+              >
+                <FileSpreadsheet size={16} aria-hidden="true" /> Exportar Excel (.xlsx)
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={exportReport}>
+                <Download size={15} aria-hidden="true" /> CSV
+              </button>
+            </div>
+          </h2>
 
-        <div className="metrics-grid">
-          <div className="metric-box">
-            <div className="metric-label">Total confirmado</div>
-            <div className="metric-value">{formatMxn(totals.totalConfirmedCents)}</div>
-          </div>
-          <div className="metric-box">
-            <div className="metric-label">Efectivo confirmado</div>
-            <div className="metric-value">{formatMxn(totals.cashCents)}</div>
-          </div>
-          <div className="metric-box">
-            <div className="metric-label">Tarjeta confirmada</div>
-            <div className="metric-value">{formatMxn(totals.cardCents)}</div>
-          </div>
-          <div className="metric-box">
-            <div className="metric-label">Transferencia confirmada</div>
-            <div className="metric-value">{formatMxn(totals.transferCents)}</div>
-          </div>
-          <div className="metric-box">
-            <div className="metric-label">Saldo pendiente total</div>
-            <div className="metric-value" style={{ color: totals.pendingCents > 0 ? 'var(--warning)' : 'inherit' }}>
-              {formatMxn(totals.pendingCents)}
+          <div className="metrics-grid">
+            <div className="metric-box">
+              <div className="metric-label">Total confirmado</div>
+              <div className="metric-value">{formatMxn(totals.totalConfirmedCents)}</div>
+            </div>
+            <div className="metric-box">
+              <div className="metric-label">Efectivo</div>
+              <div className="metric-value">{formatMxn(totals.cashCents)}</div>
+            </div>
+            <div className="metric-box">
+              <div className="metric-label">Tarjeta</div>
+              <div className="metric-value">{formatMxn(totals.cardCents)}</div>
+            </div>
+            <div className="metric-box">
+              <div className="metric-label">Transferencia</div>
+              <div className="metric-value">{formatMxn(totals.transferCents)}</div>
+            </div>
+            <div className="metric-box">
+              <div className="metric-label">Por cobrar</div>
+              <div className="metric-value" style={{ color: totals.pendingCents > 0 ? 'var(--warning)' : 'inherit' }}>
+                {formatMxn(totals.pendingCents)}
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="table-wrap stacked-table">
-          <table role="table">
-            <thead role="rowgroup">
-              <tr role="row">
-                <th role="columnheader">Sucursal</th>
-                <th role="columnheader">Turno activo</th>
-                <th role="columnheader" className="num">Folios</th>
-                <th role="columnheader" className="num">Efectivo</th>
-                <th role="columnheader" className="num">Tarjeta</th>
-                <th role="columnheader" className="num">Transferencia</th>
-                <th role="columnheader" className="num">Pendiente</th>
-                <th role="columnheader" className="num">Total confirmado</th>
-              </tr>
-            </thead>
-            <tbody role="rowgroup">
-              {byBranch.map((row) => (
-                <tr role="row" key={row.branch.id}>
-                  <td role="cell" data-row-heading>
-                    <strong>{row.branch.name}</strong>
-                  </td>
-                  <td role="cell" data-label="Turno activo">
-                    {row.openShiftNumber ? (
-                      <span className="badge badge-success">Turno #{row.openShiftNumber}</span>
-                    ) : (
-                      <span className="badge badge-warning">Cerrada</span>
-                    )}
-                  </td>
-                  <td role="cell" data-label="Folios" className="num">{row.orderCount}</td>
-                  <td role="cell" data-label="Efectivo" className="num">{formatMxn(row.cashCents)}</td>
-                  <td role="cell" data-label="Tarjeta" className="num">{formatMxn(row.cardCents)}</td>
-                  <td role="cell" data-label="Transferencia" className="num">{formatMxn(row.transferCents)}</td>
-                  <td role="cell" data-label="Pendiente" className="num">{formatMxn(row.pendingCents)}</td>
-                  <td role="cell" data-label="Total confirmado" className="num">
-                    <strong>{formatMxn(row.totalConfirmedCents)}</strong>
-                  </td>
+          <div className="table-wrap stacked-table">
+            <table role="table">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th role="columnheader">Sucursal</th>
+                  <th role="columnheader">Turno activo</th>
+                  <th role="columnheader" className="num">Folios</th>
+                  <th role="columnheader" className="num">Efectivo</th>
+                  <th role="columnheader" className="num">Tarjeta</th>
+                  <th role="columnheader" className="num">Transferencia</th>
+                  <th role="columnheader" className="num">Pendiente</th>
+                  <th role="columnheader" className="num">Total confirmado</th>
                 </tr>
-              ))}
-              <tr role="row" style={{ background: 'var(--surface-alt)', fontWeight: 800 }}>
-                <td role="cell" data-row-heading colSpan={2}>Total general</td>
-                <td role="cell" data-label="Folios" className="num">{totals.orderCount}</td>
-                <td role="cell" data-label="Efectivo" className="num">{formatMxn(totals.cashCents)}</td>
-                <td role="cell" data-label="Tarjeta" className="num">{formatMxn(totals.cardCents)}</td>
-                <td role="cell" data-label="Transferencia" className="num">{formatMxn(totals.transferCents)}</td>
-                <td role="cell" data-label="Pendiente" className="num">{formatMxn(totals.pendingCents)}</td>
-                <td role="cell" data-label="Total confirmado" className="num">{formatMxn(totals.totalConfirmedCents)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody role="rowgroup">
+                {byBranch.map((row) => (
+                  <tr role="row" key={row.branch.id}>
+                    <td role="cell" data-row-heading>
+                      <strong>{row.branch.name}</strong>
+                    </td>
+                    <td role="cell" data-label="Turno activo">
+                      {row.openShiftNumber ? (
+                        <span className="badge badge-success">Turno #{row.openShiftNumber}</span>
+                      ) : (
+                        <span className="badge badge-warning">Cerrada</span>
+                      )}
+                    </td>
+                    <td role="cell" data-label="Folios" className="num">{row.orderCount}</td>
+                    <td role="cell" data-label="Efectivo" className="num">{formatMxn(row.cashCents)}</td>
+                    <td role="cell" data-label="Tarjeta" className="num">{formatMxn(row.cardCents)}</td>
+                    <td role="cell" data-label="Transferencia" className="num">{formatMxn(row.transferCents)}</td>
+                    <td role="cell" data-label="Pendiente" className="num">{formatMxn(row.pendingCents)}</td>
+                    <td role="cell" data-label="Total confirmado" className="num">
+                      <strong>{formatMxn(row.totalConfirmedCents)}</strong>
+                    </td>
+                  </tr>
+                ))}
+                {byBranch.length > 1 && (
+                  <tr role="row" style={{ background: 'var(--surface-alt)', fontWeight: 800 }}>
+                    <td role="cell" data-row-heading colSpan={2}>Total general</td>
+                    <td role="cell" data-label="Folios" className="num">{totals.orderCount}</td>
+                    <td role="cell" data-label="Efectivo" className="num">{formatMxn(totals.cashCents)}</td>
+                    <td role="cell" data-label="Tarjeta" className="num">{formatMxn(totals.cardCents)}</td>
+                    <td role="cell" data-label="Transferencia" className="num">{formatMxn(totals.transferCents)}</td>
+                    <td role="cell" data-label="Pendiente" className="num">{formatMxn(totals.pendingCents)}</td>
+                    <td role="cell" data-label="Total confirmado" className="num">{formatMxn(totals.totalConfirmedCents)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
-      {isSupervisor && (
+      {showRifa && (
         <section className="card">
           <h2 className="card-title">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

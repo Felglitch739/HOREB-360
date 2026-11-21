@@ -9,17 +9,17 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   Menu,
+  MoonStar,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  ShieldCheck,
   Store,
   Users,
   WashingMachine,
   X,
 } from 'lucide-react';
-import { exportAdminConsolidatedToExcel } from '../domain/excelExport';
+import { exportAdminConsolidatedToExcel, exportShiftsToExcel } from '../domain/excelExport';
 import { formatMxn } from '../domain/money';
 import {
   BRANCHES,
@@ -59,6 +59,10 @@ type InspectorTab = 'caja' | 'ordenes' | 'equipos';
 
 const weekdayFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'short' });
 const dayLabelFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+function formatSpanishDate(date: Date): string {
+  const raw = dayLabelFmt.format(date);
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 const STAGE_LABELS = Object.fromEntries(ENCARGO_STAGES.map((s) => [s.id, s.label])) as Record<
   EncargoStage,
   string
@@ -245,16 +249,13 @@ export function AdminPortal({
         }}
       >
         <div className="admin-sidebar-top">
-          <div className="brand-block">
+          <div className="brand-block admin-brand-compact">
             <span className="brand-mark">
-              <ShieldCheck size={22} aria-hidden="true" />
+              <WashingMachine size={22} aria-hidden="true" />
             </span>
-            <div>
-              <strong>
-                HOREB <span>Admin</span>
-              </strong>
-              <small>Centro ejecutivo</small>
-            </div>
+            <strong>
+              HOREB <span>360</span>
+            </strong>
           </div>
           <button
             type="button"
@@ -346,10 +347,10 @@ export function AdminPortal({
               )}
               <div>
                 <h1 className="admin-hero-h1">{activeLabel}</h1>
-                <p className="admin-hero-sub" style={{ textTransform: 'capitalize' }}>
-                  {dayLabelFmt.format(today)} ·{' '}
-                  {scopeBranch === 'all'
-                    ? `Vista consolidada (${visibleBranches.length} sucursales)`
+                <p className="admin-hero-sub">
+                  {formatSpanishDate(today)} ·{' '}
+                  {scopeBranch === 'all' && (activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas')
+                    ? `Todas las sucursales (${visibleBranches.length})`
                     : `Sucursal ${activeBranch.name}`}
                 </p>
               </div>
@@ -358,19 +359,19 @@ export function AdminPortal({
             <div className="admin-hero-controls">
               {/* Branch scope pills */}
               <div className="admin-branch-pills" role="group" aria-label="Alcance de sucursal">
-                {(activeTab === 'resumen' || activeTab === 'equipos') && (
+                {(activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas') && (
                   <button
                     type="button"
                     className={`admin-branch-pill${scopeBranch === 'all' ? ' active' : ''}`}
                     aria-pressed={scopeBranch === 'all'}
                     onClick={() => setScopeBranch('all')}
                   >
-                    Todas
+                    Todas ({visibleBranches.length})
                   </button>
                 )}
                 {visibleBranches.map((branch) => {
                   const isActive =
-                    activeTab === 'resumen' || activeTab === 'equipos'
+                    activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas'
                       ? scopeBranch === branch.id
                       : activeBranchId === branch.id;
                   return (
@@ -785,6 +786,206 @@ export function AdminPortal({
             {activeTab === 'finanzas' && (
               <div style={{ display: 'grid', gap: 16 }}>
                 <AdminView
+                  section="finanzas"
+                  state={state}
+                  branches={scopedBranchIds}
+                  activeBranchId={activeBranchId}
+                  role={activeRole}
+                  onRunRaffleDraw={(branch, options) =>
+                    run(branch, {
+                      action: 'runRaffleDraw',
+                      year: options.year,
+                      notes: options.notes,
+                    })
+                  }
+                />
+
+                {scopeBranch === 'all' ? (
+                  <>
+                    {/* Consolidado de turnos y cortes de todas las sucursales */}
+                    <section className="card">
+                      <h2 className="card-title">
+                        <span>Turnos y cortes · Todas las sucursales</span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={state.shifts.filter((s) => scopedSet.has(s.branchId)).length === 0}
+                          onClick={() =>
+                            exportShiftsToExcel(
+                              state,
+                              state.shifts.filter((s) => scopedSet.has(s.branchId)),
+                              'todas',
+                            )
+                          }
+                        >
+                          <FileSpreadsheet size={15} aria-hidden="true" /> Exportar turnos (.xlsx)
+                        </button>
+                      </h2>
+                      <div className="table-wrap stacked-table">
+                        <table role="table">
+                          <thead role="rowgroup">
+                            <tr role="row">
+                              <th role="columnheader">Sucursal</th>
+                              <th role="columnheader">Turno</th>
+                              <th role="columnheader">Estado</th>
+                              <th role="columnheader" className="num">Efectivo esp.</th>
+                              <th role="columnheader" className="num">Contado</th>
+                              <th role="columnheader" className="num">Diferencia</th>
+                              <th role="columnheader" className="num">Tarjeta + Transf.</th>
+                              <th role="columnheader" className="num">Acción</th>
+                            </tr>
+                          </thead>
+                          <tbody role="rowgroup">
+                            {state.shifts
+                              .filter((s) => scopedSet.has(s.branchId))
+                              .sort((a, b) => b.openedAt.localeCompare(a.openedAt))
+                              .map((shift) => {
+                                const m = getShiftMetrics(state, shift.id);
+                                return (
+                                  <tr role="row" key={shift.id}>
+                                    <td role="cell" data-row-heading>
+                                      <strong>{getBranchInfo(shift.branchId).name}</strong>
+                                    </td>
+                                    <td role="cell" data-label="Turno">Turno #{shift.number}</td>
+                                    <td role="cell" data-label="Estado">
+                                      <span className={`badge ${shift.status === 'abierto' ? 'badge-success' : 'badge-info'}`}>
+                                        {shift.status === 'abierto' ? 'Abierto' : 'Cerrado'}
+                                      </span>
+                                    </td>
+                                    <td role="cell" data-label="Efectivo esp." className="num">
+                                      {formatMxn(m.expectedCashCents)}
+                                    </td>
+                                    <td role="cell" data-label="Contado" className="num">
+                                      {shift.status === 'cerrado' ? formatMxn(m.countedCashCents) : '—'}
+                                    </td>
+                                    <td
+                                      role="cell"
+                                      data-label="Diferencia"
+                                      className={`num ${
+                                        shift.status === 'cerrado'
+                                          ? m.differenceCents < 0
+                                            ? 'diff-neg'
+                                            : m.differenceCents > 0
+                                              ? 'diff-pos'
+                                              : ''
+                                          : ''
+                                      }`}
+                                    >
+                                      {shift.status === 'cerrado'
+                                        ? `${m.differenceCents > 0 ? '+' : ''}${formatMxn(m.differenceCents)}`
+                                        : '—'}
+                                    </td>
+                                    <td role="cell" data-label="Tarjeta + Transf." className="num">
+                                      {formatMxn(m.confirmedCardCents + m.confirmedTransferCents)}
+                                    </td>
+                                    <td role="cell" data-label="Acción" className="num">
+                                      <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={() => {
+                                          setFocusedBranch(shift.branchId);
+                                          setScopeBranch(shift.branchId);
+                                        }}
+                                      >
+                                        Abrir caja
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+
+                    {/* Cierres nocturnos consolidados (23:00) */}
+                    <section className="card">
+                      <h2 className="card-title">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <MoonStar size={18} aria-hidden="true" />
+                          Cierres nocturnos (23:00) · Todas las sucursales
+                        </span>
+                        <span className="badge badge-info">
+                          {(state.nightClosings ?? []).filter((nc) => scopedSet.has(nc.branchId)).length} reporte(s)
+                        </span>
+                      </h2>
+                      {(state.nightClosings ?? []).filter((nc) => scopedSet.has(nc.branchId)).length === 0 ? (
+                        <p className="muted" style={{ margin: 0 }}>
+                          Aún no hay reportes de cierre nocturno guardados. Selecciona una sucursal arriba para gestionar su caja y cierres.
+                        </p>
+                      ) : (
+                        <div style={{ display: 'grid', gap: 10 }}>
+                          {(state.nightClosings ?? [])
+                            .filter((nc) => scopedSet.has(nc.branchId))
+                            .sort((a, b) => b.closingDate.localeCompare(a.closingDate))
+                            .map((report) => (
+                              <details key={report.id} className="night-closing-card">
+                                <summary>
+                                  <div>
+                                    <strong>{report.closingDate}</strong> · {getBranchInfo(report.branchId).name}{' '}
+                                    <span className={`badge ${report.wasAutoClosed ? 'badge-warning' : 'badge-success'}`}>
+                                      {report.wasAutoClosed ? `Auto 23:00 (#${report.shiftNumber ?? '-'})` : 'Corte manual'}
+                                    </span>
+                                  </div>
+                                  <strong>{formatMxn(report.totalConfirmedCents)} confirmado</strong>
+                                </summary>
+                                <pre className="night-report-pre">{report.reportText}</pre>
+                                <small className="muted">
+                                  Ejecutado: {new Date(report.executedAt).toLocaleString('es-MX')} · {report.executedBy}
+                                </small>
+                              </details>
+                            ))}
+                        </div>
+                      )}
+                    </section>
+                  </>
+                ) : (
+                  <CajaView
+                    key={activeBranchId}
+                    state={state}
+                    branchId={activeBranchId}
+                    canManage={activeRole === 'supervisor'}
+                    onCloseShift={(branch, amount) => run(branch, { action: 'closeShift', amount })}
+                    onOpenNewShift={(branch, amount) => run(branch, { action: 'openShift', amount })}
+                    onMovement={(branch, kind: CashMovement['kind'], amount, reason) =>
+                      run(branch, { action: 'movement', kind, amount, reason })
+                    }
+                    onConfirmPaymentLine={(lineId, reference) => {
+                      const line = state.paymentLines.find((item) => item.id === lineId);
+                      const ordBranch = line
+                        ? state.orders.find((o) => o.id === line.orderId)?.branchId ?? activeBranchId
+                        : activeBranchId;
+                      return run(ordBranch, { action: 'confirm', lineId, reference });
+                    }}
+                    onConfirmTransferBatch={(branch, items) =>
+                      run(branch, { action: 'confirmTransferBatch', items })
+                    }
+                    onRunNightClosing={(branch, options) =>
+                      run(branch, {
+                        action: 'runNightClosing',
+                        closingDate: options.closingDate,
+                        enforce2300Rule: options.enforce2300Rule,
+                      })
+                    }
+                  />
+                )}
+              </div>
+            )}
+
+            {/* ================= TAB 4: CLIENTES Y RIFA ================= */}
+            {activeTab === 'clientes' && (
+              <div style={{ display: 'grid', gap: 16 }}>
+                <ClientesView
+                  state={state}
+                  branchId={activeBranchId}
+                  role={activeRole}
+                  onUpsertCustomer={(branch, customer) =>
+                    run(branch, { action: 'upsertCustomer', customer })
+                  }
+                  onSeedSampleCustomers={(branch) => run(branch, { action: 'seedSampleCustomers' })}
+                />
+                <AdminView
+                  section="rifa"
                   state={state}
                   branches={branchIds}
                   activeBranchId={activeBranchId}
@@ -797,48 +998,7 @@ export function AdminPortal({
                     })
                   }
                 />
-                <CajaView
-                  key={activeBranchId}
-                  state={state}
-                  branchId={activeBranchId}
-                  canManage={activeRole === 'supervisor'}
-                  onCloseShift={(branch, amount) => run(branch, { action: 'closeShift', amount })}
-                  onOpenNewShift={(branch, amount) => run(branch, { action: 'openShift', amount })}
-                  onMovement={(branch, kind: CashMovement['kind'], amount, reason) =>
-                    run(branch, { action: 'movement', kind, amount, reason })
-                  }
-                  onConfirmPaymentLine={(lineId, reference) => {
-                    const line = state.paymentLines.find((item) => item.id === lineId);
-                    const ordBranch = line
-                      ? state.orders.find((o) => o.id === line.orderId)?.branchId ?? activeBranchId
-                      : activeBranchId;
-                    return run(ordBranch, { action: 'confirm', lineId, reference });
-                  }}
-                  onConfirmTransferBatch={(branch, items) =>
-                    run(branch, { action: 'confirmTransferBatch', items })
-                  }
-                  onRunNightClosing={(branch, options) =>
-                    run(branch, {
-                      action: 'runNightClosing',
-                      closingDate: options.closingDate,
-                      enforce2300Rule: options.enforce2300Rule,
-                    })
-                  }
-                />
               </div>
-            )}
-
-            {/* ================= TAB 4: CLIENTES Y RIFA ================= */}
-            {activeTab === 'clientes' && (
-              <ClientesView
-                state={state}
-                branchId={activeBranchId}
-                role={activeRole}
-                onUpsertCustomer={(branch, customer) =>
-                  run(branch, { action: 'upsertCustomer', customer })
-                }
-                onSeedSampleCustomers={(branch) => run(branch, { action: 'seedSampleCustomers' })}
-              />
             )}
 
             {/* ================= TAB 5: AJUSTES ================= */}

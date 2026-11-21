@@ -3391,6 +3391,17 @@ th {
   gap: 8px;
 }
 
+.admin-brand-compact {
+  padding: 0 4px;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-brand-compact strong {
+  white-space: nowrap;
+  font-size: 18px;
+}
+
 .admin-sidebar-fold-btn {
   width: 32px;
   height: 32px;
