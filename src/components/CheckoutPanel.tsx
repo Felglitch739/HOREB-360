@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeftRight, Banknote, CreditCard, Gift, Layers, Minus, Plus, Receipt, UserPlus } from 'lucide-react';
+import { ArrowLeftRight, Banknote, ChevronDown, CreditCard, Gift, Layers, Minus, Plus, Receipt, Trash2, UserPlus } from 'lucide-react';
 import { calculateTender, formatMxn } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
 import type { BranchId, CatalogItem, Customer, Machine, Order, ServiceType } from '../domain/types';
@@ -76,6 +76,7 @@ export function CheckoutPanel({
   }));
   const [redeemFreeCombo, setRedeemFreeCombo] = useState(false);
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
+  const [showMachinePicker, setShowMachinePicker] = useState(false);
   const [payAtPickup, setPayAtPickup] = useState(true);
 
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('efectivo');
@@ -894,13 +895,20 @@ export function CheckoutPanel({
               const qty = quantities[item.id] ?? 0;
               return (
                 <div key={item.id} className={`catalog-row ${qty > 0 ? 'selected' : ''}`}>
-                  <div className="catalog-row-info">
-                    <strong>{item.name}</strong>
-                    <small>
-                      {formatMxn(item.priceCents)} c/u
-                      {item.pricePendingConfirmation ? ' · Ref.' : ''}
-                    </small>
-                  </div>
+                  <button
+                    type="button"
+                    className="catalog-row-tap"
+                    onClick={() => updateItemQuantity(item.id, 1)}
+                    aria-label={`Agregar 1 ${item.name}`}
+                  >
+                    <div className="catalog-row-info">
+                      <strong>{item.name}</strong>
+                      <small>
+                        {formatMxn(item.priceCents)} c/u
+                        {item.pricePendingConfirmation ? ' · Ref.' : ''}
+                      </small>
+                    </div>
+                  </button>
                   <div className="catalog-qty-controls">
                     <button
                       type="button"
@@ -943,37 +951,56 @@ export function CheckoutPanel({
 
         {needsMachine && washers.length > 0 && (
           <div className="field" style={{ marginBottom: 0 }}>
-            <div className="catalog-head-row">
-              <span className="checkout-field-label">Asignar lavadora (opcional)</span>
-              <span className="muted" style={{ fontSize: '0.8rem' }}>
-                {availableWashersCount} de {washers.length} disponible(s)
+            <button
+              type="button"
+              className="pos-machine-toggle"
+              aria-expanded={showMachinePicker}
+              onClick={() => setShowMachinePicker((prev) => !prev)}
+            >
+              <span className="pos-machine-toggle-left">
+                <strong>Asignar lavadora (opcional)</strong>
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  {selectedMachineIds.length > 0
+                    ? `${selectedMachineIds.length} seleccionada(s)`
+                    : `${availableWashersCount} de ${washers.length} disponible(s)`}
+                </span>
               </span>
-            </div>
-            <div className="machine-picker" role="group" aria-label="Lavadoras de la sucursal">
-              {washers.map((machine) => {
-                const available = machine.status === 'disponible';
-                const active = selectedMachineIds.includes(machine.id);
-                return (
-                  <button
-                    key={machine.id}
-                    type="button"
-                    disabled={!available}
-                    aria-pressed={active}
-                    className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
-                    onClick={() => toggleMachine(machine.id)}
-                  >
-                    <strong>{machine.code}</strong>
-                    <small>
-                      {machine.status === 'disponible'
-                        ? 'Disponible'
-                        : machine.status === 'en_uso'
-                          ? `En uso (${machine.currentOrderFolio ?? ''})`
-                          : 'Fuera de serv.'}
-                    </small>
-                  </button>
-                );
-              })}
-            </div>
+              <ChevronDown
+                size={16}
+                aria-hidden="true"
+                style={{
+                  transform: showMachinePicker ? 'rotate(180deg)' : undefined,
+                  transition: 'transform 0.15s ease',
+                }}
+              />
+            </button>
+            {showMachinePicker && (
+              <div className="machine-picker" style={{ marginTop: 8 }} role="group" aria-label="Lavadoras de la sucursal">
+                {washers.map((machine) => {
+                  const available = machine.status === 'disponible';
+                  const active = selectedMachineIds.includes(machine.id);
+                  return (
+                    <button
+                      key={machine.id}
+                      type="button"
+                      disabled={!available}
+                      aria-pressed={active}
+                      className={`machine-chip ${active ? 'active' : ''} status-${machine.status}`}
+                      onClick={() => toggleMachine(machine.id)}
+                    >
+                      <strong>{machine.code}</strong>
+                      <small>
+                        {machine.status === 'disponible'
+                          ? 'Disponible'
+                          : machine.status === 'en_uso'
+                            ? `En uso (${machine.currentOrderFolio ?? ''})`
+                            : 'Fuera de serv.'}
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -981,7 +1008,23 @@ export function CheckoutPanel({
       <aside className="card pos-payment-col" aria-label="Resumen y pago">
         <h3 className="card-title pos-payment-title">
           <span>Resumen y pago</span>
-          <span className="badge badge-info">{serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'}</span>
+          <div className="card-title-actions">
+            {selectedItems.length > 0 && (
+              <button
+                type="button"
+                className="ticket-fallback-link"
+                onClick={() => {
+                  setQuantities({});
+                  setRedeemFreeCombo(false);
+                  setSelectedMachineIds([]);
+                  onFeedback(null);
+                }}
+              >
+                <Trash2 size={13} aria-hidden="true" /> Vaciar
+              </button>
+            )}
+            <span className="badge badge-info">{serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'}</span>
+          </div>
         </h3>
 
         <div className="pos-summary-box">

@@ -41,11 +41,12 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'] | 'ajustes';
 
-export function App({ shared, sharedNotice, theme, onSetTheme }: {
+export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminView }: {
   shared: SharedWorkspace;
   sharedNotice?: string;
   theme: BrandTheme;
   onSetTheme: (theme: BrandTheme) => void;
+  onSwitchToAdminView?: () => void;
 }) {
   const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
   const state = shared.state;
@@ -482,6 +483,17 @@ export function App({ shared, sharedNotice, theme, onSetTheme }: {
                 onStartTour={() => setTourOpen(true)}
                 onReload={shared.reload}
                 onSignOut={shared.signOut}
+                modeSwitcher={
+                  onSwitchToAdminView
+                    ? {
+                        title: 'Portal de Administración',
+                        description:
+                          'Regresa a la vista ejecutiva multisucursal con resumen financiero, semáforo de sucursales y control central.',
+                        buttonLabel: 'Volver al Portal Administrador',
+                        onSwitch: onSwitchToAdminView,
+                      }
+                    : undefined
+                }
               />
             )}
           </Suspense>

@@ -35,6 +35,12 @@ interface AjustesViewProps {
   onStartTour: () => void;
   onReload: SharedWorkspace['reload'];
   onSignOut: () => void;
+  modeSwitcher?: {
+    title: string;
+    description: string;
+    buttonLabel: string;
+    onSwitch: () => void;
+  };
 }
 
 export function AjustesView({
@@ -51,6 +57,7 @@ export function AjustesView({
   onStartTour,
   onReload,
   onSignOut,
+  modeSwitcher,
 }: AjustesViewProps) {
   const isSupervisor = role === 'supervisor';
 
@@ -163,6 +170,22 @@ export function AjustesView({
 
   return (
     <div style={{ display: 'grid', gap: 15 }} data-tour="settings-panel">
+      {modeSwitcher && (
+        <section className="card mode-switcher-card">
+          <div>
+            <h2 className="card-title" style={{ marginBottom: 4 }}>
+              <span>{modeSwitcher.title}</span>
+            </h2>
+            <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
+              {modeSwitcher.description}
+            </p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={modeSwitcher.onSwitch}>
+            {modeSwitcher.buttonLabel}
+          </button>
+        </section>
+      )}
+
       {feedback && (
         <div
           className={`alert alert-${feedback.type}`}

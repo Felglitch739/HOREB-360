@@ -33,6 +33,9 @@ import type { BranchId, Customer, Order } from './domain/types';
 import { useBrandTheme } from './theme';
 
 const App = lazy(() => import('./App').then((module) => ({ default: module.App })));
+const AdminPortal = lazy(() =>
+  import('./components/AdminPortal').then((module) => ({ default: module.AdminPortal })),
+);
 
 const url = import.meta.env.VITE_SUPABASE_URL || 'https://mekjctargwhadpyezqjc.supabase.co';
 const key =
@@ -85,6 +88,7 @@ export function Root() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<'admin' | 'pos'>('admin');
   const interacting = useRef(false);
   const syncingRef = useRef(false);
 
@@ -475,12 +479,14 @@ export function Root() {
   async function signOut() {
     const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
     if (signOutError) setError('No se pudo cerrar la sesión. Vuelve a intentar.');
+    else setWorkspaceMode('admin');
   }
 
   if (session && rows?.length && memberships.length > 0) {
     const roles: Partial<Record<BranchId, BranchRole>> = Object.fromEntries(
       memberships.map((entry) => [entry.branch_id, entry.role]),
     );
+    const hasSupervisorRole = Object.values(roles).some((role) => role === 'supervisor');
     const effective =
       pendingQueue.length > 0
         ? replayOfflineQueue(
@@ -492,24 +498,41 @@ export function Root() {
           )
         : { combinedState: combineBranches(rows, globalRecords) };
 
+    const sharedProps: SharedWorkspace = {
+      state: effective.combinedState,
+      roles,
+      isOnline,
+      pendingSyncCount: pendingQueue.length,
+      syncing,
+      syncWarning: syncWarning || undefined,
+      execute,
+      reload,
+      syncNow,
+      signOut: () => void signOut(),
+    };
+
+    if (hasSupervisorRole && workspaceMode === 'admin') {
+      return (
+        <Suspense fallback={<main className="auth-panel"><p role="status">Cargando portal de administración…</p></main>}>
+          <AdminPortal
+            shared={sharedProps}
+            sharedNotice={error}
+            theme={theme}
+            onSetTheme={setTheme}
+            onSwitchToEmployeeView={() => setWorkspaceMode('pos')}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <Suspense fallback={<main className="auth-panel"><p role="status">Cargando panel…</p></main>}>
         <App
-          shared={{
-            state: effective.combinedState,
-            roles,
-            isOnline,
-            pendingSyncCount: pendingQueue.length,
-            syncing,
-            syncWarning: syncWarning || undefined,
-            execute,
-            reload,
-            syncNow,
-            signOut: () => void signOut(),
-          }}
+          shared={sharedProps}
           sharedNotice={error}
           theme={theme}
           onSetTheme={setTheme}
+          onSwitchToAdminView={hasSupervisorRole ? () => setWorkspaceMode('admin') : undefined}
         />
       </Suspense>
     );
