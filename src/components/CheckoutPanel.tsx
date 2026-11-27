@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeftRight, Banknote, ChevronDown, CreditCard, Gift, Layers, Minus, Plus, Receipt, Trash2, UserPlus } from 'lucide-react';
-import { calculateTender, formatMxn } from '../domain/money';
+import { calculateTender, formatMxn, formatMxnCurrency, parsePesosToCents } from '../domain/money';
 import type { CreateOrderInput, PaymentInputLine } from '../domain/rules';
 import type { BranchId, CatalogItem, Customer, Machine, Order, ServiceType } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
 
 type PaymentMode = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
+type EncargoPayTiming = 'defer' | 'partial' | 'full';
 
 const QUICK_CASH_BILLS_CENTS = [5000, 10000, 20000, 50000, 100000];
 
@@ -24,6 +25,7 @@ interface CheckoutPanelProps {
   isOffline?: boolean;
   suggestedFolio: string;
   checkoutOrder: Order | null;
+  checkoutPendingCents?: number;
   feedback: { type: 'error' | 'success'; text: string; orderId?: string } | null;
   onFeedback: (next: { type: 'error' | 'success'; text: string; orderId?: string } | null) => void;
   onCancelCheckout: (restoreFocus?: boolean) => void;
@@ -51,6 +53,7 @@ export function CheckoutPanel({
   isOffline = false,
   suggestedFolio,
   checkoutOrder,
+  checkoutPendingCents,
   feedback,
   onFeedback,
   onCancelCheckout,
@@ -65,19 +68,22 @@ export function CheckoutPanel({
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
-  const [newCustConsent, setNewCustConsent] = useState(true);
+  const [newCustConsent, setNewCustConsent] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
 
   const [customerAlias, setCustomerAlias] = useState('');
   const [catalogCategory, setCatalogCategory] = useState<'todos' | 'servicios' | 'extras'>('todos');
   const [catalogSearch, setCatalogSearch] = useState('');
-  const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
-    [activeCatalog[0]?.id ?? 'combo']: 1,
-  }));
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [redeemFreeCombo, setRedeemFreeCombo] = useState(false);
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
   const [showMachinePicker, setShowMachinePicker] = useState(false);
-  const [payAtPickup, setPayAtPickup] = useState(true);
+  const [encargoPayTiming, setEncargoPayTiming] = useState<EncargoPayTiming>('defer');
+  const [showExtraDetails, setShowExtraDetails] = useState(false);
+  const [weightInput, setWeightInput] = useState('');
+  const [promisedDeliveryAt, setPromisedDeliveryAt] = useState('');
+  const [discountInput, setDiscountInput] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
 
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('efectivo');
   const [cashInput, setCashInput] = useState('');
@@ -104,16 +110,28 @@ export function CheckoutPanel({
       ? comboEntry.item.priceCents
       : 0;
 
-  const cartTotalCents = Math.max(
+  const subtotalBeforeManualCents = Math.max(
     0,
     selectedItems.reduce((sum, entry) => sum + entry.item.priceCents * entry.quantity, 0) -
       loyaltyDiscountCents,
   );
+  const parsedDiscountCents = discountInput.trim() ? parsePesosToCents(discountInput) ?? 0 : 0;
+  const manualDiscountCents = !checkoutOrder
+    ? Math.min(Math.max(0, parsedDiscountCents), subtotalBeforeManualCents)
+    : 0;
 
-  const deferPayment = !checkoutOrder && serviceType === 'encargo' && payAtPickup && cartTotalCents > 0;
-  const totalCents = checkoutOrder?.totalCents ?? cartTotalCents;
-  const freeCoverAll = !checkoutOrder && cartTotalCents === 0 && loyaltyDiscountCents > 0;
+  const cartTotalCents = Math.max(0, subtotalBeforeManualCents - manualDiscountCents);
+
+  const deferPayment =
+    !checkoutOrder && serviceType === 'encargo' && encargoPayTiming === 'defer' && cartTotalCents > 0;
+  const isPartialMode =
+    !checkoutOrder && serviceType === 'encargo' && encargoPayTiming === 'partial' && cartTotalCents > 0;
+  const totalCents = checkoutOrder
+    ? (checkoutPendingCents ?? checkoutOrder.totalCents)
+    : cartTotalCents;
+  const freeCoverAll = !checkoutOrder && cartTotalCents === 0 && (loyaltyDiscountCents > 0 || manualDiscountCents > 0) && selectedItems.length > 0;
   const tender = calculateTender(totalCents, cashInput, cardInput, transferInput);
+  const paidCents = tender.ok ? tender.cashApplied + tender.card + tender.transfer : 0;
 
   useEffect(() => {
     if (checkoutOrder) {
@@ -224,7 +242,15 @@ export function CheckoutPanel({
         onFeedback({ type: 'error', text: tender.error });
         return;
       }
-      if (tender.remaining > 0) {
+      if (isPartialMode) {
+        if (paidCents <= 0) {
+          onFeedback({
+            type: 'error',
+            text: 'Captura un anticipo mayor a $0.00 MXN o selecciona "Cobrar al recoger".',
+          });
+          return;
+        }
+      } else if (tender.remaining > 0) {
         onFeedback({
           type: 'error',
           text: `Faltan ${formatMxn(tender.remaining)} para el total de ${formatMxn(totalCents)}.`,
@@ -259,6 +285,10 @@ export function CheckoutPanel({
 
     setSubmitting(true);
     try {
+      const parsedWeight = weightInput.trim() ? Number.parseFloat(weightInput) : NaN;
+      const weightKg = Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : undefined;
+      const allowPartialPayment = Boolean(isPartialMode && paidCents > 0 && paidCents < totalCents);
+
       const res = checkoutOrder
         ? await onCapturePayment(checkoutOrder.id, paymentLines)
         : await onCreateOrder({
@@ -272,6 +302,11 @@ export function CheckoutPanel({
             })),
             machineIds: needsMachine && selectedMachineIds.length > 0 ? selectedMachineIds : undefined,
             paymentLines: deferPayment || freeCoverAll ? [] : paymentLines,
+            allowPartialPayment,
+            weightKg,
+            promisedDeliveryAt: promisedDeliveryAt.trim() || undefined,
+            notes: orderNotes.trim() || undefined,
+            manualDiscountCents: manualDiscountCents > 0 ? manualDiscountCents : undefined,
           });
 
       if (!res.ok) {
@@ -294,8 +329,13 @@ export function CheckoutPanel({
       setCustomerAlias('');
       setSelectedCustomerId('');
       setRedeemFreeCombo(false);
-      setQuantities({ [activeCatalog[0]?.id ?? 'combo']: 1 });
+      setQuantities({});
       setSelectedMachineIds([]);
+      setWeightInput('');
+      setPromisedDeliveryAt('');
+      setDiscountInput('');
+      setOrderNotes('');
+      setShowExtraDetails(false);
       resetPaymentInputs();
     } finally {
       setSubmitting(false);
@@ -607,11 +647,19 @@ export function CheckoutPanel({
   const footerBar = (
     <div className="checkout-footer-bar">
       <div className="summary-bar" aria-live="polite">
-        <span className="checkout-total"><span>Total</span> <strong>{formatMxn(totalCents)}</strong></span>
+        <span className="checkout-total"><span>Total</span> <strong>{formatMxnCurrency(totalCents)}</strong></span>
         {deferPayment ? (
-          <strong>Por cobrar</strong>
+          <strong>Por cobrar al entregar</strong>
         ) : freeCoverAll ? (
-          <strong style={{ color: 'var(--success)' }}>Lealtad 10+1</strong>
+          <strong style={{ color: 'var(--success)' }}>Cubierto ($0.00)</strong>
+        ) : isPartialMode && tender.ok ? (
+          <strong style={{ color: paidCents > 0 ? 'var(--primary)' : 'var(--warning)' }}>
+            {paidCents <= 0
+              ? 'Captura el anticipo'
+              : tender.remaining === 0
+                ? 'Pago completo'
+                : `Anticipo ${formatMxn(paidCents)} · Restan ${formatMxn(tender.remaining)}`}
+          </strong>
         ) : tender.ok ? (
           <strong style={{ color: tender.remaining > 0 ? 'var(--warning)' : 'var(--success)' }}>
             {tender.remaining > 0
@@ -623,12 +671,14 @@ export function CheckoutPanel({
 
       <button
         type="submit"
+        data-tour-id="pos-submit-order"
         className="btn btn-primary btn-full checkout-submit-btn"
-        disabled={!openShift || submitting || (!checkoutOrder && totalCents <= 0 && !freeCoverAll)}
+        disabled={!openShift || submitting || (!checkoutOrder && selectedItems.length === 0)}
       >
         {submitting ? 'Guardando…'
           : checkoutOrder ? 'Guardar cobro'
-          : deferPayment ? 'Guardar encargo'
+          : deferPayment ? 'Guardar encargo (por cobrar)'
+          : isPartialMode && paidCents > 0 && paidCents < totalCents ? 'Guardar encargo con anticipo'
           : freeCoverAll ? 'Guardar orden'
           : 'Guardar orden y pago'}
       </button>
@@ -677,6 +727,75 @@ export function CheckoutPanel({
             Cancelar cobro
           </button>
         </form>
+        <div className="field" style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="pos-machine-toggle"
+            aria-expanded={showExtraDetails}
+            onClick={() => setShowExtraDetails((prev) => !prev)}
+          >
+            <span className="pos-machine-toggle-left">
+              <strong>Datos adicionales (entrega, peso, notas, descuento)</strong>
+              {(weightInput || promisedDeliveryAt || discountInput || orderNotes) && (
+                <span className="badge badge-info">Capturado</span>
+              )}
+            </span>
+            <ChevronDown
+              size={16}
+              aria-hidden="true"
+              style={{
+                transform: showExtraDetails ? 'rotate(180deg)' : undefined,
+                transition: 'transform 0.15s ease',
+              }}
+            />
+          </button>
+          {showExtraDetails && (
+            <div className="quick-customer-box" style={{ marginTop: 8 }}>
+              <div className="quick-customer-inputs">
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Peso aprox. (kg)
+                  <input
+                    className="input input-sm"
+                    inputMode="decimal"
+                    placeholder="Ej. 6.5"
+                    value={weightInput}
+                    onChange={(e) => setWeightInput(e.target.value)}
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Entrega prometida
+                  <input
+                    className="input input-sm"
+                    placeholder="Ej. Hoy 18:00"
+                    value={promisedDeliveryAt}
+                    onChange={(e) => setPromisedDeliveryAt(e.target.value)}
+                    maxLength={40}
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Descuento manual (MXN)
+                  <input
+                    className="input input-sm"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={discountInput}
+                    onChange={(e) => setDiscountInput(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="field" style={{ marginBottom: 0 }}>
+                Notas del pedido
+                <input
+                  className="input input-sm"
+                  placeholder="Ej. Ropa delicada, sin suavizante…"
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
+                  maxLength={160}
+                />
+              </label>
+            </div>
+          )}
+        </div>
       </section>
     );
   }
@@ -698,7 +817,7 @@ export function CheckoutPanel({
         <div className="pos-top-grid">
           <div className="field">
             <span className="checkout-field-label" id="checkout-service-label">Tipo de servicio</span>
-            <div className="segmented" role="group" aria-labelledby="checkout-service-label">
+            <div className="segmented" data-tour-id="pos-service-toggle" role="group" aria-labelledby="checkout-service-label">
               <button
                 type="button"
                 className={`seg-btn ${serviceType === 'autoservicio' ? 'active' : ''}`}
@@ -709,6 +828,7 @@ export function CheckoutPanel({
               </button>
               <button
                 type="button"
+                data-tour-id="pos-service-encargo"
                 className={`seg-btn ${serviceType === 'encargo' ? 'active' : ''}`}
                 aria-pressed={serviceType === 'encargo'}
                 onClick={() => setServiceType('encargo')}
@@ -723,6 +843,7 @@ export function CheckoutPanel({
               <span className="checkout-field-label">Cliente y lealtad</span>
               <button
                 type="button"
+                data-tour-id="pos-new-customer-btn"
                 className="ticket-fallback-link"
                 aria-expanded={showNewCustomer}
                 onClick={() => setShowNewCustomer((prev) => !prev)}
@@ -766,6 +887,7 @@ export function CheckoutPanel({
             <div className="quick-customer-inputs">
               <input
                 className="input input-sm"
+                data-tour-id="pos-new-customer-name"
                 aria-label="Nombre del cliente"
                 placeholder="Nombre del cliente *"
                 value={newCustName}
@@ -774,6 +896,7 @@ export function CheckoutPanel({
               />
               <input
                 className="input input-sm"
+                data-tour-id="pos-new-customer-phone"
                 type="tel"
                 aria-label="Teléfono del cliente"
                 inputMode="tel"
@@ -787,6 +910,7 @@ export function CheckoutPanel({
               <label className="checkbox-row" style={{ minHeight: 36, padding: '4px 10px' }}>
                 <input
                   type="checkbox"
+                  data-tour-id="pos-new-customer-consent"
                   checked={newCustConsent}
                   onChange={(e) => setNewCustConsent(e.target.checked)}
                 />
@@ -794,6 +918,7 @@ export function CheckoutPanel({
               </label>
               <button
                 type="button"
+                data-tour-id="pos-new-customer-save"
                 className="btn btn-secondary btn-sm"
                 disabled={savingCustomer}
                 onClick={async () => {
@@ -813,6 +938,7 @@ export function CheckoutPanel({
                   }
                   setNewCustName('');
                   setNewCustPhone('');
+                  setNewCustConsent(false);
                   setShowNewCustomer(false);
                 }}
               >
@@ -823,9 +949,9 @@ export function CheckoutPanel({
         )}
 
         {serviceType === 'encargo' && (
-          <div className="pos-encargo-row field">
+          <div className="field" style={{ display: 'grid', gap: 10 }}>
             <div>
-              <label htmlFor="alias-input">Referencia de encargo</label>
+              <label htmlFor="alias-input">Referencia de encargo *</label>
               <input
                 id="alias-input"
                 className="input"
@@ -834,14 +960,35 @@ export function CheckoutPanel({
                 placeholder={selectedCustomer ? selectedCustomer.name : 'Ej. María López'}
               />
             </div>
-            <label className="checkbox-row pos-encargo-pickup">
-              <input
-                type="checkbox"
-                checked={payAtPickup}
-                onChange={(event) => setPayAtPickup(event.target.checked)}
-              />
-              Cobrar al recoger
-            </label>
+            <div>
+              <span className="checkout-field-label" id="encargo-timing-label">Modalidad de cobro</span>
+              <div className="segmented segmented-3" role="group" aria-labelledby="encargo-timing-label">
+                <button
+                  type="button"
+                  className={`seg-btn ${encargoPayTiming === 'full' ? 'active' : ''}`}
+                  aria-pressed={encargoPayTiming === 'full'}
+                  onClick={() => setEncargoPayTiming('full')}
+                >
+                  Pago completo
+                </button>
+                <button
+                  type="button"
+                  className={`seg-btn ${encargoPayTiming === 'partial' ? 'active' : ''}`}
+                  aria-pressed={encargoPayTiming === 'partial'}
+                  onClick={() => setEncargoPayTiming('partial')}
+                >
+                  Anticipo parcial
+                </button>
+                <button
+                  type="button"
+                  className={`seg-btn ${encargoPayTiming === 'defer' ? 'active' : ''}`}
+                  aria-pressed={encargoPayTiming === 'defer'}
+                  onClick={() => setEncargoPayTiming('defer')}
+                >
+                  Al recoger
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -924,6 +1071,7 @@ export function CheckoutPanel({
                     </span>
                     <button
                       type="button"
+                      data-tour-id={`pos-catalog-add-${item.id}`}
                       className="btn btn-secondary btn-sm qty-btn"
                       onClick={() => updateItemQuantity(item.id, 1)}
                       aria-label={`Agregar ${item.name}`}
@@ -1003,6 +1151,75 @@ export function CheckoutPanel({
             )}
           </div>
         )}
+        <div className="field" style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="pos-machine-toggle"
+            aria-expanded={showExtraDetails}
+            onClick={() => setShowExtraDetails((prev) => !prev)}
+          >
+            <span className="pos-machine-toggle-left">
+              <strong>Datos adicionales (entrega, peso, notas, descuento)</strong>
+              {(weightInput || promisedDeliveryAt || discountInput || orderNotes) && (
+                <span className="badge badge-info">Capturado</span>
+              )}
+            </span>
+            <ChevronDown
+              size={16}
+              aria-hidden="true"
+              style={{
+                transform: showExtraDetails ? 'rotate(180deg)' : undefined,
+                transition: 'transform 0.15s ease',
+              }}
+            />
+          </button>
+          {showExtraDetails && (
+            <div className="quick-customer-box" style={{ marginTop: 8 }}>
+              <div className="quick-customer-inputs">
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Peso aprox. (kg)
+                  <input
+                    className="input input-sm"
+                    inputMode="decimal"
+                    placeholder="Ej. 6.5"
+                    value={weightInput}
+                    onChange={(e) => setWeightInput(e.target.value)}
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Entrega prometida
+                  <input
+                    className="input input-sm"
+                    placeholder="Ej. Hoy 18:00"
+                    value={promisedDeliveryAt}
+                    onChange={(e) => setPromisedDeliveryAt(e.target.value)}
+                    maxLength={40}
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Descuento manual (MXN)
+                  <input
+                    className="input input-sm"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={discountInput}
+                    onChange={(e) => setDiscountInput(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="field" style={{ marginBottom: 0 }}>
+                Notas del pedido
+                <input
+                  className="input input-sm"
+                  placeholder="Ej. Ropa delicada, sin suavizante…"
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
+                  maxLength={160}
+                />
+              </label>
+            </div>
+          )}
+        </div>
       </section>
 
       <aside className="card pos-payment-col" aria-label="Resumen y pago">
@@ -1046,6 +1263,12 @@ export function CheckoutPanel({
                 <li className="pos-summary-discount">
                   <span>Combo gratis (lealtad)</span>
                   <span>-{formatMxn(loyaltyDiscountCents)}</span>
+                </li>
+              )}
+              {manualDiscountCents > 0 && (
+                <li className="pos-summary-discount">
+                  <span>Descuento aplicado</span>
+                  <span>-{formatMxn(manualDiscountCents)}</span>
                 </li>
               )}
             </ul>

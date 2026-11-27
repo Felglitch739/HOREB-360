@@ -1,10 +1,21 @@
 import { useState } from 'react';
 import { Award, Download, FileSpreadsheet, Sparkles, Ticket } from 'lucide-react';
-import { exportAdminConsolidatedToExcel } from '../domain/excelExport';
-import { formatMxn } from '../domain/money';
-import { getBranchInfo, getEligibleRaffleTickets, getGlobalAdminTotals } from '../domain/rules';
+import {
+  exportAdminConsolidatedToExcel,
+  exportOrdersToExcel,
+} from '../domain/excelExport';
+import { formatMxn, formatMxnCurrency } from '../domain/money';
+import {
+  getBranchDisplayName,
+  getEligibleRaffleTickets,
+  getOpenShift,
+  getOrderPendingCents,
+} from '../domain/rules';
 import type { BranchRole } from '../domain/sharedState';
-import type { BranchId, DemoState } from '../domain/types';
+import type { BranchId, DemoState, RaffleDraw } from '../domain/types';
+
+type ReportDatePreset = 'todo' | 'hoy' | '7dias' | 'mes' | 'rango';
+type ReportServiceFilter = 'todos' | 'autoservicio' | 'encargo';
 
 interface AdminViewProps {
   state: DemoState;
@@ -18,6 +29,36 @@ interface AdminViewProps {
   ) => Promise<{ ok: boolean; error?: string }>;
 }
 
+function matchesReportDate(
+  iso: string,
+  preset: ReportDatePreset,
+  customFrom: string,
+  customTo: string,
+): boolean {
+  if (preset === 'todo') return true;
+  const date = new Date(iso);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (preset === 'hoy') {
+    return date >= startToday;
+  }
+  if (preset === '7dias') {
+    const startWeek = new Date(startToday);
+    startWeek.setDate(startWeek.getDate() - 6);
+    return date >= startWeek;
+  }
+  if (preset === 'mes') {
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return date >= startMonth;
+  }
+  // custom range
+  const dayStr = iso.slice(0, 10);
+  if (customFrom && dayStr < customFrom) return false;
+  if (customTo && dayStr > customTo) return false;
+  return true;
+}
+
 export function AdminView({
   state,
   branches,
@@ -26,22 +67,79 @@ export function AdminView({
   section = 'all',
   onRunRaffleDraw,
 }: AdminViewProps) {
-  const { byBranch, totals } = getGlobalAdminTotals(state, branches);
   const isSupervisor = role === 'supervisor';
   const currentYear = new Date().getFullYear();
+
+  const [datePreset, setDatePreset] = useState<ReportDatePreset>('todo');
+  const [serviceFilter, setServiceFilter] = useState<ReportServiceFilter>('todos');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
   const [raffleYear, setRaffleYear] = useState(currentYear);
   const [drawNotes, setDrawNotes] = useState('');
   const [drawing, setDrawing] = useState(false);
+  const [demoDraw, setDemoDraw] = useState<RaffleDraw | null>(null);
   const [raffleFeedback, setRaffleFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  const filteredOrders = state.orders.filter((order) => {
+    if (!branches.includes(order.branchId)) return false;
+    if (serviceFilter !== 'todos' && order.serviceType !== serviceFilter) return false;
+    return matchesReportDate(order.createdAt, datePreset, customFrom, customTo);
+  });
+
+  const byBranch = branches.map((branchId) => {
+    const branchOrders = filteredOrders.filter((o) => o.branchId === branchId);
+    const orderIds = new Set(branchOrders.map((o) => o.id));
+    const confirmed = { efectivo: 0, tarjeta: 0, transferencia: 0 };
+    let pendingCents = branchOrders.reduce((sum, o) => sum + getOrderPendingCents(state, o.id), 0);
+
+    for (const line of state.paymentLines) {
+      if (line.status !== 'confirmado' || !orderIds.has(line.orderId)) continue;
+      confirmed[line.method] += line.amountCents;
+    }
+
+    const openShift = getOpenShift(state, branchId);
+    return {
+      branchId,
+      branchName: getBranchDisplayName(state, branchId),
+      cashCents: confirmed.efectivo,
+      cardCents: confirmed.tarjeta,
+      transferCents: confirmed.transferencia,
+      pendingCents,
+      totalConfirmedCents: confirmed.efectivo + confirmed.tarjeta + confirmed.transferencia,
+      orderCount: branchOrders.length,
+      openShiftNumber: openShift?.number ?? null,
+    };
+  });
+
+  const totals = byBranch.reduce(
+    (acc, row) => ({
+      cashCents: acc.cashCents + row.cashCents,
+      cardCents: acc.cardCents + row.cardCents,
+      transferCents: acc.transferCents + row.transferCents,
+      pendingCents: acc.pendingCents + row.pendingCents,
+      totalConfirmedCents: acc.totalConfirmedCents + row.totalConfirmedCents,
+      orderCount: acc.orderCount + row.orderCount,
+    }),
+    {
+      cashCents: 0,
+      cardCents: 0,
+      transferCents: 0,
+      pendingCents: 0,
+      totalConfirmedCents: 0,
+      orderCount: 0,
+    },
+  );
 
   const eligibleTickets = getEligibleRaffleTickets(state, raffleYear);
   const draws = (state.raffleDraws ?? []).filter((d) => d.year === raffleYear);
+  const hasFilters = datePreset !== 'todo' || serviceFilter !== 'todos';
 
   function exportReport() {
     const header = 'Sucursal,Folios,Efectivo MXN,Tarjeta MXN,Transferencia MXN,Pendiente MXN,Total confirmado MXN';
     const money = (cents: number) => (cents / 100).toFixed(2);
     const rows = byBranch.map((row) => [
-      row.branch.name, row.orderCount, money(row.cashCents), money(row.cardCents),
+      row.branchName, row.orderCount, money(row.cashCents), money(row.cardCents),
       money(row.transferCents), money(row.pendingCents), money(row.totalConfirmedCents),
     ].join(','));
     const csv = new Blob(['\uFEFF', [header, ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -74,6 +172,28 @@ export function AdminView({
     }
   }
 
+  function handleSimulateDemoDraw() {
+    const demoPool = [
+      { code: `DEMO-${raffleYear}-001`, name: 'María Fernanda López (Demo)', phone: '8681234567' },
+      { code: `DEMO-${raffleYear}-002`, name: 'Carlos Eduardo Garza (Demo)', phone: '8689876543' },
+      { code: `DEMO-${raffleYear}-003`, name: 'Lucía Vargas (Demo)', phone: '8682114455' },
+    ];
+    const picked = demoPool[Math.floor(Math.random() * demoPool.length)];
+    setDemoDraw({
+      id: `demo-draw-${Date.now()}`,
+      year: raffleYear,
+      drawnAt: new Date().toISOString(),
+      drawnBy: 'Simulación Demo (no guardado)',
+      winnerTicketId: 'demo-ticket',
+      winnerTicketCode: picked.code,
+      winnerCustomerId: 'demo-cust',
+      winnerCustomerName: picked.name,
+      winnerCustomerPhone: picked.phone,
+      eligibleTicketsCount: demoPool.length,
+      notes: drawNotes.trim() || 'Simulación demostrativa 23 de diciembre (no altera la base de datos)',
+    });
+  }
+
   const showFinanzas = section === 'all' || section === 'finanzas';
   const showRifa = (section === 'all' || section === 'rifa') && isSupervisor;
 
@@ -85,15 +205,20 @@ export function AdminView({
             <span>
               {branches.length > 1
                 ? `Cobros consolidados (${branches.length} sucursales)`
-                : `Cobros · ${getBranchInfo(branches[0] ?? activeBranchId).name}`}
+                : `Cobros · ${getBranchDisplayName(state, branches[0] ?? activeBranchId)}`}
             </span>
             <div className="card-title-actions">
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                onClick={() => exportAdminConsolidatedToExcel(state, branches)}
+                onClick={() =>
+                  hasFilters
+                    ? exportOrdersToExcel(state, filteredOrders, 'reporte-filtrado')
+                    : exportAdminConsolidatedToExcel(state, branches)
+                }
               >
-                <FileSpreadsheet size={16} aria-hidden="true" /> Exportar Excel (.xlsx)
+                <FileSpreadsheet size={16} aria-hidden="true" />{' '}
+                {hasFilters ? 'Exportar filtro (.xlsx)' : 'Exportar Excel (.xlsx)'}
               </button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={exportReport}>
                 <Download size={15} aria-hidden="true" /> CSV
@@ -101,27 +226,95 @@ export function AdminView({
             </div>
           </h2>
 
+          {/* Report Filters (Date Range + Service Type) */}
+          <div className="report-filters-bar">
+            <div className="filter-pills-bar" style={{ marginBottom: 0 }} role="group" aria-label="Periodo del reporte">
+              {(
+                [
+                  { id: 'todo', label: 'Todo' },
+                  { id: 'hoy', label: 'Hoy' },
+                  { id: '7dias', label: '7 días' },
+                  { id: 'mes', label: 'Este mes' },
+                  { id: 'rango', label: 'Rango' },
+                ] as const
+              ).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`filter-pill${datePreset === p.id ? ' active' : ''}`}
+                  aria-pressed={datePreset === p.id}
+                  onClick={() => setDatePreset(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="view-toggle-group" role="group" aria-label="Tipo de servicio">
+              {(
+                [
+                  { id: 'todos', label: 'Todos' },
+                  { id: 'autoservicio', label: 'Autoservicio' },
+                  { id: 'encargo', label: 'Encargo' },
+                ] as const
+              ).map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`view-toggle-btn${serviceFilter === s.id ? ' active' : ''}`}
+                  aria-pressed={serviceFilter === s.id}
+                  onClick={() => setServiceFilter(s.id)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {datePreset === 'rango' && (
+            <div className="cash-controls" style={{ marginBottom: 12 }}>
+              <label className="field" style={{ maxWidth: 180 }}>
+                Desde
+                <input
+                  type="date"
+                  className="input input-sm"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+              </label>
+              <label className="field" style={{ maxWidth: 180 }}>
+                Hasta
+                <input
+                  type="date"
+                  className="input input-sm"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+
           <div className="metrics-grid">
             <div className="metric-box">
               <div className="metric-label">Total confirmado</div>
-              <div className="metric-value">{formatMxn(totals.totalConfirmedCents)}</div>
+              <div className="metric-value">{formatMxnCurrency(totals.totalConfirmedCents)}</div>
             </div>
             <div className="metric-box">
               <div className="metric-label">Efectivo</div>
-              <div className="metric-value">{formatMxn(totals.cashCents)}</div>
+              <div className="metric-value">{formatMxnCurrency(totals.cashCents)}</div>
             </div>
             <div className="metric-box">
               <div className="metric-label">Tarjeta</div>
-              <div className="metric-value">{formatMxn(totals.cardCents)}</div>
+              <div className="metric-value">{formatMxnCurrency(totals.cardCents)}</div>
             </div>
             <div className="metric-box">
               <div className="metric-label">Transferencia</div>
-              <div className="metric-value">{formatMxn(totals.transferCents)}</div>
+              <div className="metric-value">{formatMxnCurrency(totals.transferCents)}</div>
             </div>
             <div className="metric-box">
               <div className="metric-label">Por cobrar</div>
               <div className="metric-value" style={{ color: totals.pendingCents > 0 ? 'var(--warning)' : 'inherit' }}>
-                {formatMxn(totals.pendingCents)}
+                {formatMxnCurrency(totals.pendingCents)}
               </div>
             </div>
           </div>
@@ -142,9 +335,9 @@ export function AdminView({
               </thead>
               <tbody role="rowgroup">
                 {byBranch.map((row) => (
-                  <tr role="row" key={row.branch.id}>
+                  <tr role="row" key={row.branchId}>
                     <td role="cell" data-row-heading>
-                      <strong>{row.branch.name}</strong>
+                      <strong>{row.branchName}</strong>
                     </td>
                     <td role="cell" data-label="Turno activo">
                       {row.openShiftNumber ? (
@@ -159,7 +352,7 @@ export function AdminView({
                     <td role="cell" data-label="Transferencia" className="num">{formatMxn(row.transferCents)}</td>
                     <td role="cell" data-label="Pendiente" className="num">{formatMxn(row.pendingCents)}</td>
                     <td role="cell" data-label="Total confirmado" className="num">
-                      <strong>{formatMxn(row.totalConfirmedCents)}</strong>
+                      <strong>{formatMxnCurrency(row.totalConfirmedCents)}</strong>
                     </td>
                   </tr>
                 ))}
@@ -171,7 +364,7 @@ export function AdminView({
                     <td role="cell" data-label="Tarjeta" className="num">{formatMxn(totals.cardCents)}</td>
                     <td role="cell" data-label="Transferencia" className="num">{formatMxn(totals.transferCents)}</td>
                     <td role="cell" data-label="Pendiente" className="num">{formatMxn(totals.pendingCents)}</td>
-                    <td role="cell" data-label="Total confirmado" className="num">{formatMxn(totals.totalConfirmedCents)}</td>
+                    <td role="cell" data-label="Total confirmado" className="num">{formatMxnCurrency(totals.totalConfirmedCents)}</td>
                   </tr>
                 )}
               </tbody>
@@ -185,9 +378,9 @@ export function AdminView({
           <h2 className="card-title">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <Ticket size={18} aria-hidden="true" />
-              Rifa anual y boletos elegibles · {raffleYear}
+              Rifa anual (23 dic) y boletos elegibles · {raffleYear}
             </span>
-            <span className="badge badge-info">{eligibleTickets.length} boletos elegibles</span>
+            <span className="badge badge-info">{eligibleTickets.length} boletos reales</span>
           </h2>
 
           <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
@@ -228,9 +421,43 @@ export function AdminView({
               disabled={drawing || eligibleTickets.length === 0}
             >
               <Sparkles size={16} />
-              {drawing ? 'Sorteando…' : 'Realizar sorteo manual'}
+              {drawing ? 'Sorteando…' : 'Realizar sorteo real'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleSimulateDemoDraw}
+            >
+              <Ticket size={16} />
+              Simular sorteo demo
             </button>
           </form>
+
+          {demoDraw && (
+            <div style={{ marginBottom: 16 }}>
+              <div className="raffle-winner-card" style={{ borderColor: 'var(--warning-border)', background: 'var(--warning-soft)' }}>
+                <div>
+                  <span className="badge badge-warning">
+                    <Award size={13} /> DEMO · Ganador simulado {demoDraw.winnerTicketCode}
+                  </span>
+                  <strong style={{ display: 'block', marginTop: 4 }}>
+                    {demoDraw.winnerCustomerName} ({demoDraw.winnerCustomerPhone})
+                  </strong>
+                  {demoDraw.notes && <small style={{ display: 'block' }}>{demoDraw.notes}</small>}
+                </div>
+                <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
+                  <small className="muted">Simulación local · No guardada en BD</small>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setDemoDraw(null)}
+                  >
+                    Cerrar demo
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {draws.length > 0 && (
             <div style={{ marginBottom: 16 }}>
@@ -261,7 +488,7 @@ export function AdminView({
           <strong style={{ display: 'block', marginBottom: 8 }}>Boletos elegibles activos</strong>
           {eligibleTickets.length === 0 ? (
             <p className="muted" style={{ margin: 0 }}>
-              No hay boletos elegibles disponibles para {raffleYear}. Se generan cuando un cliente completa su combo gratis tras 10 combos pagados.
+              No hay boletos reales emitidos aún para {raffleYear}. Se generan cuando un cliente completa su combo gratis tras 10 combos pagados. Usa "Simular sorteo demo" arriba para demostrar el flujo sin tocar datos reales.
             </p>
           ) : (
             <div className="table-wrap stacked-table">
@@ -282,7 +509,7 @@ export function AdminView({
                       <td role="cell" data-row-heading><strong>{ticket.ticketCode}</strong></td>
                       <td role="cell" data-label="Cliente">{ticket.customerName}</td>
                       <td role="cell" data-label="Teléfono">{ticket.customerPhone}</td>
-                      <td role="cell" data-label="Sucursal">{getBranchInfo(ticket.branchId).name}</td>
+                      <td role="cell" data-label="Sucursal">{getBranchDisplayName(state, ticket.branchId)}</td>
                       <td role="cell" data-label="Folio origen">{ticket.orderFolio}</td>
                       <td role="cell" data-label="Emitido">{new Date(ticket.issuedAt).toLocaleDateString('es-MX')}</td>
                     </tr>

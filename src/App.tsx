@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { BarChart3, BookOpen, ClipboardList, LayoutDashboard, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
+import { BarChart3, BookOpen, ClipboardList, LayoutDashboard, LogOut, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
@@ -8,7 +8,7 @@ import { SharedStatus } from './components/SharedStatus';
 import {
   BRANCHES,
   getBranchCatalog,
-  getBranchInfo,
+  getBranchDisplayName,
   getBranchSettings,
   getOpenShift,
   getOrderPaymentLines,
@@ -41,12 +41,24 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'] | 'ajustes';
 
-export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminView }: {
+export function App({
+  shared,
+  sharedNotice,
+  theme,
+  onSetTheme,
+  onSwitchToAdminView,
+  initialTourFlowId,
+  onClearInitialTourFlow,
+  onLaunchAdminFlow,
+}: {
   shared: SharedWorkspace;
   sharedNotice?: string;
   theme: BrandTheme;
   onSetTheme: (theme: BrandTheme) => void;
   onSwitchToAdminView?: () => void;
+  initialTourFlowId?: string | null;
+  onClearInitialTourFlow?: () => void;
+  onLaunchAdminFlow?: (flowId: string) => void;
 }) {
   const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
   const state = shared.state;
@@ -56,6 +68,10 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
   const [orderQuery, setOrderQuery] = useState('');
   const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialTourFlowId) setTourOpen(true);
+  }, [initialTourFlowId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -80,13 +96,21 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
     visibleBranches.find((branch) => branch.id === selectedBranch)?.id ??
     visibleBranches[0]?.id ??
     state.activeBranchId;
-  const activeBranch = getBranchInfo(activeBranchId);
-  const activeRole = shared.roles[activeBranchId] ?? 'operator';
+  const activeBranchName = getBranchDisplayName(state, activeBranchId);
+  const actualRole = shared.roles[activeBranchId] ?? 'operator';
+  // Cuando Dirección abre la vista de empleado, opera con permisos de empleado para respetar el rol
+  const effectiveRole = onSwitchToAdminView ? 'operator' : actualRole;
   const activeSettings = getBranchSettings(state, activeBranchId);
   const openShift = getOpenShift(state, activeBranchId);
   const branchOrders = state.orders.filter((order) => order.branchId === activeBranchId);
   const branchOrdersCount = branchOrders.length;
   const branchPendingCount = branchOrders.filter((order) => getOrderPendingCents(state, order.id) > 0).length;
+
+  function handleSelectBranch(branchId: BranchId) {
+    setSelectedBranch(branchId);
+    setOrderQuery('');
+    setOrderFilter('todas');
+  }
 
   function navigate(tab: TabId) {
     setActiveTab(tab);
@@ -148,7 +172,15 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
 
   function handleUpsertMachine(
     branch: BranchId,
-    machine: { id?: string; code: string; name: string; kind: MachineKind },
+    machine: {
+      id?: string;
+      code: string;
+      name: string;
+      kind: MachineKind;
+      model?: string;
+      serialNumber?: string;
+      capacityKg?: number;
+    },
   ) {
     return run(branch, { action: 'upsertMachine', machine });
   }
@@ -270,8 +302,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
             ))}
           </nav>
           <SharedStatus
-            branchName={activeBranch.name}
-            role={activeRole}
+            branchName={activeBranchName}
+            role={effectiveRole}
+            userEmail={shared.userEmail}
             isOnline={shared.isOnline}
             pendingSyncCount={shared.pendingSyncCount}
             syncing={shared.syncing}
@@ -284,6 +317,13 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
               onClick={() => chooseSection('ajustes')}
             >
               <Settings size={17} aria-hidden="true" /> Ajustes
+            </button>
+            <button
+              type="button"
+              className="reset-button sidebar-logout-btn"
+              onClick={shared.signOut}
+            >
+              <LogOut size={17} aria-hidden="true" /> Cerrar sesión
             </button>
           </div>
         </div>
@@ -317,8 +357,11 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
               compact
               icon={<MapPin size={16} aria-hidden="true" />}
               value={activeBranchId}
-              options={visibleBranches.map((branch) => ({ value: branch.id, label: branch.name }))}
-              onChange={(value) => setSelectedBranch(value)}
+              options={visibleBranches.map((branch) => ({
+                value: branch.id,
+                label: getBranchDisplayName(state, branch.id),
+              }))}
+              onChange={(value) => handleSelectBranch(value)}
             />
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
               <BookOpen size={16} aria-hidden="true" /> Manual
@@ -394,7 +437,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
                     ? 'Ajustes'
                     : navigation.find((entry) => entry.id === activeTab)?.label}
                 </h1>
-                <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranch.name}</p>
+                <p>{activeTab === 'admin' ? 'Consolidado de sucursales disponibles' : activeBranchName}</p>
               </div>
               {activeTab === 'mostrador' && (
                 <button
@@ -447,7 +490,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
                 key={activeBranchId}
                 state={state}
                 branchId={activeBranchId}
-                role={activeRole}
+                role={effectiveRole}
                 onUpsertMachine={handleUpsertMachine}
                 onDeleteMachine={handleDeleteMachine}
                 onSeedSampleMachines={handleSeedSampleMachines}
@@ -459,7 +502,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
               <ClientesView
                 state={state}
                 branchId={activeBranchId}
-                role={activeRole}
+                scopeBranch={activeBranchId}
+                visibleBranches={visibleBranches.map((b) => b.id)}
+                role={effectiveRole}
                 onUpsertCustomer={handleUpsertCustomer}
                 onSeedSampleCustomers={handleSeedSampleCustomers}
               />
@@ -470,7 +515,8 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
                 key={activeBranchId}
                 state={state}
                 branchId={activeBranchId}
-                canManage={activeRole === 'supervisor'}
+                roleContextLabel="Vista Operación"
+                canManage={effectiveRole === 'supervisor'}
                 onCloseShift={handleCloseShift}
                 onOpenNewShift={handleOpenNewShift}
                 onMovement={handleMovement}
@@ -485,7 +531,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
                 state={state}
                 branches={visibleBranches.map((branch) => branch.id)}
                 activeBranchId={activeBranchId}
-                role={activeRole}
+                role={effectiveRole}
                 onRunRaffleDraw={handleRunRaffleDraw}
               />
             )}
@@ -494,8 +540,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
               <AjustesView
                 key={activeBranchId}
                 branchId={activeBranchId}
-                branchName={activeBranch.name}
-                role={activeRole}
+                branchName={activeBranchName}
+                role={effectiveRole}
+                userEmail={shared.userEmail}
                 isOnline={shared.isOnline}
                 settings={activeSettings}
                 catalog={getBranchCatalog(state, activeBranchId)}
@@ -506,6 +553,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
                 onStartTour={() => setTourOpen(true)}
                 onReload={shared.reload}
                 onSignOut={shared.signOut}
+                onUpdatePassword={shared.updatePassword}
                 modeSwitcher={
                   onSwitchToAdminView
                     ? {
@@ -530,7 +578,7 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
             paymentLines={getOrderPaymentLines(state, ticketOrder.id)}
             ticket={ticketState}
             branchSettings={getBranchSettings(state, ticketOrder.branchId)}
-            actorRole={shared.roles[ticketOrder.branchId] ?? activeRole}
+            actorRole={onSwitchToAdminView ? 'operator' : (shared.roles[ticketOrder.branchId] ?? effectiveRole)}
             onEmit={handleEmitTicket}
             onReprint={handleReprintTicket}
             onClose={() => setTicketOrderId(null)}
@@ -541,6 +589,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
           <AppTour
             mode="pos"
             branchId={activeBranchId}
+            initialFlowId={initialTourFlowId}
+            onClearInitialFlow={onClearInitialTourFlow}
+            onSwitchModeAndLaunch={onLaunchAdminFlow}
             isPracticeMode={shared.isPracticeMode}
             onStartPractice={shared.startPractice}
             onExitPractice={shared.exitPractice}

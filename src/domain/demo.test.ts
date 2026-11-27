@@ -40,14 +40,14 @@ it('incluye fondo, entrada y retiro en el corte sin contarlos como ventas', () =
   expect(recordCashMovement(closed.state, 'lomas', 'entrada', 1000, 'Cambio').ok).toBe(false);
 });
 
-it('crea ejemplos en las tres sucursales con folios, pagos y turnos consistentes', () => {
+it('crea ejemplos en las dos sucursales con folios, pagos y turnos consistentes', () => {
   const state = createExampleState(new Date(2026, 10, 17, 20));
   expect(hasPristineDemo(createInitialState())).toBe(true);
   expect(hasPristineDemo(state)).toBe(false);
   const cashOnly = recordCashMovement(createInitialState(), 'lomas', 'entrada', 500, 'Cambio');
   if (!cashOnly.ok) throw new Error(cashOnly.error);
   expect(hasPristineDemo(cashOnly.state)).toBe(false);
-  expect(new Set(state.orders.map((order) => order.branchId)).size).toBe(3);
+  expect(new Set(state.orders.map((order) => order.branchId)).size).toBe(2);
   expect(new Set(state.orders.map((order) => order.folio)).size).toBe(state.orders.length);
   expect(state.orders.every((order) => state.tickets[order.id])).toBe(true);
   expect(state.paymentLines.every((line) => line.status !== 'confirmado' || state.shifts.some((shift) => shift.id === line.confirmedShiftId))).toBe(true);

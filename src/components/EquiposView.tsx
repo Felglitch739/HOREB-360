@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Activity, CheckCircle2, Clock, Edit3, Plus, Trash2, Unlock, WashingMachine, Wrench, X } from 'lucide-react';
-import { getBranchInfo, getBranchMachines } from '../domain/rules';
+import { getBranchDisplayName, getBranchMachines } from '../domain/rules';
 import { buildMockThinqPreviewFeed, formatThinqStateLabel } from '../domain/telemetry';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchId, DemoState, Machine, MachineKind, MachineStatus } from '../domain/types';
@@ -14,7 +14,15 @@ interface EquiposViewProps {
   role: BranchRole;
   onUpsertMachine: (
     branchId: BranchId,
-    machine: { id?: string; code: string; name: string; kind: MachineKind },
+    machine: {
+      id?: string;
+      code: string;
+      name: string;
+      kind: MachineKind;
+      model?: string;
+      serialNumber?: string;
+      capacityKg?: number;
+    },
   ) => Promise<{ ok: boolean; error?: string }>;
   onDeleteMachine: (
     branchId: BranchId,
@@ -45,7 +53,7 @@ export function EquiposView({
   onSetMachineStatus,
 }: EquiposViewProps) {
   const isSupervisor = role === 'supervisor';
-  const branch = getBranchInfo(branchId);
+  const branchName = getBranchDisplayName(state, branchId);
   const machines = getBranchMachines(state, branchId);
 
   const [statusFilter, setStatusFilter] = useState<'todos' | MachineStatus>('todos');
@@ -54,6 +62,9 @@ export function EquiposView({
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [kind, setKind] = useState<MachineKind>('lavadora');
+  const [model, setModel] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [capacityInput, setCapacityInput] = useState('');
   const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
@@ -80,6 +91,9 @@ export function EquiposView({
     setCode(machine.code);
     setName(machine.name);
     setKind(machine.kind);
+    setModel(machine.model ?? '');
+    setSerialNumber(machine.serialNumber ?? '');
+    setCapacityInput(machine.capacityKg ? String(machine.capacityKg) : '');
     setShowAddForm(true);
     setFeedback(null);
   }
@@ -89,6 +103,9 @@ export function EquiposView({
     setCode('');
     setName('');
     setKind('lavadora');
+    setModel('');
+    setSerialNumber('');
+    setCapacityInput('');
     setShowAddForm(false);
   }
 
@@ -98,14 +115,23 @@ export function EquiposView({
     setBusy(true);
     setFeedback(null);
     try {
-      const res = await onUpsertMachine(branchId, { id: editingId, code, name, kind });
+      const parsedCap = capacityInput.trim() ? Number.parseFloat(capacityInput) : undefined;
+      const res = await onUpsertMachine(branchId, {
+        id: editingId,
+        code,
+        name,
+        kind,
+        model: model.trim() || undefined,
+        serialNumber: serialNumber.trim() || undefined,
+        capacityKg: parsedCap && Number.isFinite(parsedCap) ? parsedCap : undefined,
+      });
       if (!res.ok) {
         setFeedback({ type: 'error', text: res.error ?? 'No se pudo guardar el equipo.' });
         return;
       }
       setFeedback({
         type: 'success',
-        text: editingId ? `Equipo ${code.toUpperCase()} actualizado.` : `Equipo ${code.toUpperCase()} agregado a ${branch.name}.`,
+        text: editingId ? `Equipo ${code.toUpperCase()} actualizado.` : `Equipo ${code.toUpperCase()} agregado a ${branchName}.`,
       });
       resetForm();
     } finally {
@@ -151,8 +177,21 @@ export function EquiposView({
               </div>
 
               <div className="machine-card-meta">
-                {machine.status === 'en_uso' && machine.currentOrderFolio && (
-                  <span>Folio: <strong>{machine.currentOrderFolio}</strong></span>
+                {machine.status === 'en_uso' && machine.currentOrderFolio ? (
+                  <span>Orden asignada: <strong>{machine.currentOrderFolio}</strong></span>
+                ) : (
+                  <span className="muted">Sin orden asignada</span>
+                )}
+                {(machine.model || machine.capacityKg || machine.serialNumber) && (
+                  <span className="muted">
+                    {[
+                      machine.model,
+                      machine.capacityKg ? `${machine.capacityKg} kg` : null,
+                      machine.serialNumber ? `Serie ${machine.serialNumber}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
                 )}
                 {machine.status === 'en_uso' && (() => {
                   const elapsedMin = Math.max(0, Math.floor((nowMs - new Date(machine.updatedAt).getTime()) / 60000));
@@ -301,7 +340,7 @@ export function EquiposView({
           aria-pressed={statusFilter === 'todos'}
           onClick={() => setStatusFilter('todos')}
         >
-          <span className="kpi-label">Total padrón · {branch.name}</span>
+          <span className="kpi-label">Total padrón · {branchName}</span>
           <strong className="kpi-value">{machines.length}</strong>
           <span className="kpi-note">{totalWashers} lav. · {totalDryers} sec.</span>
         </button>
@@ -350,11 +389,11 @@ export function EquiposView({
           <h2 className="card-title">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <WashingMachine size={18} aria-hidden="true" />
-              Inventario pendiente de confirmar · {branch.name}
+              Inventario pendiente de confirmar · {branchName}
             </span>
           </h2>
           <p className="muted" style={{ marginTop: 0 }}>
-            Aún no hay lavadoras ni secadoras registradas en {branch.name}. Captura el padrón real confirmado por administración para comenzar a asignar equipos a cada folio.
+            Aún no hay lavadoras ni secadoras registradas en {branchName}. Captura el padrón real confirmado por administración para comenzar a asignar equipos a cada folio.
           </p>
           {import.meta.env.DEV && isSupervisor && (
             <button
@@ -368,7 +407,7 @@ export function EquiposView({
                 if (!res.ok && res.error) setFeedback({ type: 'error', text: res.error });
               }}
             >
-              Cargar equipos ficticios de prueba (solo desarrollo)
+              Cargar equipos de prueba (desarrollo)
             </button>
           )}
         </div>
@@ -377,11 +416,11 @@ export function EquiposView({
       {isSupervisor && showAddForm && (
         <form className="card" onSubmit={handleSaveMachine}>
           <h2 className="card-title">
-            <span>{editingId ? 'Editar equipo del padrón' : `Agregar equipo al padrón · ${branch.name}`}</span>
+            <span>{editingId ? 'Editar equipo del padrón' : `Agregar equipo al padrón · ${branchName}`}</span>
           </h2>
           <div className="cash-controls">
-            <label className="field" style={{ maxWidth: 130 }}>
-              Código
+            <label className="field" style={{ maxWidth: 120 }}>
+              Código *
               <input
                 className="input"
                 placeholder="Ej. L1, S1"
@@ -392,7 +431,7 @@ export function EquiposView({
               />
             </label>
             <label className="field">
-              Nombre / modelo
+              Nombre *
               <input
                 className="input"
                 placeholder="Ej. Lavadora #1"
@@ -414,6 +453,36 @@ export function EquiposView({
                 onChange={setKind}
               />
             </div>
+            <label className="field">
+              Modelo (opcional)
+              <input
+                className="input"
+                placeholder="Ej. LG Giant C Max"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                maxLength={60}
+              />
+            </label>
+            <label className="field" style={{ maxWidth: 120 }}>
+              Cap. kg (opc.)
+              <input
+                className="input"
+                inputMode="decimal"
+                placeholder="Ej. 15"
+                value={capacityInput}
+                onChange={(e) => setCapacityInput(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              No. de serie (opcional)
+              <input
+                className="input"
+                placeholder="Serie de fábrica"
+                value={serialNumber}
+                onChange={(e) => setSerialNumber(e.target.value)}
+                maxLength={50}
+              />
+            </label>
             <button type="submit" className="btn btn-primary" disabled={busy}>
               <Plus size={16} />
               {editingId ? 'Guardar cambios' : 'Agregar equipo'}
@@ -427,7 +496,7 @@ export function EquiposView({
 
       <section className="card">
         <h2 className="card-title">
-          <span>Lavadoras · {branch.name}</span>
+          <span>Lavadoras · {branchName}</span>
           <span className="badge badge-info">{washers.length}</span>
         </h2>
         {renderMachineGrid(washers, 'Sin lavadoras registradas en esta sucursal.')}
@@ -435,7 +504,7 @@ export function EquiposView({
 
       <section className="card">
         <h2 className="card-title">
-          <span>Secadoras · {branch.name}</span>
+          <span>Secadoras · {branchName}</span>
           <span className="badge badge-info">{dryers.length}</span>
         </h2>
         {renderMachineGrid(dryers, 'Sin secadoras registradas en esta sucursal.')}

@@ -1,9 +1,10 @@
 import { confirmTransferBatch, runNightClosingForBranch } from './reconciliation.ts';
 import {
   advanceEncargoStage, assignOrderMachines, captureEncargoPayment, closeShift, confirmPaymentLine,
-  createOrder, deleteMachine, deliverEncargoOrder, emitTicket, openNewShift, recordCashMovement,
-  recordOrderWhatsappSent, reprintTicket, runManualRaffleDraw, seedSampleCustomersForTesting,
-  seedSampleMachinesForBranch, setMachineStatus, updateBranchSettings, upsertCustomer, upsertMachine,
+  createOrder, deleteExpense, deleteMachine, deleteSupplyItem, deliverEncargoOrder, emitTicket, openNewShift,
+  recordCashMovement, recordOrderWhatsappSent, reprintTicket, runManualRaffleDraw, seedSampleCustomersForTesting,
+  seedSampleMachinesForBranch, setMachineStatus, updateBranchSettings, upsertCustomer, upsertExpense,
+  upsertMachine, upsertSupplyItem,
   type CreateOrderInput, type PaymentInputLine,
 } from './rules.ts';
 import type {
@@ -12,6 +13,7 @@ import type {
   CashMovement,
   Customer,
   DemoState,
+  ExpenseCategory,
   MachineKind,
   MachineStatus,
   Order,
@@ -28,7 +30,18 @@ export type Operation =
   | { action: 'closeShift' | 'openShift'; amount: number }
   | { action: 'movement'; kind: CashMovement['kind']; amount: number; reason: string }
   | { action: 'updateSettings'; settings: Partial<BranchSettings> }
-  | { action: 'upsertMachine'; machine: { id?: string; code: string; name: string; kind: MachineKind } }
+  | {
+      action: 'upsertMachine';
+      machine: {
+        id?: string;
+        code: string;
+        name: string;
+        kind: MachineKind;
+        model?: string;
+        serialNumber?: string;
+        capacityKg?: number;
+      };
+    }
   | { action: 'deleteMachine'; machineId: string }
   | { action: 'seedSampleMachines' }
   | { action: 'setMachineStatus'; machineId: string; status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>; reason?: string }
@@ -38,7 +51,27 @@ export type Operation =
   | { action: 'runRaffleDraw'; year?: number; notes?: string; winnerTicketId?: string }
   | { action: 'seedSampleCustomers' }
   | { action: 'runNightClosing'; closingDate?: string; enforce2300Rule?: boolean }
-  | { action: 'confirmTransferBatch'; items: Array<{ lineId: string; reference?: string }> };
+  | { action: 'confirmTransferBatch'; items: Array<{ lineId: string; reference?: string }> }
+  | {
+      action: 'upsertSupplyItem';
+      supply: { id?: string; name: string; unitLabel: string; unitCostCents: number; notes?: string };
+    }
+  | { action: 'deleteSupplyItem'; supplyId: string }
+  | {
+      action: 'upsertExpense';
+      expense: {
+        id?: string;
+        date: string;
+        category: ExpenseCategory;
+        concept: string;
+        unitLabel?: string;
+        quantity: number;
+        unitCostCents: number;
+        supplyItemId?: string | null;
+        notes?: string;
+      };
+    }
+  | { action: 'deleteExpense'; expenseId: string };
 
 export type OperationResult =
   | { ok: true; state: DemoState; order?: Order; customer?: Customer }
@@ -60,7 +93,11 @@ export function requiresSupervisor(action: Operation['action']) {
     action === 'seedSampleMachines' ||
     action === 'runRaffleDraw' ||
     action === 'seedSampleCustomers' ||
-    action === 'runNightClosing'
+    action === 'runNightClosing' ||
+    action === 'upsertSupplyItem' ||
+    action === 'deleteSupplyItem' ||
+    action === 'upsertExpense' ||
+    action === 'deleteExpense'
   );
 }
 
@@ -136,5 +173,13 @@ export function operate(
       });
     case 'confirmTransferBatch':
       return confirmTransferBatch(state, operation.items, actorLabel);
+    case 'upsertSupplyItem':
+      return upsertSupplyItem(state, branch, operation.supply, actorLabel);
+    case 'deleteSupplyItem':
+      return deleteSupplyItem(state, branch, operation.supplyId, actorLabel);
+    case 'upsertExpense':
+      return upsertExpense(state, branch, operation.expense, actorLabel);
+    case 'deleteExpense':
+      return deleteExpense(state, branch, operation.expenseId, actorLabel);
   }
 }

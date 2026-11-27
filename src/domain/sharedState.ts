@@ -1,5 +1,6 @@
 import { createInitialState } from './rules.ts';
 import type {
+  BranchExpense,
   BranchId,
   BranchSettings,
   Customer,
@@ -8,6 +9,7 @@ import type {
   NightClosingReport,
   RaffleDraw,
   RaffleTicket,
+  SupplyItem,
 } from './types.ts';
 
 export type BranchRole = 'operator' | 'supervisor';
@@ -186,6 +188,8 @@ export function combineBranches(rows: BranchRow[], global: GlobalRecordsBundle =
     raffleDraws: global.raffleDraws ? [...global.raffleDraws] : [],
     nightClosings: global.nightClosings ? [...global.nightClosings] : [],
     auditLogs: [],
+    expenses: [],
+    supplyCatalog: [],
   };
   for (const { branch_id, updated_at, state: saved } of rows) {
     state.orders.push(...(saved.orders ?? []));
@@ -202,8 +206,15 @@ export function combineBranches(rows: BranchRow[], global: GlobalRecordsBundle =
     if (saved.auditLogs?.length) {
       state.auditLogs!.push(...saved.auditLogs);
     }
+    if (saved.expenses?.length) {
+      state.expenses!.push(...(saved.expenses as BranchExpense[]));
+    }
+    if (saved.supplyCatalog?.length) {
+      state.supplyCatalog!.push(...(saved.supplyCatalog as SupplyItem[]));
+    }
   }
   state.orders.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   state.auditLogs!.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  state.expenses!.sort((a, b) => (a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date)));
   return state;
 }

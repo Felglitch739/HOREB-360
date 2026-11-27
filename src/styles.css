@@ -4293,6 +4293,314 @@ th {
   }
 }
 
+/* Sidebar logout button (light & dark themes) */
+.sidebar-logout-btn {
+  width: 100%;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--sidebar-border);
+  background: transparent;
+  color: var(--sidebar-ink-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-logout-btn:hover,
+.sidebar-logout-btn:focus-visible {
+  background: rgba(185, 28, 28, 0.14);
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.45);
+}
+
+.admin-sidebar .sidebar-logout-btn:hover,
+.admin-sidebar .sidebar-logout-btn:focus-visible {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+/* 3-way segmented control for encargo payment timing */
+.segmented.segmented-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented.segmented-3 button {
+  font-size: 0.8rem;
+  padding: 6px 8px;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+@media (max-width: 420px) {
+  .segmented.segmented-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* AdminView date & service filter toolbar */
+.report-filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+
+.report-filters-bar .filter-row {
+  margin-bottom: 0;
+}
+
+/* Mobile & Tablet horizontal overflow guards (~390px and 761-1080px) */
+@media (max-width: 640px) {
+  .admin-hero-bar,
+  .admin-hero-controls {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-branch-pills {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .admin-branch-pill {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .pipeline-stage-strip {
+    flex-wrap: wrap;
+  }
+
+  .pos-layout,
+  .pos-builder,
+  .pos-payment-col,
+  .orders-drawer.admin-inspector-drawer {
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
+/* Gastos y Ganancia tab */
+.net-profit-positive {
+  color: var(--success);
+}
+
+.net-profit-negative {
+  color: var(--danger, #dc2626);
+}
+
+.expense-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.expense-date-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.expense-date-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.expense-date-inline .input {
+  width: auto;
+  min-width: 140px;
+  padding: 6px 10px;
+  min-height: 36px;
+}
+
+.expense-form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.expense-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.expense-form-row > .field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.expense-label-with-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.expense-inline-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.expense-preview-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--primary);
+  background: var(--primary-soft);
+  font-size: 0.88rem;
+}
+
+.expense-history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.expense-search-box {
+  flex: 1 1 240px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.expense-search-box svg {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.expense-search-box .input {
+  padding-left: 34px;
+}
+
+.category-breakdown-list {
+  display: grid;
+  gap: 8px;
+}
+
+.category-breakdown-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 6px 8px;
+  display: grid;
+  gap: 5px;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+
+.category-breakdown-row.clickable {
+  cursor: pointer;
+}
+
+.category-breakdown-row.clickable:hover {
+  background: var(--surface-alt);
+}
+
+.category-breakdown-row.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.category-breakdown-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.84rem;
+}
+
+.category-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.category-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.25s ease;
+}
+
+.branch-pnl-row {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  display: grid;
+  gap: 6px;
+}
+
+.branch-pnl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.branch-pnl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.supply-catalog-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+@media (max-width: 560px) {
+  .supply-catalog-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* Coarse pointer (tablets & touchscreens) minimum 40–44px touch targets */
 @media (pointer: coarse) {
   .filter-pill,

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { COMBO_PRICE_CENTS, formatMxn, parsePesosToCents } from './money';
+import { COMBO_PRICE_CENTS, formatMxn, formatMxnCurrency, parsePesosToCents } from './money';
+import { runNightClosingForBranch } from './reconciliation';
 import {
   advanceEncargoStage,
+  buildDailyRevenueTrend,
   canDeliverOrder,
   captureEncargoPayment,
   closeShift,
@@ -10,12 +12,15 @@ import {
   createOrder,
   deliverEncargoOrder,
   emitTicket,
+  getBranchCatalog,
+  getBranchDisplayName,
   getGlobalAdminTotals,
   getOpenShift,
   getOrderPaymentLines,
   getOrderPendingCents,
   getShiftMetrics,
   openNewShift,
+  updateBranchSettings,
 } from './rules';
 
 function unwrap<T>(res: { ok: true; state: ReturnType<typeof createInitialState>; data: T } | { ok: false; error: string }) {
@@ -217,10 +222,10 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
       }),
     ).state;
 
-    // Sucursal 3: $20 efectivo + $30 tarjeta + $20 transferencia, y otra venta de $70 transferencia
+    // Treviño adicional: $20 efectivo + $30 tarjeta + $20 transferencia, y otra venta de $70 transferencia
     state = unwrap(
       createOrder(state, {
-        branchId: 'sucursal-3',
+        branchId: 'trevino',
         serviceType: 'autoservicio',
         paymentLines: [
           { method: 'efectivo', amountCents: 2000 },
@@ -231,7 +236,7 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
     ).state;
     state = unwrap(
       createOrder(state, {
-        branchId: 'sucursal-3',
+        branchId: 'trevino',
         serviceType: 'autoservicio',
         paymentLines: [{ method: 'transferencia', amountCents: 7000, confirmImmediately: true }],
       }),
@@ -246,10 +251,8 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
 
     const lomas = admin.byBranch.find((b) => b.branch.id === 'lomas')!;
     const trevino = admin.byBranch.find((b) => b.branch.id === 'trevino')!;
-    const s3 = admin.byBranch.find((b) => b.branch.id === 'sucursal-3')!;
     expect(lomas.totalConfirmedCents).toBe(14000);
-    expect(trevino.totalConfirmedCents).toBe(7000);
-    expect(s3.totalConfirmedCents).toBe(14000);
+    expect(trevino.totalConfirmedCents).toBe(21000);
 
     const withPendingTransfer = getGlobalAdminTotals({
       ...state,
@@ -262,5 +265,123 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
       totalConfirmedCents: 22000,
       pendingCents: 13000,
     });
+  });
+
+  it('permite anticipo parcial en encargo, cobro de saldo posterior sin colisión y formato MXN', () => {
+    expect(formatMxnCurrency(12500)).toBe('$125.00 MXN');
+
+    let state = createInitialState('2026-11-18T10:00:00Z');
+    const created = unwrap(
+      createOrder(state, {
+        branchId: 'lomas',
+        serviceType: 'encargo',
+        customerAlias: 'Patricia Anticipo',
+        items: [{ itemId: 'combo', quantity: 2 }], // $140
+        allowPartialPayment: true,
+        weightKg: 8.5,
+        promisedDeliveryAt: '2026-11-18T18:00:00Z',
+        notes: 'Sin suavizante',
+        paymentLines: [{ method: 'efectivo', amountCents: 5000 }],
+        now: '2026-11-18T10:05:00Z',
+      }),
+    );
+    state = created.state;
+    expect(created.data.totalCents).toBe(14000);
+    expect(created.data.weightKg).toBe(8.5);
+    expect(created.data.notes).toBe('Sin suavizante');
+    expect(getOrderPendingCents(state, created.data.id)).toBe(9000);
+
+    // Cobrar el saldo restante ($90) en dos exhibiciones / tarjeta para verificar IDs sin colisión
+    const balance = unwrap(
+      captureEncargoPayment(
+        state,
+        created.data.id,
+        [{ method: 'tarjeta', amountCents: 9000, confirmImmediately: true }],
+        'Caja',
+        '2026-11-18T17:50:00Z',
+      ),
+    );
+    state = balance.state;
+    expect(getOrderPendingCents(state, created.data.id)).toBe(0);
+    const lines = getOrderPaymentLines(state, created.data.id);
+    expect(lines).toHaveLength(2);
+    expect(new Set(lines.map((l) => l.id)).size).toBe(2);
+  });
+
+  it('permite agregar producto nuevo al catálogo, renombrar sucursal y registrar bitácora de auditoría', () => {
+    let state = createInitialState('2026-11-18T10:00:00Z');
+    expect(getBranchDisplayName(state, 'trevino')).toBe('Treviño');
+
+    const existingCatalog = getBranchCatalog(state, 'trevino');
+    const updated = unwrap(
+      updateBranchSettings(
+        state,
+        'trevino',
+        {
+          branchDisplayName: 'Treviño Centro',
+          branchAddress: 'Calle Treviño #240',
+          catalog: [
+            ...existingCatalog,
+            {
+              id: 'edredon-king',
+              name: 'Edredón King Size',
+              priceCents: 18500,
+              requiresMachine: true,
+              loyaltyCredits: 1,
+              active: true,
+            },
+          ],
+        },
+        'carlos@horeb.mx',
+        '2026-11-18T10:30:00Z',
+      ),
+    );
+    state = updated.state;
+    expect(getBranchDisplayName(state, 'trevino')).toBe('Treviño Centro');
+    expect(getBranchCatalog(state, 'trevino').some((c) => c.id === 'edredon-king')).toBe(true);
+    expect((state.auditLogs ?? []).some((log) => log.branchId === 'trevino')).toBe(true);
+  });
+
+  it('calcula tendencia anclada a actividad y delimita pendientes en cierre manual fuera de las 23:00', () => {
+    let state = createInitialState('2026-11-10T10:00:00Z');
+    // Turno #1 en Lomas tiene una transferencia pendiente antigua, luego cierra y se abre Turno #2
+    state = unwrap(
+      createOrder(state, {
+        branchId: 'lomas',
+        serviceType: 'encargo',
+        customerAlias: 'Turno Previo',
+        paymentLines: [{ method: 'transferencia', amountCents: 7000 }], // pendiente
+        now: '2026-11-10T11:00:00Z',
+      }),
+    ).state;
+    state = unwrap(closeShift(state, 'lomas', 0, '2026-11-10T14:00:00Z')).state;
+    state = unwrap(openNewShift(state, 'lomas', '2026-11-10T14:05:00Z', 50000)).state;
+    state = unwrap(
+      createOrder(state, {
+        branchId: 'lomas',
+        serviceType: 'autoservicio',
+        paymentLines: [{ method: 'efectivo', amountCents: 7000 }],
+        now: '2026-11-10T16:00:00Z',
+      }),
+    ).state;
+
+    const lomasOrderIds = new Set(state.orders.filter((o) => o.branchId === 'lomas').map((o) => o.id));
+    const trend = buildDailyRevenueTrend(state, lomasOrderIds, 7, new Date('2026-11-26T12:00:00Z'));
+    expect(trend.anchoredToHistory).toBe(true);
+    expect(trend.periodTotalCents).toBe(7000);
+    expect(trend.historicalTotalCents).toBe(7000);
+
+    const closing = runNightClosingForBranch(state, 'lomas', {
+      closingDate: '2026-11-10',
+      enforce2300Rule: false,
+      now: '2026-11-10T20:15:00-06:00',
+      actorLabel: 'admin@horeb.mx',
+    });
+    expect(closing.ok).toBe(true);
+    if (!closing.ok) return;
+    expect(closing.data.reportText).toContain('CIERRE DE DÍA');
+    expect(closing.data.reportText).not.toContain('NOCTURNO 23:00');
+    // La transferencia pendiente de un turno previo ya cerrado no se arrastra al cierre del turno #2
+    expect(closing.data.pendingTransferCents).toBe(0);
   });
 });

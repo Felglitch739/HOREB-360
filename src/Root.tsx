@@ -2,6 +2,12 @@ import { Suspense, lazy, useCallback, useEffect, useEffectEvent, useRef, useStat
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
 import { Eye, EyeOff, WashingMachine } from 'lucide-react';
 import { operate, type Operation } from './domain/operations';
+import {
+  BRANCHES,
+  buildDemoShowcaseExpenses,
+  buildDemoShowcaseMachines,
+  buildDemoShowcaseSupplies,
+} from './domain/rules';
 import { createTrainingSandboxState } from './domain/sandboxManual';
 import {
   enqueueOfflineOperation,
@@ -30,8 +36,129 @@ import {
   type DbRaffleTicketRow,
   type GlobalRecordsBundle,
 } from './domain/sharedState';
-import type { BranchId, Customer, DemoState, Order } from './domain/types';
+import type { BranchExpense, BranchId, Customer, DemoState, Machine, Order, SupplyItem } from './domain/types';
 import { useBrandTheme } from './theme';
+
+const ACTIVE_BRANCH_IDS = new Set<BranchId>(BRANCHES.map((b) => b.id));
+const EXPENSE_OVERLAY_PREFIX = 'horeb_local_expenses_v1_';
+const EXPENSE_ACTIONS = new Set<Operation['action']>([
+  'upsertSupplyItem',
+  'deleteSupplyItem',
+  'upsertExpense',
+  'deleteExpense',
+]);
+const MACHINE_DEMO_ACTIONS = new Set<Operation['action']>([
+  'upsertMachine',
+  'deleteMachine',
+  'setMachineStatus',
+]);
+
+interface LocalExpenseOverlay {
+  supplies: SupplyItem[];
+  deletedSupplyIds: string[];
+  expenses: BranchExpense[];
+  deletedExpenseIds: string[];
+  machines?: Machine[];
+  deletedMachineIds?: string[];
+}
+
+function readLocalExpenseOverlay(userId: string): LocalExpenseOverlay {
+  try {
+    const raw = localStorage.getItem(`${EXPENSE_OVERLAY_PREFIX}${userId}`);
+    if (!raw) {
+      return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [], machines: [], deletedMachineIds: [] };
+    }
+    const parsed = JSON.parse(raw) as Partial<LocalExpenseOverlay>;
+    return {
+      supplies: Array.isArray(parsed.supplies) ? parsed.supplies : [],
+      deletedSupplyIds: Array.isArray(parsed.deletedSupplyIds) ? parsed.deletedSupplyIds : [],
+      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      deletedExpenseIds: Array.isArray(parsed.deletedExpenseIds) ? parsed.deletedExpenseIds : [],
+      machines: Array.isArray(parsed.machines) ? parsed.machines : [],
+      deletedMachineIds: Array.isArray(parsed.deletedMachineIds) ? parsed.deletedMachineIds : [],
+    };
+  } catch {
+    return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [], machines: [], deletedMachineIds: [] };
+  }
+}
+
+function writeLocalExpenseOverlay(userId: string, overlay: LocalExpenseOverlay) {
+  try {
+    localStorage.setItem(`${EXPENSE_OVERLAY_PREFIX}${userId}`, JSON.stringify(overlay));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function applyExpenseOverlay(state: DemoState, overlay: LocalExpenseOverlay, activeBranches: BranchId[]): DemoState {
+  const deletedSup = new Set(overlay.deletedSupplyIds);
+  const deletedExp = new Set(overlay.deletedExpenseIds);
+  const deletedMach = new Set(overlay.deletedMachineIds ?? []);
+
+  // Equipos: usar remotos + completar hasta 22 (11+11) por sucursal activa con los de Demo + cambios locales
+  const machineMap = new Map<string, Machine>();
+  for (const bId of activeBranches) {
+    const existingRemote = (state.machines ?? []).filter((m) => m.branchId === bId);
+    const seedList = existingRemote.length < 22 ? buildDemoShowcaseMachines(bId) : [];
+    for (const m of seedList) {
+      if (!deletedMach.has(m.id)) machineMap.set(m.id, m);
+    }
+    for (const m of existingRemote) {
+      if (!deletedMach.has(m.id)) machineMap.set(m.id, m);
+    }
+  }
+  for (const m of overlay.machines ?? []) {
+    if (ACTIVE_BRANCH_IDS.has(m.branchId) && !deletedMach.has(m.id)) {
+      machineMap.set(m.id, m);
+    }
+  }
+
+  // Insumos: usar remotos o seed demo por sucursal activa + cambios locales
+  const supMap = new Map<string, SupplyItem>();
+  for (const bId of activeBranches) {
+    const existingRemote = (state.supplyCatalog ?? []).filter((s) => s.branchId === bId);
+    const baseList = existingRemote.length > 0 ? existingRemote : buildDemoShowcaseSupplies(bId);
+    for (const s of baseList) {
+      if (!deletedSup.has(s.id)) supMap.set(s.id, s);
+    }
+  }
+  for (const s of overlay.supplies) {
+    if (ACTIVE_BRANCH_IDS.has(s.branchId) && !deletedSup.has(s.id)) {
+      supMap.set(s.id, s);
+    }
+  }
+
+  // Gastos: usar remotos o seed demo por sucursal activa + cambios locales
+  const expMap = new Map<string, BranchExpense>();
+  for (const bId of activeBranches) {
+    const existingRemote = (state.expenses ?? []).filter((e) => e.branchId === bId);
+    const baseList = existingRemote.length > 0 ? existingRemote : buildDemoShowcaseExpenses(bId);
+    for (const e of baseList) {
+      if (!deletedExp.has(e.id)) expMap.set(e.id, e);
+    }
+  }
+  for (const e of overlay.expenses) {
+    if (ACTIVE_BRANCH_IDS.has(e.branchId) && !deletedExp.has(e.id)) {
+      expMap.set(e.id, e);
+    }
+  }
+
+  const expenses = Array.from(expMap.values()).sort((a, b) =>
+    a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date),
+  );
+
+  return {
+    ...state,
+    orders: state.orders.filter((o) => ACTIVE_BRANCH_IDS.has(o.branchId)),
+    shifts: state.shifts.filter((s) => ACTIVE_BRANCH_IDS.has(s.branchId)),
+    machines: Array.from(machineMap.values()),
+    supplyCatalog: Array.from(supMap.values()),
+    expenses,
+    raffleTickets: (state.raffleTickets ?? []).filter((t) => ACTIVE_BRANCH_IDS.has(t.branchId)),
+    nightClosings: (state.nightClosings ?? []).filter((n) => ACTIVE_BRANCH_IDS.has(n.branchId)),
+    auditLogs: (state.auditLogs ?? []).filter((a) => ACTIVE_BRANCH_IDS.has(a.branchId)),
+  };
+}
 
 const App = lazy(() => import('./App').then((module) => ({ default: module.App })));
 const AdminPortal = lazy(() =>
@@ -60,15 +187,18 @@ interface OperationResponse {
 export interface SharedWorkspace {
   state: ReturnType<typeof combineBranches>;
   roles: Partial<Record<BranchId, BranchRole>>;
+  userEmail?: string;
   isOnline: boolean;
   pendingSyncCount: number;
   syncing: boolean;
   syncWarning?: string;
+  expensesLocalFallback?: boolean;
   isPracticeMode?: boolean;
   startPractice?: () => void;
   exitPractice?: () => void;
   resetPractice?: () => void;
   applyPracticeState?: (updater: (prev: DemoState) => DemoState) => void;
+  updatePassword?: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   execute: (
     branch: BranchId,
     operation: Operation,
@@ -85,6 +215,13 @@ export function Root() {
   const [rows, setRows] = useState<BranchRow[] | null>(null);
   const [globalRecords, setGlobalRecords] = useState<GlobalRecordsBundle>({});
   const [pendingQueue, setPendingQueue] = useState<QueuedOperation[]>([]);
+  const [localExpenseOverlay, setLocalExpenseOverlay] = useState<LocalExpenseOverlay>({
+    supplies: [],
+    deletedSupplyIds: [],
+    expenses: [],
+    deletedExpenseIds: [],
+  });
+  const [expensesLocalFallback, setExpensesLocalFallback] = useState(false);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
@@ -97,6 +234,7 @@ export function Root() {
   const [workspaceMode, setWorkspaceMode] = useState<'admin' | 'pos'>('admin');
   const [practiceMode, setPracticeMode] = useState(false);
   const [practiceState, setPracticeState] = useState<DemoState | null>(null);
+  const [pendingTourFlowId, setPendingTourFlowId] = useState<string | null>(null);
   const interacting = useRef(false);
   const syncingRef = useRef(false);
 
@@ -138,14 +276,26 @@ export function Root() {
     if (access.error || data.error) {
       return null;
     }
-    const nextMemberships = access.data as Membership[];
-    const nextRows = data.data as BranchRow[];
+    const nextMemberships = (access.data as Membership[]).filter((m) =>
+      ACTIVE_BRANCH_IDS.has(m.branch_id),
+    );
+    const nextRows = (data.data as BranchRow[]).filter((r) =>
+      ACTIVE_BRANCH_IDS.has(r.branch_id),
+    );
     const nextGlobal: GlobalRecordsBundle = {};
     if (custRes.data) nextGlobal.customers = (custRes.data as DbCustomerRow[]).map(mapDbCustomer);
     if (loyaltyRes.data) nextGlobal.loyaltyEvents = (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent);
-    if (ticketsRes.data) nextGlobal.raffleTickets = (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket);
+    if (ticketsRes.data) {
+      nextGlobal.raffleTickets = (ticketsRes.data as DbRaffleTicketRow[])
+        .map(mapDbRaffleTicket)
+        .filter((t) => ACTIVE_BRANCH_IDS.has(t.branchId));
+    }
     if (drawsRes.data) nextGlobal.raffleDraws = (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw);
-    if (ncRes.data) nextGlobal.nightClosings = (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing);
+    if (ncRes.data) {
+      nextGlobal.nightClosings = (ncRes.data as DbNightClosingRow[])
+        .map(mapDbNightClosing)
+        .filter((n) => ACTIVE_BRANCH_IDS.has(n.branchId));
+    }
     const complete = [custRes, loyaltyRes, ticketsRes, drawsRes, ncRes].every((result) => result.data !== null);
     return { memberships: nextMemberships, rows: nextRows, globalRecords: nextGlobal, complete };
   }, []);
@@ -332,16 +482,31 @@ export function Root() {
     setGlobalRecords({});
     setPendingQueue([]);
     setSyncWarning('');
+    setExpensesLocalFallback(false);
     const userId = session?.user.id;
-    if (!userId) return;
+    if (!userId) {
+      setLocalExpenseOverlay({
+        supplies: [],
+        deletedSupplyIds: [],
+        expenses: [],
+        deletedExpenseIds: [],
+        machines: [],
+        deletedMachineIds: [],
+      });
+      return;
+    }
 
+    setLocalExpenseOverlay(readLocalExpenseOverlay(userId));
     const cachedQueue = readOfflineQueue(userId);
     setPendingQueue(cachedQueue);
 
     const cachedSnapshot = readOfflineSnapshot(userId);
-    if (cachedSnapshot && cachedSnapshot.rows.length > 0 && cachedSnapshot.memberships.length > 0) {
-      setMemberships(cachedSnapshot.memberships);
-      setRows(cachedSnapshot.rows);
+    const filteredCachedRows = cachedSnapshot?.rows.filter((r) => ACTIVE_BRANCH_IDS.has(r.branch_id)) ?? [];
+    const filteredCachedMemberships =
+      cachedSnapshot?.memberships.filter((m) => ACTIVE_BRANCH_IDS.has(m.branch_id)) ?? [];
+    if (cachedSnapshot && filteredCachedRows.length > 0 && filteredCachedMemberships.length > 0) {
+      setMemberships(filteredCachedMemberships);
+      setRows(filteredCachedRows);
       setGlobalRecords(cachedSnapshot.globalRecords);
       setErrorKind('none');
       setError('');
@@ -363,6 +528,94 @@ export function Root() {
       }
       return next;
     });
+  }
+
+  function applyExpenseLocallyFallback(
+    branch: BranchId,
+    operation: Operation,
+    options: { markFallbackNotice?: boolean } = {},
+  ) {
+    const userId = session?.user.id;
+    if (!userId || !rows?.length) {
+      return { ok: false as const, error: 'Sin sesión activa para guardar cambios.' };
+    }
+    const rolesMap = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
+    if (rolesMap[branch] !== 'supervisor') {
+      return { ok: false as const, error: 'Solo Dirección / Supervisión puede realizar esta acción.' };
+    }
+    const activeBranchList = memberships
+      .map((m) => m.branch_id)
+      .filter((b) => ACTIVE_BRANCH_IDS.has(b));
+    const baseCombined = combineBranches(rows, globalRecords);
+    const current = applyExpenseOverlay(baseCombined, localExpenseOverlay, activeBranchList);
+    const result = operate(current, branch, operation, {
+      role: 'supervisor',
+      actorLabel: session.user.email ?? userId,
+    });
+    if (!result.ok) return { ok: false as const, error: result.error };
+
+    const nextOverlay: LocalExpenseOverlay = {
+      supplies: [...localExpenseOverlay.supplies],
+      deletedSupplyIds: [...localExpenseOverlay.deletedSupplyIds],
+      expenses: [...localExpenseOverlay.expenses],
+      deletedExpenseIds: [...localExpenseOverlay.deletedExpenseIds],
+      machines: [...(localExpenseOverlay.machines ?? [])],
+      deletedMachineIds: [...(localExpenseOverlay.deletedMachineIds ?? [])],
+    };
+
+    if (operation.action === 'upsertSupplyItem') {
+      const targetList = result.state.supplyCatalog ?? [];
+      const curMap = new Map((current.supplyCatalog ?? []).map((s) => [s.id, JSON.stringify(s)]));
+      const nextMap = new Map(nextOverlay.supplies.map((s) => [s.id, s]));
+      for (const s of targetList) {
+        if (curMap.get(s.id) !== JSON.stringify(s)) {
+          nextMap.set(s.id, s);
+        }
+      }
+      nextOverlay.supplies = Array.from(nextMap.values());
+    } else if (operation.action === 'deleteSupplyItem') {
+      nextOverlay.supplies = nextOverlay.supplies.filter((s) => s.id !== operation.supplyId);
+      if (!nextOverlay.deletedSupplyIds.includes(operation.supplyId)) {
+        nextOverlay.deletedSupplyIds.push(operation.supplyId);
+      }
+    } else if (operation.action === 'upsertExpense') {
+      const targetList = result.state.expenses ?? [];
+      const curMap = new Map((current.expenses ?? []).map((e) => [e.id, JSON.stringify(e)]));
+      const nextMap = new Map(nextOverlay.expenses.map((e) => [e.id, e]));
+      for (const e of targetList) {
+        if (curMap.get(e.id) !== JSON.stringify(e)) {
+          nextMap.set(e.id, e);
+        }
+      }
+      nextOverlay.expenses = Array.from(nextMap.values());
+    } else if (operation.action === 'deleteExpense') {
+      nextOverlay.expenses = nextOverlay.expenses.filter((e) => e.id !== operation.expenseId);
+      if (!nextOverlay.deletedExpenseIds.includes(operation.expenseId)) {
+        nextOverlay.deletedExpenseIds.push(operation.expenseId);
+      }
+    } else if (operation.action === 'upsertMachine' || operation.action === 'setMachineStatus') {
+      const targetList = result.state.machines ?? [];
+      const curMap = new Map((current.machines ?? []).map((m) => [m.id, JSON.stringify(m)]));
+      const nextMap = new Map((nextOverlay.machines ?? []).map((m) => [m.id, m]));
+      for (const m of targetList) {
+        if (curMap.get(m.id) !== JSON.stringify(m)) {
+          nextMap.set(m.id, m);
+        }
+      }
+      nextOverlay.machines = Array.from(nextMap.values());
+    } else if (operation.action === 'deleteMachine') {
+      nextOverlay.machines = (nextOverlay.machines ?? []).filter((m) => m.id !== operation.machineId);
+      if (!nextOverlay.deletedMachineIds?.includes(operation.machineId)) {
+        nextOverlay.deletedMachineIds = [...(nextOverlay.deletedMachineIds ?? []), operation.machineId];
+      }
+    }
+
+    writeLocalExpenseOverlay(userId, nextOverlay);
+    setLocalExpenseOverlay(nextOverlay);
+    if (options.markFallbackNotice) {
+      setExpensesLocalFallback(true);
+    }
+    return { ok: true as const };
   }
 
   function runLocallyOffline(branch: BranchId, operation: Operation, operationId: string) {
@@ -397,12 +650,18 @@ export function Root() {
       const operationId = crypto.randomUUID();
       const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       if (browserOffline || !isOnline || pendingQueue.length > 0) {
+        if (EXPENSE_ACTIONS.has(operation.action)) {
+          return applyExpenseLocallyFallback(branch, operation, { markFallbackNotice: true });
+        }
         return runLocallyOffline(branch, operation, operationId);
       }
 
       const outcome = await invokeSingleRemote(branch, base.version, operationId, operation);
       if (outcome.status === 'network_error') {
         setIsOnline(false);
+        if (EXPENSE_ACTIONS.has(operation.action)) {
+          return applyExpenseLocallyFallback(branch, operation, { markFallbackNotice: true });
+        }
         return runLocallyOffline(branch, operation, operationId);
       }
       if (outcome.status === 'conflict') {
@@ -411,6 +670,12 @@ export function Root() {
         return { ok: false, error: outcome.error };
       }
       if (outcome.status === 'rejected') {
+        if (EXPENSE_ACTIONS.has(operation.action) && outcome.error === 'Revisa los datos de la operación.') {
+          return applyExpenseLocallyFallback(branch, operation, { markFallbackNotice: true });
+        }
+        if (MACHINE_DEMO_ACTIONS.has(operation.action)) {
+          return applyExpenseLocallyFallback(branch, operation);
+        }
         return { ok: false, error: outcome.error };
       }
 
@@ -512,6 +777,24 @@ export function Root() {
     setPracticeState((prev) => updater(prev ?? createTrainingSandboxState()));
   }
 
+  async function updatePassword(newPassword: string): Promise<{ ok: boolean; error?: string }> {
+    if (practiceMode) {
+      return { ok: false, error: 'Sal del Modo Práctica para cambiar tu contraseña real.' };
+    }
+    if (newPassword.length < 8) {
+      return { ok: false, error: 'La contraseña debe tener al menos 8 caracteres.' };
+    }
+    try {
+      const { error: updateErr } = await client.auth.updateUser({ password: newPassword });
+      if (updateErr) {
+        return { ok: false, error: updateErr.message || 'No se pudo actualizar la contraseña.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Error de conexión al actualizar la contraseña.' };
+    }
+  }
+
   if (session && rows?.length && memberships.length > 0) {
     const roles: Partial<Record<BranchId, BranchRole>> = Object.fromEntries(
       memberships.map((entry) => [entry.branch_id, entry.role]),
@@ -543,18 +826,30 @@ export function Root() {
       return { ok: true, order: result.order, customer: result.customer };
     };
 
+    const activeBranchesList = memberships
+      .map((m) => m.branch_id)
+      .filter((b) => ACTIVE_BRANCH_IDS.has(b));
+    const mergedCombinedState = applyExpenseOverlay(
+      effective.combinedState,
+      localExpenseOverlay,
+      activeBranchesList,
+    );
+
     const sharedProps: SharedWorkspace = {
-      state: activePractice ? practiceState : effective.combinedState,
+      state: activePractice ? practiceState : mergedCombinedState,
       roles,
+      userEmail: session.user.email ?? undefined,
       isOnline,
       pendingSyncCount: activePractice ? 0 : pendingQueue.length,
       syncing: activePractice ? false : syncing,
       syncWarning: activePractice ? undefined : syncWarning || undefined,
+      expensesLocalFallback: activePractice ? false : expensesLocalFallback,
       isPracticeMode: activePractice,
       startPractice,
       exitPractice,
       resetPractice,
       applyPracticeState,
+      updatePassword,
       execute: activePractice ? executePractice : execute,
       reload,
       syncNow,
@@ -570,6 +865,13 @@ export function Root() {
             theme={theme}
             onSetTheme={setTheme}
             onSwitchToEmployeeView={() => setWorkspaceMode('pos')}
+            initialTourFlowId={pendingTourFlowId}
+            onClearInitialTourFlow={() => setPendingTourFlowId(null)}
+            onLaunchPosFlow={(flowId) => {
+              startPractice();
+              setPendingTourFlowId(flowId);
+              setWorkspaceMode('pos');
+            }}
           />
         </Suspense>
       );
@@ -583,6 +885,17 @@ export function Root() {
           theme={theme}
           onSetTheme={setTheme}
           onSwitchToAdminView={hasSupervisorRole ? () => setWorkspaceMode('admin') : undefined}
+          initialTourFlowId={pendingTourFlowId}
+          onClearInitialTourFlow={() => setPendingTourFlowId(null)}
+          onLaunchAdminFlow={
+            hasSupervisorRole
+              ? (flowId) => {
+                  startPractice();
+                  setPendingTourFlowId(flowId);
+                  setWorkspaceMode('admin');
+                }
+              : undefined
+          }
         />
       </Suspense>
     );

@@ -86,6 +86,9 @@ export interface Machine {
   code: string;
   name: string;
   kind: MachineKind;
+  model?: string;
+  serialNumber?: string;
+  capacityKg?: number;
   status: MachineStatus;
   currentOrderId: string | null;
   currentOrderFolio?: string | null;
@@ -171,6 +174,8 @@ export interface Order {
   freeCombosRedeemed?: number;
   /** Descuento aplicado por lealtad en centavos */
   loyaltyDiscountCents?: number;
+  /** Descuento manual en centavos */
+  manualDiscountCents?: number;
   /** Marca cuando esta orden ya otorgó sus puntos / recompensa / boleto (evita duplicados) */
   loyaltyProcessedAt?: string | null;
   /** Total en centavos enteros */
@@ -179,12 +184,56 @@ export interface Order {
   orderStatus: OrderStatus;
   assignedMachineIds?: string[];
   assignedMachineLabels?: string[];
+  promisedDeliveryAt?: string | null;
+  weightKg?: number | null;
+  notes?: string | null;
   whatsappPreparedAt?: string | null;
   whatsappMessage?: string | null;
   whatsappSentAt?: string | null;
   whatsappSentBy?: string | null;
   createdAt: string;
   deliveredAt: string | null;
+}
+
+export type ExpenseCategory =
+  | 'insumos'
+  | 'renta'
+  | 'luz'
+  | 'agua'
+  | 'gas'
+  | 'sueldos'
+  | 'mantenimiento';
+
+export interface SupplyItem {
+  id: string;
+  branchId: BranchId;
+  name: string;
+  unitLabel: string;
+  /** Costo unitario en centavos enteros MXN (ej. 7000 = $70.00 MXN) */
+  unitCostCents: number;
+  notes?: string;
+  updatedAt: string;
+  updatedBy?: string | null;
+}
+
+export interface BranchExpense {
+  id: string;
+  branchId: BranchId;
+  /** Fecha del gasto en formato YYYY-MM-DD */
+  date: string;
+  category: ExpenseCategory;
+  concept: string;
+  unitLabel?: string;
+  quantity: number;
+  /** Costo unitario en centavos enteros MXN */
+  unitCostCents: number;
+  /** Total en centavos enteros MXN = Math.round(quantity * unitCostCents) */
+  totalCents: number;
+  supplyItemId?: string | null;
+  notes?: string;
+  createdAt: string;
+  createdBy?: string | null;
+  updatedAt: string;
 }
 
 export interface BranchAuditEntry {
@@ -200,7 +249,8 @@ export interface BranchAuditEntry {
     | 'lealtad'
     | 'rifa'
     | 'cierre_nocturno'
-    | 'conciliacion';
+    | 'conciliacion'
+    | 'gasto';
   message: string;
   actor: string;
   createdAt: string;
@@ -260,6 +310,8 @@ export interface Shift {
 
 export interface BranchSettings {
   comboPriceCents: number;
+  branchDisplayName?: string;
+  branchAddress?: string;
   businessName: string;
   branchPhone: string;
   scheduleText: string;
@@ -286,4 +338,6 @@ export interface DemoState {
   raffleDraws?: RaffleDraw[];
   nightClosings?: NightClosingReport[];
   auditLogs?: BranchAuditEntry[];
+  expenses?: BranchExpense[];
+  supplyCatalog?: SupplyItem[];
 }

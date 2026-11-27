@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { exportOrdersToExcel } from '../domain/excelExport';
-import { formatMxn } from '../domain/money';
+import { formatMxn, formatMxnCurrency } from '../domain/money';
 import {
   ENCARGO_STAGES,
   canDeliverOrder,
@@ -268,7 +268,9 @@ export function OrderList({
                         const paymentLines = getOrderPaymentLines(state, order.id);
                         const deliverCheck = canDeliverOrder(state, order.id);
                         const activeCheckout = activeCheckoutId === order.id;
-                        const timeStr = new Date(order.createdAt).toLocaleTimeString('es-MX', {
+                        const timeStr = new Date(order.createdAt).toLocaleString('es-MX', {
+                          day: '2-digit',
+                          month: 'short',
                           hour: '2-digit',
                           minute: '2-digit',
                         });
@@ -280,7 +282,7 @@ export function OrderList({
                           >
                             <div className="kanban-card-top">
                               <strong className="order-folio">{order.folio}</strong>
-                              <strong className="order-total">{formatMxn(order.totalCents)}</strong>
+                              <strong className="order-total">{formatMxnCurrency(order.totalCents)}</strong>
                             </div>
                             <div className="kanban-card-meta">
                               <span className="order-client">{order.customerAlias}</span>
@@ -297,14 +299,14 @@ export function OrderList({
                               </div>
                             )}
                             <div className="kanban-card-actions">
-                              {paymentLines.length === 0 && order.totalCents > 0 && (
+                              {pendingCents > 0 && !paymentLines.some((l) => l.status === 'pendiente') && order.totalCents > 0 && (
                                 <button
                                   type="button"
                                   className="btn btn-primary btn-sm"
                                   disabled={!hasOpenShift && !activeCheckout}
                                   onClick={(event) => onStartCheckout(order, event.currentTarget)}
                                 >
-                                  {activeCheckout ? 'En cobro' : 'Cobrar'}
+                                  {activeCheckout ? 'En cobro' : paymentLines.length > 0 ? 'Cobrar saldo' : 'Cobrar'}
                                 </button>
                               )}
                               {stage.nextLabel && (

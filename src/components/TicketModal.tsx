@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Printer, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
-import { formatMxn } from '../domain/money';
+import { formatMxn, formatMxnCurrency } from '../domain/money';
 import { ENCARGO_STAGES, getBranchInfo, getOrderLineItems } from '../domain/rules';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchSettings, Order, PaymentLine, TicketState } from '../domain/types';
@@ -218,7 +218,8 @@ export function TicketModal({
           <div className="ticket-center">
             <strong>{branchSettings.businessName}</strong>
             <div>HOREB 360 · Comprobante de servicio</div>
-            <div>Sucursal: {branch.name}</div>
+            <div>Sucursal: {branchSettings.branchDisplayName?.trim() || branch.name}</div>
+            {branchSettings.branchAddress && <div>{branchSettings.branchAddress}</div>}
             {branchSettings.branchPhone && <div>Tel: {branchSettings.branchPhone}</div>}
             {branchSettings.scheduleText && <div>Horario: {branchSettings.scheduleText}</div>}
             <div className="ticket-folio-box">
@@ -294,7 +295,7 @@ export function TicketModal({
           <div className="ticket-divider" />
           <div className="ticket-row">
             <strong>TOTAL</strong>
-            <strong>{formatMxn(order.totalCents)}</strong>
+            <strong>{formatMxnCurrency(order.totalCents)}</strong>
           </div>
           <div className="ticket-row">
             <span>Estado ticket:</span>
@@ -311,7 +312,16 @@ export function TicketModal({
           {footerMessage.trim() && (
             <div className="ticket-footer-msg">{footerMessage.trim()}</div>
           )}
+          <div className="ticket-footer-msg" style={{ fontSize: '0.78em', opacity: 0.78 }}>
+            Comprobante comercial · No sustituye CFDI fiscal
+          </div>
         </div>
+
+        {!branchSettings.branchPhone.trim() && (
+          <div className="alert alert-info" style={{ fontSize: '0.82rem' }}>
+            El teléfono de la sucursal aún no está capturado. Configúralo en <strong>Ajustes</strong> para imprimirlo en los tickets.
+          </div>
+        )}
 
         {ticket.status === 'fallo' && ticket.lastError && (
           <div className="alert alert-error">

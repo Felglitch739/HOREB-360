@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { ArrowRight, Banknote, CalendarDays, Plus, ScrollText, Wallet, WashingMachine } from 'lucide-react';
-import { formatMxn } from '../domain/money';
-import { ENCARGO_STAGES, getBranchInfo, getBranchSummary, getOpenShift, getOrderPendingCents } from '../domain/rules';
+import { formatMxn, formatMxnCurrency } from '../domain/money';
+import {
+  ENCARGO_STAGES,
+  buildDailyRevenueTrend,
+  getBranchDisplayName,
+  getBranchSummary,
+  getOpenShift,
+  getOrderPendingCents,
+} from '../domain/rules';
 import type { BranchId, DemoState } from '../domain/types';
 
 const weekday = new Intl.DateTimeFormat('es-MX', { weekday: 'short' });
 const dayLabel = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+const shortDate = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short' });
 
 interface Props {
   state: DemoState;
@@ -17,28 +25,22 @@ interface Props {
 
 export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props) {
   const [selectedDayIdx, setSelectedDayIdx] = useState<number | null>(null);
-  const branch = getBranchInfo(branchId);
+  const branchName = getBranchDisplayName(state, branchId);
   const openShift = getOpenShift(state, branchId);
   const summary = getBranchSummary(state, branchId);
   const orders = state.orders.filter((order) => order.branchId === branchId);
   const ready = orders.filter((order) => order.encargoStage === 'listo').length;
   const today = new Date();
   const ids = new Set(orders.map((order) => order.id));
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + index);
-    const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
-    const total = state.paymentLines.reduce((sum, line) => {
-      if (!line.confirmedAt || !ids.has(line.orderId)) return sum;
-      const timestamp = new Date(line.confirmedAt);
-      return timestamp >= date && timestamp < end ? sum + line.amountCents : sum;
-    }, 0);
-    return { date, total };
-  });
-  const max = Math.max(1, ...days.map((day) => day.total));
+
+  const trend = buildDailyRevenueTrend(state, ids, 7, today);
+  const days = trend.days;
+  const max = Math.max(1, ...days.map((day) => day.totalCents));
+  const rangeLabel = `${shortDate.format(trend.startDate)} – ${shortDate.format(trend.endDate)}`;
 
   const kpis = [
-    { label: 'Cobrado', value: formatMxn(summary.totalConfirmedCents), note: 'Pagos confirmados', filter: undefined },
-    { label: 'Por cobrar', value: formatMxn(summary.pendingCents), note: 'Ver saldos pendientes', filter: 'pendientes', warn: summary.pendingCents > 0 },
+    { label: 'Cobrado', value: formatMxnCurrency(summary.totalConfirmedCents), note: 'Pagos confirmados', filter: undefined },
+    { label: 'Por cobrar', value: formatMxnCurrency(summary.pendingCents), note: 'Ver saldos pendientes', filter: 'pendientes', warn: summary.pendingCents > 0 },
     { label: 'Listos para entregar', value: String(ready), note: 'Ver encargos listos', filter: 'listo' },
     { label: 'Órdenes en sucursal', value: String(orders.length), note: 'Ir al listado', filter: 'todas' },
   ];
@@ -47,7 +49,7 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
     <div className="dashboard">
       <div className="page-intro">
         <div>
-          <h1>Resumen · {branch.name}</h1>
+          <h1>Resumen · {branchName}</h1>
           <p style={{ textTransform: 'capitalize' }}>{dayLabel.format(today)}</p>
         </div>
         <button type="button" className="btn btn-primary" onClick={onNew}>
@@ -58,7 +60,7 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
       {!openShift && (
         <div className="alert alert-error offline-sync-bar" role="status">
           <span>
-            <strong>Caja cerrada en {branch.name}.</strong> Abre un turno para registrar ventas y confirmar cobros.
+            <strong>Caja cerrada en {branchName}.</strong> Abre un turno para registrar ventas y confirmar cobros.
           </span>
           {onOpenCaja && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onOpenCaja}>
@@ -99,25 +101,27 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
           <div className="section-head">
             <div>
               <h2>Cobros de la semana</h2>
-              <p>Importes confirmados por día</p>
+              <p>Importes confirmados por día ({rangeLabel})</p>
             </div>
             <span className="date-chip">
-              <CalendarDays size={15} /> Últimos 7 días
+              <CalendarDays size={15} /> {trend.anchoredToHistory ? 'Últimos 7 días activos' : 'Últimos 7 días'}
             </span>
           </div>
           <div className="chart-summary">
             <Banknote size={17} aria-hidden="true" />
             <strong>
-              {formatMxn(
+              {formatMxnCurrency(
                 selectedDayIdx !== null
-                  ? days[selectedDayIdx].total
-                  : days.reduce((sum, day) => sum + day.total, 0),
+                  ? days[selectedDayIdx].totalCents
+                  : trend.periodTotalCents,
               )}
             </strong>
             <span>
               {selectedDayIdx !== null
-                ? `MXN · ${dayLabel.format(days[selectedDayIdx].date)}`
-                : 'MXN · 7 días (toca un día para ver detalle)'}
+                ? dayLabel.format(days[selectedDayIdx].date)
+                : trend.historicalTotalCents !== trend.periodTotalCents
+                  ? `Ventana 7 días · Histórico: ${formatMxnCurrency(trend.historicalTotalCents)}`
+                  : '7 días (toca un día para ver detalle)'}
             </span>
           </div>
           <div className="histogram" aria-label="Importes por día">
@@ -129,17 +133,17 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
                   key={day.date.toISOString()}
                   className={`chart-column chart-column-btn${isSelected ? ' selected' : ''}`}
                   aria-pressed={isSelected}
-                  title={dayLabel.format(day.date) + ' · ' + formatMxn(day.total)}
+                  title={dayLabel.format(day.date) + ' · ' + formatMxnCurrency(day.totalCents)}
                   onClick={() => setSelectedDayIdx((prev) => (prev === index ? null : index))}
                 >
                   <div className="bar-track">
                     <div
                       className={'bar-fill' + (index === 6 ? ' current' : '') + (isSelected ? ' selected' : '')}
-                      style={{ height: Math.max(day.total ? 6 : 2, (day.total / max) * 100) + '%' }}
+                      style={{ height: Math.max(day.totalCents ? 6 : 2, (day.totalCents / max) * 100) + '%' }}
                     />
                   </div>
                   <span>{weekday.format(day.date).replace('.', '')}</span>
-                  <span className="sr-only">{formatMxn(day.total)}</span>
+                  <span className="sr-only">{formatMxn(day.totalCents)}</span>
                 </button>
               );
             })}
@@ -150,7 +154,7 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
           <div className="section-head">
             <div>
               <h2>Encargos por etapa</h2>
-              <p>Órdenes activas de {branch.name}</p>
+              <p>Órdenes activas de {branchName}</p>
             </div>
             <WashingMachine size={20} aria-hidden="true" />
           </div>
@@ -176,7 +180,7 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
         <div className="section-head">
           <div>
             <h2>Órdenes recientes</h2>
-            <p>Últimos movimientos de {branch.name}</p>
+            <p>Últimos movimientos de {branchName}</p>
           </div>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOrders()}>
             Ver órdenes <ArrowRight size={15} />
@@ -190,6 +194,12 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
               const balance = getOrderPendingCents(state, order.id);
               const stage =
                 ENCARGO_STAGES.find((item) => item.id === order.encargoStage)?.label ?? 'Autoservicio';
+              const createdLabel = new Date(order.createdAt).toLocaleString('es-MX', {
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
               return (
                 <button
                   type="button"
@@ -202,12 +212,12 @@ export function Overview({ state, branchId, onNew, onOrders, onOpenCaja }: Props
                   </span>
                   <span>
                     <strong>{order.folio}</strong>
-                    <small>{order.customerAlias}</small>
+                    <small>{order.customerAlias} · {createdLabel}</small>
                   </span>
                   <span className="recent-stage">{stage}</span>
                   <span>
-                    <strong>{formatMxn(order.totalCents)}</strong>
-                    <small>{balance ? formatMxn(balance) + ' pendientes' : 'Pagado'}</small>
+                    <strong>{formatMxnCurrency(order.totalCents)}</strong>
+                    <small>{balance > 0 ? formatMxnCurrency(balance) + ' pendientes' : 'Pagado'}</small>
                   </span>
                   <ArrowRight size={15} />
                 </button>

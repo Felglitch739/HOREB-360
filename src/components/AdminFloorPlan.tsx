@@ -10,7 +10,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { BRANCHES, getBranchInfo, getBranchMachines } from '../domain/rules';
+import { BRANCHES, getBranchDisplayName, getBranchMachines } from '../domain/rules';
 import { buildMockThinqPreviewFeed, formatThinqStateLabel } from '../domain/telemetry';
 import type { BranchId, DemoState, Machine, MachineKind, MachineStatus } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
@@ -24,7 +24,15 @@ interface AdminFloorPlanProps {
   onScopeBranchChange: (next: BranchId | 'all') => void;
   onUpsertMachine: (
     branchId: BranchId,
-    machine: { id?: string; code: string; name: string; kind: MachineKind },
+    machine: {
+      id?: string;
+      code: string;
+      name: string;
+      kind: MachineKind;
+      model?: string;
+      serialNumber?: string;
+      capacityKg?: number;
+    },
   ) => Promise<{ ok: boolean; error?: string }>;
   onDeleteMachine: (branchId: BranchId, machineId: string) => Promise<{ ok: boolean; error?: string }>;
   onSeedSampleMachines: (branchId: BranchId) => Promise<{ ok: boolean; error?: string }>;
@@ -129,6 +137,9 @@ export function AdminFloorPlan({
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [kind, setKind] = useState<MachineKind>('lavadora');
+  const [model, setModel] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [capacityInput, setCapacityInput] = useState('');
   const [showThinq, setShowThinq] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
@@ -169,6 +180,9 @@ export function AdminFloorPlan({
     setCode('');
     setName('');
     setKind('lavadora');
+    setModel('');
+    setSerialNumber('');
+    setCapacityInput('');
     setFormBranch(scopeBranch === 'all' ? branchIds[0] : scopeBranch);
     setShowAddModal(true);
     setFeedback(null);
@@ -179,6 +193,9 @@ export function AdminFloorPlan({
     setCode(machine.code);
     setName(machine.name);
     setKind(machine.kind);
+    setModel(machine.model ?? '');
+    setSerialNumber(machine.serialNumber ?? '');
+    setCapacityInput(machine.capacityKg ? String(machine.capacityKg) : '');
     setFormBranch(machine.branchId);
     setSelectedMachineId(null);
     setShowAddModal(true);
@@ -191,7 +208,16 @@ export function AdminFloorPlan({
     setBusy(true);
     setFeedback(null);
     try {
-      const res = await onUpsertMachine(formBranch, { id: editingId, code, name, kind });
+      const parsedCap = capacityInput.trim() ? Number.parseFloat(capacityInput) : undefined;
+      const res = await onUpsertMachine(formBranch, {
+        id: editingId,
+        code,
+        name,
+        kind,
+        model: model.trim() || undefined,
+        serialNumber: serialNumber.trim() || undefined,
+        capacityKg: parsedCap && Number.isFinite(parsedCap) ? parsedCap : undefined,
+      });
       if (!res.ok) {
         setFeedback({ type: 'error', text: res.error ?? 'No se pudo guardar el equipo.' });
         return;
@@ -200,7 +226,7 @@ export function AdminFloorPlan({
         type: 'success',
         text: editingId
           ? `Equipo ${code.toUpperCase()} actualizado.`
-          : `Equipo ${code.toUpperCase()} agregado a ${getBranchInfo(formBranch).name}.`,
+          : `Equipo ${code.toUpperCase()} agregado a ${getBranchDisplayName(state, formBranch)}.`,
       });
       setShowAddModal(false);
       setEditingId(undefined);
@@ -239,7 +265,7 @@ export function AdminFloorPlan({
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       {/* Visual Occupancy Summary Bar */}
-      <section className="card admin-floor-summary">
+      <section className="card admin-floor-summary" data-tour-id="floor-summary">
         <div className="admin-floor-summary-top">
           <div>
             <span className="admin-eyebrow">Ocupación operativa</span>
@@ -257,7 +283,7 @@ export function AdminFloorPlan({
               <Activity size={15} aria-hidden="true" />
               {showThinq ? 'Ocultar ThinQ' : 'Vista ThinQ'}
             </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={openNewMachine}>
+            <button type="button" data-tour-id="floor-add-machine-btn" className="btn btn-primary btn-sm" onClick={openNewMachine}>
               <Plus size={15} aria-hidden="true" /> Agregar equipo
             </button>
           </div>
@@ -299,6 +325,7 @@ export function AdminFloorPlan({
               <button
                 key={pill.id}
                 type="button"
+                data-tour-id={`floor-filter-${pill.id}`}
                 className={`filter-pill${statusFilter === pill.id ? ' active' : ''}`}
                 aria-pressed={statusFilter === pill.id}
                 onClick={() => setStatusFilter(pill.id)}
@@ -342,19 +369,26 @@ export function AdminFloorPlan({
 
       {/* Visual Floor Plan grouped by branch */}
       {targetBranches.map((bId) => {
-        const bInfo = getBranchInfo(bId);
+        const bName = getBranchDisplayName(state, bId);
         const bMachines = visibleMachines.filter((m) => m.branchId === bId);
         const bTotal = getBranchMachines(state, bId).length;
         const bWashers = bMachines.filter((m) => m.kind === 'lavadora');
         const bDryers = bMachines.filter((m) => m.kind === 'secadora');
+        const unlinkedActiveCount = state.orders.filter(
+          (o) =>
+            o.branchId === bId &&
+            (o.encargoStage === 'lavado' || o.encargoStage === 'secado') &&
+            (o.assignedMachineIds ?? []).length === 0,
+        ).length;
 
         return (
           <section key={bId} className="card admin-floor-branch">
             <div className="admin-floor-branch-head">
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.08rem' }}>{bInfo.name}</h2>
+                <h2 style={{ margin: 0, fontSize: '1.08rem' }}>{bName}</h2>
                 <small className="muted">
                   {bWashers.length} lavadora(s) · {bDryers.length} secadora(s) visibles
+                  {unlinkedActiveCount > 0 ? ` · ${unlinkedActiveCount} orden(es) en lavado/secado sin máquina asignada` : ''}
                 </small>
               </div>
               {scopeBranch === 'all' && (
@@ -371,7 +405,7 @@ export function AdminFloorPlan({
             {bTotal === 0 ? (
               <div className="empty-state-box">
                 <p className="muted" style={{ margin: 0 }}>
-                  Aún no hay equipos dados de alta en {bInfo.name}.
+                  Aún no hay equipos dados de alta en {bName}.
                 </p>
                 <div className="order-actions" style={{ marginTop: 10 }}>
                   <button
@@ -407,7 +441,7 @@ export function AdminFloorPlan({
               </div>
             ) : bMachines.length === 0 ? (
               <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
-                No hay equipos en {bInfo.name} que coincidan con los filtros activos.
+                No hay equipos en {bName} que coincidan con los filtros activos.
               </p>
             ) : (
               <div className="floor-zones">
@@ -585,7 +619,7 @@ export function AdminFloorPlan({
                 <h2>
                   {selectedMachine.code} · {selectedMachine.name}
                 </h2>
-                <span className="badge badge-info">{getBranchInfo(selectedMachine.branchId).name}</span>
+                <span className="badge badge-info">{getBranchDisplayName(state, selectedMachine.branchId)}</span>
               </div>
               <button
                 type="button"
@@ -626,10 +660,21 @@ export function AdminFloorPlan({
                   <small className="muted">
                     Ciclos acumulados: <strong>{selectedMachine.cycles}</strong>
                   </small>
+                  {(selectedMachine.model || selectedMachine.capacityKg || selectedMachine.serialNumber) && (
+                    <small className="muted" style={{ display: 'block', marginTop: 2 }}>
+                      {[
+                        selectedMachine.model,
+                        selectedMachine.capacityKg ? `${selectedMachine.capacityKg} kg` : null,
+                        selectedMachine.serialNumber ? `Serie: ${selectedMachine.serialNumber}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </small>
+                  )}
                 </div>
               </div>
 
-              {selectedOrder && (
+              {selectedOrder ? (
                 <div className="card" style={{ padding: 12, background: 'var(--surface-alt)' }}>
                   <span className="admin-eyebrow">Orden asignada</span>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
@@ -643,6 +688,10 @@ export function AdminFloorPlan({
                       minute: '2-digit',
                     })}
                   </small>
+                </div>
+              ) : (
+                <div className="card" style={{ padding: 10, background: 'var(--surface-alt)' }}>
+                  <small className="muted">Orden asignada: <strong>Sin orden asignada</strong></small>
                 </div>
               )}
 
@@ -801,6 +850,38 @@ export function AdminFloorPlan({
                     ]}
                     onChange={setKind}
                   />
+                </div>
+                <label className="field">
+                  Modelo (opcional)
+                  <input
+                    className="input"
+                    placeholder="Ej. LG Giant C Max"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    maxLength={60}
+                  />
+                </label>
+                <div className="quick-customer-inputs" style={{ marginBottom: 12 }}>
+                  <label className="field" style={{ marginBottom: 0 }}>
+                    Capacidad kg (opcional)
+                    <input
+                      className="input"
+                      inputMode="decimal"
+                      placeholder="Ej. 15"
+                      value={capacityInput}
+                      onChange={(e) => setCapacityInput(e.target.value)}
+                    />
+                  </label>
+                  <label className="field" style={{ marginBottom: 0 }}>
+                    Número de serie (opcional)
+                    <input
+                      className="input"
+                      placeholder="Serie de fábrica"
+                      value={serialNumber}
+                      onChange={(e) => setSerialNumber(e.target.value)}
+                      maxLength={50}
+                    />
+                  </label>
                 </div>
                 <div className="order-actions" style={{ marginTop: 14 }}>
                   <button type="submit" className="btn btn-primary" disabled={busy}>

@@ -67,7 +67,5 @@ export function createExampleState(base = new Date()): DemoState {
   add('lomas', 0, 13, 'efectivo', 2);
   add('trevino', 0, 10, 'tarjeta', 4, 'Mateo Castillo', 3);
   add('trevino', 0, 11, 'efectivo', 2, 'Valeria Ortiz', 2, true);
-  add('sucursal-3', 0, 10, 'transferencia', 3);
-  add('sucursal-3', 0, 12, 'efectivo', 2, 'Sofía Herrera', 3);
   return state;
 }
