@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowUpRight,
   BarChart3,
-  BookOpen,
   Building2,
   CheckCircle2,
   Clock,
@@ -56,7 +55,6 @@ import type { SharedWorkspace } from '../Root';
 import type { BrandTheme } from '../theme';
 import { AdminFloorPlan } from './AdminFloorPlan';
 import { OrderCard } from './OrderCard';
-import { SharedStatus } from './SharedStatus';
 
 const AdminView = lazy(() => import('./AdminView').then((m) => ({ default: m.AdminView })));
 const AjustesView = lazy(() => import('./AjustesView').then((m) => ({ default: m.AjustesView })));
@@ -348,15 +346,6 @@ export function AdminPortal({
             ))}
           </nav>
 
-          <SharedStatus
-            branchName={scopeBranch === 'all' ? `${visibleBranches.length} sucursales` : activeBranchName}
-            role={activeRole}
-            userEmail={shared.userEmail}
-            isOnline={shared.isOnline}
-            pendingSyncCount={shared.pendingSyncCount}
-            syncing={shared.syncing}
-          />
-
           <div className="sidebar-footer">
             <button
               type="button"
@@ -386,9 +375,6 @@ export function AdminPortal({
                 <span>Estás usando datos falsos de demostración (nada se guarda en la base de datos).</span>
               </div>
               <div className="practice-mode-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
-                  <BookOpen size={14} aria-hidden="true" /> Manual de flujos
-                </button>
                 {shared.resetPractice && (
                   <button type="button" className="btn btn-secondary btn-sm" onClick={shared.resetPractice}>
                     <RotateCcw size={14} aria-hidden="true" /> Reiniciar demo
@@ -483,14 +469,6 @@ export function AdminPortal({
                   Excel (.xlsx)
                 </button>
               )}
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setTourOpen(true)}
-              >
-                <BookOpen size={15} aria-hidden="true" />
-                Manual
-              </button>
             </div>
           </div>
 

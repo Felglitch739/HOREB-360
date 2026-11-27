@@ -225,17 +225,23 @@
   position: absolute;
   inset-inline-end: max(14px, env(safe-area-inset-right));
   inset-block-end: max(14px, env(safe-area-inset-bottom));
-  width: min(376px, calc(100% - 24px));
+  width: min(360px, calc(100% - 24px));
   max-height: calc(100dvh - 28px);
   overflow-y: auto;
   overscroll-behavior: contain;
   display: grid;
-  gap: 11px;
-  padding: 15px 16px;
+  gap: 10px;
+  padding: 14px 16px;
   border: 1.5px solid var(--primary);
   border-radius: 16px;
   background: var(--surface);
   box-shadow: 0 18px 46px rgb(15 23 42 / 0.26);
+  transition: top 0.2s ease, bottom 0.2s ease, left 0.2s ease, right 0.2s ease;
+}
+
+.app-tour-overlay.dock-left .app-tour-card {
+  inset-inline-start: max(14px, env(safe-area-inset-left));
+  inset-inline-end: auto;
 }
 
 .app-tour-overlay.dock-top .app-tour-card {

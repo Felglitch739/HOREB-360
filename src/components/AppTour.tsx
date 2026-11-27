@@ -79,6 +79,25 @@ function setNativeInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+type TourDock = 'bottom-right' | 'bottom-left' | 'top-left' | 'top-right';
+const DOCK_CYCLE: TourDock[] = ['bottom-right', 'bottom-left', 'top-left', 'top-right'];
+
+function computeSmartDock(box: DOMRect): TourDock {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const centerX = (box.left + box.right) / 2;
+  const centerY = (box.top + box.bottom) / 2;
+  if (vw < 900) {
+    return centerY > vh * 0.5 ? 'top-right' : 'bottom-right';
+  }
+  const isRightHalf = centerX > vw * 0.5;
+  const horiz = isRightHalf ? 'left' : 'right';
+  const coversBottom =
+    box.bottom > vh * 0.65 && (horiz === 'left' ? box.left < 380 : box.right > vw - 380);
+  const vert = coversBottom ? 'top' : 'bottom';
+  return `${vert}-${horiz}` as TourDock;
+}
+
 export function AppTour({
   mode = 'pos',
   branchId,
@@ -96,7 +115,8 @@ export function AppTour({
 }: AppTourProps) {
   const [activeFlowId, setActiveFlowId] = useState<string | null>(initialFlowId);
   const [stepIndex, setStepIndex] = useState(0);
-  const [dockTop, setDockTop] = useState(false);
+  const [autoDock, setAutoDock] = useState<TourDock>('bottom-right');
+  const [manualDock, setManualDock] = useState<TourDock | null>(null);
   const [simulatedKey, setSimulatedKey] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
   const [liveCaption, setLiveCaption] = useState<string | null>(null);
@@ -119,6 +139,7 @@ export function AppTour({
       ensurePractice();
       setActiveFlowId(initialFlowId);
       setStepIndex(0);
+      setManualDock(null);
       setSimulatedKey(null);
       clearInitial();
     }
@@ -138,6 +159,7 @@ export function AppTour({
     el.classList.add('tour-action-flash');
     el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     const box = el.getBoundingClientRect();
+    setAutoDock(computeSmartDock(box));
     const top = Math.max(4, box.top - 5);
     const left = Math.max(4, box.left - 5);
     const right = Math.min(document.documentElement.clientWidth - 4, box.right + 5);
@@ -153,6 +175,7 @@ export function AppTour({
     clearFlashElement();
     setActing(false);
     setLiveCaption(null);
+    setManualDock(null);
 
     if (!activeFlow || !step) {
       setHighlight(undefined);
@@ -178,6 +201,7 @@ export function AppTour({
       const targetEl = activeElementRef.current ?? target;
       if (!targetEl || !targetEl.getClientRects().length) return;
       const box = targetEl.getBoundingClientRect();
+      setAutoDock(computeSmartDock(box));
       const top = Math.max(4, box.top - 5);
       const left = Math.max(4, box.left - 5);
       const right = Math.min(document.documentElement.clientWidth - 4, box.right + 5);
@@ -531,10 +555,14 @@ export function AppTour({
   const stepSimKey = `${activeFlowId}:${stepIndex}`;
   const isSimulated = simulatedKey === stepSimKey;
   const hasSim = Boolean((step.demoActions && step.demoActions.length > 0) || (step.simulate && onSimulateStep));
+  const effectiveDock = manualDock ?? autoDock;
+  const dockClasses = `${effectiveDock.startsWith('top') ? ' dock-top' : ''}${
+    effectiveDock.endsWith('left') ? ' dock-left' : ''
+  }`;
 
   return (
     <div
-      className={`app-tour-overlay non-blocking${dockTop ? ' dock-top' : ''}`}
+      className={`app-tour-overlay non-blocking${dockClasses}`}
       role="region"
       aria-label={`Guía interactiva: ${activeFlow.title}`}
       onKeyDown={(event) => {
@@ -564,11 +592,14 @@ export function AppTour({
               type="button"
               className="btn btn-secondary btn-sm"
               style={{ minHeight: 32, padding: '4px 8px', fontSize: '0.75rem' }}
-              title={dockTop ? 'Mover guía abajo' : 'Mover guía arriba'}
-              onClick={() => setDockTop((prev) => !prev)}
+              title="Cambiar esquina de la tarjeta"
+              onClick={() => {
+                const curIdx = DOCK_CYCLE.indexOf(effectiveDock);
+                setManualDock(DOCK_CYCLE[(curIdx + 1) % DOCK_CYCLE.length]);
+              }}
             >
               <MoveVertical size={13} aria-hidden="true" />
-              {dockTop ? 'Abajo' : 'Arriba'}
+              Mover
             </button>
             <button
               type="button"

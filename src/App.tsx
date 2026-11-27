@@ -1,10 +1,9 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { BarChart3, BookOpen, ClipboardList, LayoutDashboard, LogOut, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
+import { BarChart3, ClipboardList, LayoutDashboard, LogOut, MapPin, Menu, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Settings, Store, Users, Wallet, WashingMachine, X } from 'lucide-react';
 import type { TourTabId } from './components/AppTour';
 import { CustomSelect } from './components/CustomSelect';
 import { MostradorView } from './components/MostradorView';
 import { Overview } from './components/Overview';
-import { SharedStatus } from './components/SharedStatus';
 import {
   BRANCHES,
   getBranchCatalog,
@@ -279,7 +278,7 @@ export function App({
       }}>
         <div className="brand-block">
           <span className="brand-mark"><WashingMachine size={23} aria-hidden="true" /></span>
-          <div><strong>HOREB <span>360</span></strong><small>Gestión de lavandería</small></div>
+          <div><strong>HOREB <span>360</span></strong></div>
         </div>
         <button
           ref={menuButton}
@@ -301,14 +300,6 @@ export function App({
               </button>
             ))}
           </nav>
-          <SharedStatus
-            branchName={activeBranchName}
-            role={effectiveRole}
-            userEmail={shared.userEmail}
-            isOnline={shared.isOnline}
-            pendingSyncCount={shared.pendingSyncCount}
-            syncing={shared.syncing}
-          />
           <div className="sidebar-footer">
             <button
               type="button"
@@ -363,9 +354,6 @@ export function App({
               }))}
               onChange={(value) => handleSelectBranch(value)}
             />
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
-              <BookOpen size={16} aria-hidden="true" /> Manual
-            </button>
           </div>
         </header>
         <main ref={mainContent} tabIndex={-1} className="main-content" data-workspace-tab={activeTab}>
@@ -376,9 +364,6 @@ export function App({
                 <span>Estás usando datos falsos de demostración (nada se guarda en la base de datos).</span>
               </div>
               <div className="practice-mode-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTourOpen(true)}>
-                  <BookOpen size={14} aria-hidden="true" /> Manual de flujos
-                </button>
                 {shared.resetPractice && (
                   <button type="button" className="btn btn-secondary btn-sm" onClick={shared.resetPractice}>
                     <RotateCcw size={14} aria-hidden="true" /> Reiniciar demo
