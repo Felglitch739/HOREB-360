@@ -27,7 +27,7 @@ import type {
 export const BRANCHES: BranchInfo[] = [
   { id: 'lomas', name: 'Lomas', folioPrefix: 'LOM' },
   { id: 'trevino', name: 'Treviño', folioPrefix: 'TRE' },
-  { id: 'sucursal-3', name: 'Sucursal 3', folioPrefix: 'S3' },
+  { id: 'sucursal-3', name: 'Sucursal 3 (por confirmar)', folioPrefix: 'S3', provisional: true },
 ];
 
 export const ENCARGO_STAGES: { id: EncargoStage; label: string }[] = [
@@ -103,6 +103,11 @@ export interface CreateOrderInput {
   items?: OrderItemInput[];
   machineIds?: string[];
   paymentLines: PaymentInputLine[];
+  allowPartialPayment?: boolean;
+  promisedDeliveryAt?: string | null;
+  weightKg?: number | null;
+  notes?: string | null;
+  manualDiscountCents?: number;
   now?: string;
   actorLabel?: string;
 }
@@ -120,28 +125,33 @@ export function buildSampleBranchMachines(
   branchId: BranchId,
   now = new Date().toISOString(),
 ): Machine[] {
-  const washers: Machine[] = Array.from({ length: 5 }, (_, idx) => ({
+  const count = branchId === 'sucursal-3' ? 7 : 8;
+  const washers: Machine[] = Array.from({ length: count }, (_, idx) => ({
     id: `${branchId}-L${idx + 1}`,
     branchId,
     code: `L${idx + 1}`,
     name: `Lavadora #${idx + 1}`,
     kind: 'lavadora',
+    model: 'LG Giant C Max',
+    capacityKg: 15,
     status: 'disponible',
     currentOrderId: null,
     currentOrderFolio: null,
-    cycles: (idx + 1) * 12,
+    cycles: (idx + 1) * 14,
     updatedAt: now,
   }));
-  const dryers: Machine[] = Array.from({ length: 5 }, (_, idx) => ({
+  const dryers: Machine[] = Array.from({ length: count }, (_, idx) => ({
     id: `${branchId}-S${idx + 1}`,
     branchId,
     code: `S${idx + 1}`,
     name: `Secadora #${idx + 1}`,
     kind: 'secadora',
+    model: 'LG Giant C Pro',
+    capacityKg: 16,
     status: 'disponible',
     currentOrderId: null,
     currentOrderFolio: null,
-    cycles: (idx + 1) * 9,
+    cycles: (idx + 1) * 11,
     updatedAt: now,
   }));
   return [...washers, ...dryers];
@@ -287,6 +297,28 @@ export function updateBranchSettings(
         name: cleanName,
       });
     }
+    const existingIds = new Set(currentCatalog.map((item) => item.id));
+    for (const incoming of patch.catalog) {
+      if (existingIds.has(incoming.id)) continue;
+      const cleanId = incoming.id.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '').slice(0, 40);
+      const cleanName = incoming.name.trim().slice(0, 80);
+      if (!cleanId || !cleanName) {
+        return { ok: false, error: 'El nuevo producto debe incluir un nombre válido.' };
+      }
+      if (!Number.isSafeInteger(incoming.priceCents) || incoming.priceCents < 100 || incoming.priceCents > 10_000_000) {
+        return { ok: false, error: `El precio de "${cleanName}" debe ser al menos $1.00 MXN.` };
+      }
+      existingIds.add(cleanId);
+      validated.push({
+        id: cleanId,
+        name: cleanName,
+        priceCents: incoming.priceCents,
+        requiresMachine: Boolean(incoming.requiresMachine),
+        loyaltyCredits: Number.isInteger(incoming.loyaltyCredits) ? Math.max(0, Math.min(10, incoming.loyaltyCredits)) : 0,
+        pricePendingConfirmation: Boolean(incoming.pricePendingConfirmation),
+        active: incoming.active !== false,
+      });
+    }
     nextCatalog = validated;
   }
 
@@ -314,6 +346,14 @@ export function updateBranchSettings(
 
   const next: BranchSettings = {
     comboPriceCents,
+    branchDisplayName:
+      patch.branchDisplayName !== undefined
+        ? patch.branchDisplayName.trim().slice(0, 60) || undefined
+        : current.branchDisplayName,
+    branchAddress:
+      patch.branchAddress !== undefined
+        ? patch.branchAddress.trim().slice(0, 120) || undefined
+        : current.branchAddress,
     businessName: businessName.slice(0, 80),
     branchPhone: (patch.branchPhone ?? current.branchPhone).trim().slice(0, 40),
     scheduleText: (patch.scheduleText ?? current.scheduleText).trim().slice(0, 80),
@@ -334,6 +374,21 @@ export function updateBranchSettings(
           category: 'precio',
           message: `Precio actualizado en ${prevItem.name}: ${formatMxn(prevItem.priceCents)} → ${formatMxn(nextItem.priceCents)}`,
           previousValue: formatMxn(prevItem.priceCents),
+          nextValue: formatMxn(nextItem.priceCents),
+          actor: actorLabel,
+          createdAt: now,
+        },
+      );
+    }
+  }
+  for (const nextItem of nextCatalog) {
+    if (!currentCatalog.some((prevItem) => prevItem.id === nextItem.id)) {
+      auditLogs = appendAudit(
+        { ...state, auditLogs },
+        {
+          branchId,
+          category: 'precio',
+          message: `Producto agregado al catálogo: ${nextItem.name} (${formatMxn(nextItem.priceCents)})`,
           nextValue: formatMxn(nextItem.priceCents),
           actor: actorLabel,
           createdAt: now,
@@ -377,6 +432,87 @@ export function getBranchInfo(branchId: BranchId): BranchInfo {
   const found = BRANCHES.find((b) => b.id === branchId);
   if (!found) throw new Error(`Sucursal desconocida: ${branchId}`);
   return found;
+}
+
+export function getBranchDisplayName(state: DemoState, branchId: BranchId): string {
+  return state.settings?.[branchId]?.branchDisplayName?.trim() || getBranchInfo(branchId).name;
+}
+
+export interface DailyRevenueTrendResult {
+  days: Array<{ date: Date; totalCents: number }>;
+  periodTotalCents: number;
+  historicalTotalCents: number;
+  startDate: Date;
+  endDate: Date;
+  anchoredToHistory: boolean;
+}
+
+/**
+ * Fuente única de verdad para la tendencia de ingresos diarios confirmados.
+ * Si hoy no hay movimientos pero existen cobros confirmados previos, ancla la ventana
+ * a la fecha de actividad más reciente para mostrar datos reales consistentes.
+ */
+export function buildDailyRevenueTrend(
+  state: DemoState,
+  orderIds: Set<string>,
+  daysCount = 7,
+  referenceDate = new Date(),
+): DailyRevenueTrendResult {
+  const confirmedLines = state.paymentLines.filter(
+    (line) => line.status === 'confirmado' && orderIds.has(line.orderId),
+  );
+  const historicalTotalCents = confirmedLines.reduce((sum, line) => sum + line.amountCents, 0);
+
+  const todayEnd = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate() + 1,
+  );
+  const windowStartToday = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate() - (daysCount - 1),
+  );
+
+  let hasActivityInCurrentWindow = false;
+  let latestTimestamp = 0;
+
+  for (const line of confirmedLines) {
+    const rawIso = line.confirmedAt ?? line.createdAt;
+    const ms = new Date(rawIso).getTime();
+    if (!Number.isFinite(ms)) continue;
+    if (ms > latestTimestamp) latestTimestamp = ms;
+    if (ms >= windowStartToday.getTime() && ms < todayEnd.getTime()) {
+      hasActivityInCurrentWindow = true;
+    }
+  }
+
+  const anchoredToHistory = !hasActivityInCurrentWindow && latestTimestamp > 0;
+  const anchor = anchoredToHistory ? new Date(latestTimestamp) : referenceDate;
+
+  const days = Array.from({ length: daysCount }, (_, index) => {
+    const date = new Date(
+      anchor.getFullYear(),
+      anchor.getMonth(),
+      anchor.getDate() - (daysCount - 1) + index,
+    );
+    const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+    const totalCents = confirmedLines.reduce((sum, line) => {
+      const ts = new Date(line.confirmedAt ?? line.createdAt);
+      return ts >= date && ts < end ? sum + line.amountCents : sum;
+    }, 0);
+    return { date, totalCents };
+  });
+
+  const periodTotalCents = days.reduce((sum, d) => sum + d.totalCents, 0);
+  return {
+    days,
+    periodTotalCents,
+    historicalTotalCents,
+    startDate: days[0]?.date ?? referenceDate,
+    endDate: days[days.length - 1]?.date ?? referenceDate,
+    anchoredToHistory,
+  };
 }
 
 export function suggestNextFolio(state: DemoState, branchId: BranchId): string {
@@ -634,7 +770,12 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     loyaltyDiscountCents = comboLine.unitPriceCents;
   }
 
-  const totalCents = Math.max(0, rawTotalCents - loyaltyDiscountCents);
+  const manualDiscountCents =
+    input.manualDiscountCents && Number.isSafeInteger(input.manualDiscountCents) && input.manualDiscountCents > 0
+      ? Math.min(input.manualDiscountCents, Math.max(0, rawTotalCents - loyaltyDiscountCents))
+      : 0;
+
+  const totalCents = Math.max(0, rawTotalCents - loyaltyDiscountCents - manualDiscountCents);
 
   const nextFolio = suggestNextFolio(state, input.branchId);
   const folio = (input.folio?.trim() || nextFolio).toUpperCase();
@@ -682,6 +823,13 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     );
   }
 
+  const cleanWeight =
+    input.weightKg !== undefined && input.weightKg !== null && Number.isFinite(input.weightKg) && input.weightKg > 0
+      ? Math.round(input.weightKg * 100) / 100
+      : null;
+  const cleanNotes = input.notes?.trim().slice(0, 160) || null;
+  const cleanPromised = input.promisedDeliveryAt?.trim().slice(0, 40) || null;
+
   const order: Order = {
     id: orderId,
     folio,
@@ -696,20 +844,28 @@ export function createOrder(state: DemoState, input: CreateOrderInput): DomainRe
     items: orderItems,
     freeCombosRedeemed,
     loyaltyDiscountCents,
+    manualDiscountCents: manualDiscountCents > 0 ? manualDiscountCents : undefined,
     loyaltyProcessedAt: null,
     totalCents,
     encargoStage: input.serviceType === 'encargo' ? 'recibido' : null,
     orderStatus: 'en_proceso',
     assignedMachineIds: requestedMachineIds,
     assignedMachineLabels: assignedLabels,
+    promisedDeliveryAt: cleanPromised,
+    weightKg: cleanWeight,
+    notes: cleanNotes,
     createdAt: now,
     deliveredAt: null,
   };
 
+  const allowPartial = Boolean(input.allowPartialPayment && input.serviceType === 'encargo');
   const payment = (input.serviceType === 'encargo' && input.paymentLines.length === 0 && totalCents > 0) ||
     (totalCents === 0 && input.paymentLines.length === 0)
     ? null
-    : buildPaymentLines(order, input.paymentLines, openShift, now, input.actorLabel);
+    : buildPaymentLines(order, input.paymentLines, openShift, now, input.actorLabel, {
+        targetAmountCents: totalCents,
+        allowPartial,
+      });
   if (payment && !payment.ok) return payment;
 
   let nextCustomers = state.customers ?? [];
@@ -805,7 +961,11 @@ function buildPaymentLines(
   shift: Shift,
   now: string,
   actorLabel = 'Mostrador',
+  options: { targetAmountCents?: number; allowPartial?: boolean; suffix?: string } = {},
 ): { ok: true; lines: PaymentLine[] } | { ok: false; error: string } {
+  if (input.length === 0) {
+    return { ok: false, error: 'Captura al menos un método de pago.' };
+  }
   if (input.some((line) => !Number.isSafeInteger(line.amountCents) || line.amountCents <= 0)) {
     return { ok: false, error: 'Los importes deben ser centavos enteros positivos.' };
   }
@@ -817,20 +977,29 @@ function buildPaymentLines(
   if (new Set(input.map((line) => line.method)).size !== input.length) {
     return { ok: false, error: 'Usa cada método de pago una sola vez.' };
   }
+  const targetAmountCents = options.targetAmountCents ?? order.totalCents;
   const sum = input.reduce((total, line) => total + line.amountCents, 0);
-  if (sum !== order.totalCents) {
+  if (options.allowPartial) {
+    if (sum <= 0 || sum > targetAmountCents) {
+      return {
+        ok: false,
+        error: `El anticipo (${formatMxn(sum)}) debe ser mayor a $0.00 y no superar ${formatMxn(targetAmountCents)}.`,
+      };
+    }
+  } else if (sum !== targetAmountCents) {
     return {
       ok: false,
-      error: `El reparto de pago (${formatMxn(sum)}) debe sumar exactamente ${formatMxn(order.totalCents)}.`,
+      error: `El reparto de pago (${formatMxn(sum)}) debe sumar exactamente ${formatMxn(targetAmountCents)}.`,
     };
   }
+  const suffix = options.suffix ? `-${options.suffix}` : '';
   return {
     ok: true,
     lines: input.map((line) => {
       const confirmed = line.method === 'efectivo' || Boolean(line.confirmImmediately);
       const cleanRef = line.reference?.trim().slice(0, 60) || null;
       return {
-        id: `pay-${order.id}-${line.method}`,
+        id: `pay-${order.id}-${line.method}${suffix}`,
         orderId: order.id,
         method: line.method,
         amountCents: line.amountCents,
@@ -855,12 +1024,18 @@ export function captureEncargoPayment(
 ): DomainResult<Order> {
   const order = state.orders.find((item) => item.id === orderId && item.serviceType === 'encargo');
   if (!order) return { ok: false, error: 'Encargo no encontrado.' };
-  if (getOrderPaymentLines(state, orderId).length > 0) {
+  const existingLines = getOrderPaymentLines(state, orderId);
+  const alreadyRecordedCents = existingLines.reduce((sum, line) => sum + line.amountCents, 0);
+  const remainingToRecordCents = order.totalCents - alreadyRecordedCents;
+  if (remainingToRecordCents <= 0) {
     return { ok: false, error: 'El folio ya tiene un cobro registrado.' };
   }
   const shift = getOpenShift(state, order.branchId);
   if (!shift) return { ok: false, error: 'Abre un turno para registrar el cobro.' };
-  const payment = buildPaymentLines(order, input, shift, now, actorLabel);
+  const payment = buildPaymentLines(order, input, shift, now, actorLabel, {
+    targetAmountCents: remainingToRecordCents,
+    suffix: existingLines.length > 0 ? String(existingLines.length + 1) : '',
+  });
   if (!payment.ok) return payment;
 
   let auditLogs = state.auditLogs ?? [];
@@ -1024,7 +1199,15 @@ export function buildOrderReadyWhatsappMessage(
 export function upsertMachine(
   state: DemoState,
   branchId: BranchId,
-  input: { id?: string; code: string; name: string; kind: MachineKind },
+  input: {
+    id?: string;
+    code: string;
+    name: string;
+    kind: MachineKind;
+    model?: string;
+    serialNumber?: string;
+    capacityKg?: number;
+  },
   actorLabel = 'Supervisión',
   now = new Date().toISOString(),
 ): DomainResult<Machine> {
@@ -1041,15 +1224,35 @@ export function upsertMachine(
     return { ok: false, error: `Ya existe un equipo con el código ${code} en esta sucursal.` };
   }
 
+  const cleanModel = input.model?.trim().slice(0, 60) || undefined;
+  const cleanSerial = input.serialNumber?.trim().slice(0, 50) || undefined;
+  const cleanCap =
+    input.capacityKg !== undefined && Number.isFinite(input.capacityKg) && input.capacityKg > 0
+      ? Math.round(input.capacityKg * 10) / 10
+      : undefined;
+
   const target = input.id ? existingList.find((m) => m.id === input.id && m.branchId === branchId) : undefined;
   const saved: Machine = target
-    ? { ...target, code, name, kind: input.kind, updatedAt: now, updatedBy: actorLabel }
+    ? {
+        ...target,
+        code,
+        name,
+        kind: input.kind,
+        model: cleanModel,
+        serialNumber: cleanSerial,
+        capacityKg: cleanCap,
+        updatedAt: now,
+        updatedBy: actorLabel,
+      }
     : {
         id: `${branchId}-${code.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`,
         branchId,
         code,
         name,
         kind: input.kind,
+        model: cleanModel,
+        serialNumber: cleanSerial,
+        capacityKg: cleanCap,
         status: 'disponible',
         currentOrderId: null,
         currentOrderFolio: null,

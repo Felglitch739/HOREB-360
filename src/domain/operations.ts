@@ -28,7 +28,18 @@ export type Operation =
   | { action: 'closeShift' | 'openShift'; amount: number }
   | { action: 'movement'; kind: CashMovement['kind']; amount: number; reason: string }
   | { action: 'updateSettings'; settings: Partial<BranchSettings> }
-  | { action: 'upsertMachine'; machine: { id?: string; code: string; name: string; kind: MachineKind } }
+  | {
+      action: 'upsertMachine';
+      machine: {
+        id?: string;
+        code: string;
+        name: string;
+        kind: MachineKind;
+        model?: string;
+        serialNumber?: string;
+        capacityKg?: number;
+      };
+    }
   | { action: 'deleteMachine'; machineId: string }
   | { action: 'seedSampleMachines' }
   | { action: 'setMachineStatus'; machineId: string; status: Extract<MachineStatus, 'disponible' | 'fuera_de_servicio'>; reason?: string }

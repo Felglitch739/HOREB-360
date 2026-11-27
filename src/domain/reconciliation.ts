@@ -123,12 +123,15 @@ export function runNightClosingForBranch(
       };
 
   const branchOrders = workingState.orders.filter((o) => o.branchId === branchId);
-  const orderIds = new Set(branchOrders.map((o) => o.id));
+  const scopedClosingOrders = targetShift
+    ? branchOrders.filter((o) => o.shiftId === targetShift.id)
+    : branchOrders.filter((o) => o.createdAt.slice(0, 10) <= closingDate);
+  const scopedOrderIds = new Set(scopedClosingOrders.map((o) => o.id));
   const pendingTransferCents = workingState.paymentLines
-    .filter((p) => orderIds.has(p.orderId) && p.method === 'transferencia' && p.status === 'pendiente')
+    .filter((p) => scopedOrderIds.has(p.orderId) && p.method === 'transferencia' && p.status === 'pendiente')
     .reduce((sum, p) => sum + p.amountCents, 0);
 
-  const pendingDeliveryOrders = branchOrders.filter(
+  const pendingDeliveryOrders = scopedClosingOrders.filter(
     (o) => o.serviceType === 'encargo' && o.encargoStage !== 'entregado',
   );
   const pendingDeliveryCount = pendingDeliveryOrders.length;
@@ -138,18 +141,27 @@ export function runNightClosingForBranch(
   );
 
   const branchName = getBranchInfo(branchId).name;
-  const actorLabel = options.actorLabel?.trim() || 'Cierre 23:00';
+  const actorLabel = options.actorLabel?.trim() || (hour >= 23 && wasAutoClosed ? 'Cierre 23:00' : 'Cierre manual');
+  const isNightAuto = hour >= 23 && options.enforce2300Rule !== false;
+  const executionTimeLabel = new Date(now).toLocaleTimeString('es-MX', {
+    timeZone: 'America/Matamoros',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const headerTitle = isNightAuto
+    ? 'CIERRE NOCTURNO 23:00 • HOREB 360'
+    : `CIERRE DE DÍA (${executionTimeLabel}) • HOREB 360`;
   const reportText = [
-    `CIERRE NOCTURNO 23:00 • HOREB 360`,
+    headerTitle,
     `Sucursal: ${branchName} | Fecha: ${closingDate}`,
-    `Turno: ${targetShift ? `#${targetShift.number}` : 'Sin turno'} (${wasAutoClosed ? 'Cerrado automáticamente' : 'Ya estaba cerrado manualmente'})`,
+    `Turno: ${targetShift ? `#${targetShift.number}` : 'Sin turno'} (${wasAutoClosed ? (isNightAuto ? 'Cerrado automáticamente' : 'Cerrado al corte') : 'Ya estaba cerrado manualmente'})`,
     `------------------------------------`,
     `• Efectivo esperado turno: ${formatMxn(shiftMetrics.expectedCashCents)}`,
     `• Tarjeta confirmada turno: ${formatMxn(shiftMetrics.confirmedCardCents)}`,
     `• Transferencia confirmada turno: ${formatMxn(shiftMetrics.confirmedTransferCents)}`,
     `• Total confirmado turno: ${formatMxn(shiftMetrics.totalConfirmedCents)}`,
-    `• Transferencias pendientes sucursal: ${formatMxn(pendingTransferCents)}`,
-    `• Encargos pendientes de entregar: ${pendingDeliveryCount} (${formatMxn(pendingDeliveryAmountCents)})`,
+    `• Transferencias pendientes del turno: ${formatMxn(pendingTransferCents)}`,
+    `• Encargos del turno sin entregar: ${pendingDeliveryCount} (${formatMxn(pendingDeliveryAmountCents)})`,
   ].join('\n');
 
   const report: NightClosingReport = {

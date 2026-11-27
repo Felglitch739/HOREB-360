@@ -3,8 +3,10 @@ import {
   Check,
   Compass,
   History,
+  KeyRound,
   LogOut,
   Palette,
+  Plus,
   Printer,
   RefreshCw,
   Save,
@@ -22,6 +24,7 @@ interface AjustesViewProps {
   branchId: BranchId;
   branchName: string;
   role: BranchRole;
+  userEmail?: string;
   isOnline: boolean;
   settings: BranchSettings;
   catalog: CatalogItem[];
@@ -35,6 +38,7 @@ interface AjustesViewProps {
   onStartTour: () => void;
   onReload: SharedWorkspace['reload'];
   onSignOut: () => void;
+  onUpdatePassword?: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   modeSwitcher?: {
     title: string;
     description: string;
@@ -47,6 +51,7 @@ export function AjustesView({
   branchId,
   branchName,
   role,
+  userEmail,
   isOnline,
   settings,
   catalog,
@@ -57,6 +62,7 @@ export function AjustesView({
   onStartTour,
   onReload,
   onSignOut,
+  onUpdatePassword,
   modeSwitcher,
 }: AjustesViewProps) {
   const isSupervisor = role === 'supervisor';
@@ -70,11 +76,23 @@ export function AjustesView({
   const [allowOperatorReprint, setAllowOperatorReprint] = useState(
     Boolean(settings.allowOperatorReprint),
   );
+  const [branchDisplayName, setBranchDisplayName] = useState(settings.branchDisplayName ?? '');
+  const [branchAddress, setBranchAddress] = useState(settings.branchAddress ?? '');
   const [businessName, setBusinessName] = useState(settings.businessName);
   const [branchPhone, setBranchPhone] = useState(settings.branchPhone);
   const [scheduleText, setScheduleText] = useState(settings.scheduleText);
   const [ticketFooter, setTicketFooter] = useState(settings.ticketFooter);
   const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>(settings.defaultPaperWidth);
+
+  const [showNewProduct, setShowNewProduct] = useState(false);
+  const [newProdName, setNewProdName] = useState('');
+  const [newProdPrice, setNewProdPrice] = useState('');
+  const [newProdRequiresMachine, setNewProdRequiresMachine] = useState(false);
+
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [updatingPwd, setUpdatingPwd] = useState(false);
+  const [pwdFeedback, setPwdFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
@@ -89,6 +107,8 @@ export function AjustesView({
       Object.fromEntries(catalog.map((item) => [item.id, !item.pricePendingConfirmation])),
     );
     setAllowOperatorReprint(Boolean(settings.allowOperatorReprint));
+    setBranchDisplayName(settings.branchDisplayName ?? '');
+    setBranchAddress(settings.branchAddress ?? '');
     setBusinessName(settings.businessName);
     setBranchPhone(settings.branchPhone);
     setScheduleText(settings.scheduleText);
@@ -128,6 +148,8 @@ export function AjustesView({
         comboPriceCents,
         catalog: updatedCatalog,
         allowOperatorReprint,
+        branchDisplayName,
+        branchAddress,
         businessName,
         branchPhone,
         scheduleText,
@@ -140,10 +162,80 @@ export function AjustesView({
       }
       setFeedback({
         type: 'success',
-        text: `Tarifas y comprobantes actualizados para ${branchName}. Las órdenes ya guardadas conservan su precio original.`,
+        text: `Tarifas y ficha actualizadas para ${branchName}. Las órdenes previas conservan su precio original.`,
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleAddProduct() {
+    if (!isSupervisor || saving) return;
+    setFeedback(null);
+    const cleanName = newProdName.trim();
+    const parsedCents = parsePesosToCents(newProdPrice);
+    if (!cleanName) {
+      setFeedback({ type: 'error', text: 'Captura el nombre del nuevo servicio o producto.' });
+      return;
+    }
+    if (parsedCents === null || parsedCents < 100) {
+      setFeedback({ type: 'error', text: 'Captura un precio válido en MXN (mínimo $1.00).' });
+      return;
+    }
+    const id = `prod-${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'item'}-${Date.now().toString(36).slice(-4)}`;
+    const nextCatalog: CatalogItem[] = [
+      ...catalog,
+      {
+        id,
+        name: cleanName,
+        priceCents: parsedCents,
+        requiresMachine: newProdRequiresMachine,
+        loyaltyCredits: 0,
+        pricePendingConfirmation: false,
+        active: true,
+      },
+    ];
+    setSaving(true);
+    try {
+      const res = await onSaveSettings(branchId, { catalog: nextCatalog });
+      if (!res.ok) {
+        setFeedback({ type: 'error', text: res.error ?? 'No se pudo agregar el producto.' });
+        return;
+      }
+      setNewProdName('');
+      setNewProdPrice('');
+      setNewProdRequiresMachine(false);
+      setShowNewProduct(false);
+      setFeedback({ type: 'success', text: `Producto "${cleanName}" agregado al catálogo de ${branchName}.` });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePasswordUpdate(event: React.FormEvent) {
+    event.preventDefault();
+    if (!onUpdatePassword || updatingPwd) return;
+    setPwdFeedback(null);
+    if (newPassword.length < 8) {
+      setPwdFeedback({ type: 'error', text: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwdFeedback({ type: 'error', text: 'Las contraseñas no coinciden.' });
+      return;
+    }
+    setUpdatingPwd(true);
+    try {
+      const res = await onUpdatePassword(newPassword);
+      if (!res.ok) {
+        setPwdFeedback({ type: 'error', text: res.error ?? 'No se pudo actualizar la contraseña.' });
+        return;
+      }
+      setNewPassword('');
+      setConfirmPassword('');
+      setPwdFeedback({ type: 'success', text: 'Contraseña actualizada correctamente.' });
+    } finally {
+      setUpdatingPwd(false);
     }
   }
 
@@ -220,8 +312,12 @@ export function AjustesView({
                   <div>
                     <strong>{item.name}</strong>
                     {!confirmedFlags[item.id] && (
-                      <span className="badge badge-warning" style={{ marginLeft: 8 }}>
-                        Por confirmar con Carlos
+                      <span
+                        className="badge badge-warning"
+                        style={{ marginLeft: 8 }}
+                        title="Precio de referencia provisional: márcalo como confirmado cuando Dirección valide la tarifa final."
+                      >
+                        Precio referencial · Por confirmar
                       </span>
                     )}
                   </div>
@@ -256,8 +352,87 @@ export function AjustesView({
           </div>
 
           <small className="muted" style={{ display: 'block', marginBottom: 14 }}>
-            Los cambios aplican únicamente a nuevas órdenes en {branchName}; los folios previos conservan el precio capturado al venderse.
+            Los cambios aplican únicamente a nuevas órdenes en {branchName}; los folios previos conservan el precio capturado al venderse. Los precios marcados como referenciales pueden confirmarse arriba con la casilla correspondiente.
           </small>
+
+          {isSupervisor && (
+            <div style={{ marginBottom: 16 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                aria-expanded={showNewProduct}
+                onClick={() => setShowNewProduct((prev) => !prev)}
+              >
+                <Plus size={15} aria-hidden="true" />
+                {showNewProduct ? 'Cerrar nuevo producto' : 'Agregar nuevo servicio / producto'}
+              </button>
+
+              {showNewProduct && (
+                <div className="quick-customer-box" style={{ marginTop: 10 }}>
+                  <div className="quick-customer-inputs">
+                    <input
+                      className="input input-sm"
+                      placeholder="Nombre (ej. Suavizante 1L) *"
+                      value={newProdName}
+                      onChange={(e) => setNewProdName(e.target.value)}
+                      maxLength={80}
+                    />
+                    <input
+                      className="input input-sm"
+                      inputMode="decimal"
+                      placeholder="Precio MXN (ej. 25.00) *"
+                      value={newProdPrice}
+                      onChange={(e) => setNewProdPrice(e.target.value)}
+                    />
+                  </div>
+                  <div className="quick-customer-actions">
+                    <label className="checkbox-row" style={{ minHeight: 36, padding: '4px 10px' }}>
+                      <input
+                        type="checkbox"
+                        checked={newProdRequiresMachine}
+                        onChange={(e) => setNewProdRequiresMachine(e.target.checked)}
+                      />
+                      Requiere asignar lavadora/secadora
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={saving}
+                      onClick={() => void handleAddProduct()}
+                    >
+                      Agregar al catálogo
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="field">
+            <label htmlFor="settings-branch-display-name">Nombre visible de la sucursal</label>
+            <input
+              id="settings-branch-display-name"
+              className="input"
+              value={branchDisplayName}
+              disabled={!isSupervisor}
+              onChange={(event) => setBranchDisplayName(event.target.value)}
+              placeholder={`Ej. ${branchName}`}
+              maxLength={60}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="settings-branch-address">Dirección de la sucursal</label>
+            <input
+              id="settings-branch-address"
+              className="input"
+              value={branchAddress}
+              disabled={!isSupervisor}
+              onChange={(event) => setBranchAddress(event.target.value)}
+              placeholder="Calle, número y colonia (opcional)"
+              maxLength={120}
+            />
+          </div>
 
           <div className="field">
             <label htmlFor="settings-business-name">Nombre comercial en el ticket</label>
@@ -395,6 +570,12 @@ export function AjustesView({
               <span className="badge badge-info">{isSupervisor ? 'Supervisión' : 'Caja'}</span>
             </h2>
             <p className="muted" style={{ marginTop: 0 }}>
+              {userEmail && (
+                <>
+                  Cuenta activa: <strong>{userEmail}</strong>
+                  <br />
+                </>
+              )}
               {isOnline
                 ? <>Conectado con <strong>{branchName}</strong>. El panel se actualiza automáticamente.</>
                 : <>Sin conexión con el servidor. Se muestran los últimos datos disponibles de <strong>{branchName}</strong>.</>}
@@ -407,7 +588,7 @@ export function AjustesView({
             <div className="order-actions">
               <button type="button" className="btn btn-secondary" onClick={onStartTour}>
                 <Compass size={16} />
-                Guía interactiva
+                Manual interactivo
               </button>
               <button
                 type="button"
@@ -424,6 +605,54 @@ export function AjustesView({
               </button>
             </div>
           </section>
+
+          {isSupervisor && onUpdatePassword && (
+            <section className="card">
+              <h2 className="card-title">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <KeyRound size={18} aria-hidden="true" />
+                  Seguridad de cuenta y accesos
+                </span>
+              </h2>
+              {pwdFeedback && (
+                <div className={`alert alert-${pwdFeedback.type}`} role={pwdFeedback.type === 'error' ? 'alert' : 'status'}>
+                  {pwdFeedback.text}
+                </div>
+              )}
+              <form onSubmit={handlePasswordUpdate} style={{ display: 'grid', gap: 10 }}>
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Nueva contraseña (mínimo 8 caracteres)
+                  <input
+                    type="password"
+                    className="input"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    minLength={8}
+                    required
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 0 }}>
+                  Confirmar contraseña
+                  <input
+                    type="password"
+                    className="input"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    minLength={8}
+                    required
+                  />
+                </label>
+                <button type="submit" className="btn btn-secondary btn-sm" disabled={updatingPwd}>
+                  {updatingPwd ? 'Actualizando…' : 'Actualizar mi contraseña'}
+                </button>
+              </form>
+              <small className="muted" style={{ display: 'block', marginTop: 10 }}>
+                El alta de nuevas cuentas de empleados y asignación de roles por sucursal (<code>horeb_memberships</code>) se gestiona desde Supabase Auth por seguridad.
+              </small>
+            </section>
+          )}
 
           <section className="card">
             <h2 className="card-title">

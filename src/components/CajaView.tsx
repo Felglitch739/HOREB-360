@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Calculator, FileSpreadsheet, Lock, MoonStar, PlayCircle, RotateCcw } from 'lucide-react';
 import { exportShiftsToExcel } from '../domain/excelExport';
-import { formatMxn, parsePesosToCents } from '../domain/money';
-import { getBranchInfo, getOpenShift, getShiftMetrics } from '../domain/rules';
+import { formatMxn, formatMxnCurrency, parsePesosToCents } from '../domain/money';
+import { getBranchDisplayName, getOpenShift, getShiftMetrics } from '../domain/rules';
 import type { BranchId, CashMovement, DemoState } from '../domain/types';
 import { CustomSelect } from './CustomSelect';
 import { TransferInboxPanel } from './TransferInboxPanel';
@@ -26,6 +26,7 @@ interface CajaViewProps {
   state: DemoState;
   canManage: boolean;
   branchId: BranchId;
+  roleContextLabel?: string;
   onCloseShift: (branchId: BranchId, countedCashCents: number) => Promise<{ ok: boolean; error?: string }>;
   onOpenNewShift: (branchId: BranchId, openingCashCents: number) => Promise<{ ok: boolean; error?: string }>;
   onMovement: (branchId: BranchId, kind: CashMovement['kind'], amount: number, reason: string) => Promise<{ ok: boolean; error?: string }>;
@@ -44,6 +45,7 @@ export function CajaView({
   state,
   branchId,
   canManage,
+  roleContextLabel,
   onCloseShift,
   onOpenNewShift,
   onMovement,
@@ -51,7 +53,7 @@ export function CajaView({
   onConfirmTransferBatch,
   onRunNightClosing,
 }: CajaViewProps) {
-  const branch = getBranchInfo(branchId);
+  const branchName = getBranchDisplayName(state, branchId);
   const openShift = getOpenShift(state, branchId);
   const branchShifts = state.shifts
     .filter((s) => s.branchId === branchId)
@@ -66,8 +68,8 @@ export function CajaView({
   const [movementKind, setMovementKind] = useState<CashMovement['kind']>('entrada');
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
-  const [countedCashInput, setCountedCashInput] = useState('0');
-  const [showDenomCounter, setShowDenomCounter] = useState(false);
+  const [countedCashInput, setCountedCashInput] = useState('');
+  const [showDenomCounter, setShowDenomCounter] = useState(true);
   const [denomCounts, setDenomCounts] = useState<Record<string, number>>({});
   const [controlledDate, setControlledDate] = useState(() => new Date().toISOString().slice(0, 10));
   const { pending, run } = usePendingAction();
@@ -76,11 +78,9 @@ export function CajaView({
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
-    if (openMetrics) {
-      setCountedCashInput((openMetrics.expectedCashCents / 100).toFixed(2));
-      setDenomCounts({});
-    }
-  }, [branchId, openShift?.id, openMetrics?.expectedCashCents]);
+    setCountedCashInput('');
+    setDenomCounts({});
+  }, [branchId, openShift?.id]);
 
   function updateDenom(key: string, rawValue: string) {
     const parsed = Math.max(0, Math.min(9999, Math.floor(Number(rawValue) || 0)));
@@ -90,17 +90,19 @@ export function CajaView({
         (acc, item) => acc + (next[item.key] ?? 0) * item.cents,
         0,
       );
-      setCountedCashInput((sumCents / 100).toFixed(2));
+      const hasAny = Object.values(next).some((v) => v > 0);
+      setCountedCashInput(hasAny ? (sumCents / 100).toFixed(2) : '');
       return next;
     });
   }
 
   function clearDenoms() {
     setDenomCounts({});
-    setCountedCashInput('0.00');
+    setCountedCashInput('');
   }
 
-  const parsedCountedCents = parsePesosToCents(countedCashInput);
+  const hasCountedValue = countedCashInput.trim().length > 0;
+  const parsedCountedCents = hasCountedValue ? parsePesosToCents(countedCashInput) : null;
   const liveDiffCents =
     openMetrics && parsedCountedCents !== null
       ? parsedCountedCents - openMetrics.expectedCashCents
@@ -131,14 +133,14 @@ export function CajaView({
 
   function handleClose(event: React.FormEvent) {
     event.preventDefault();
-    const cents = parsePesosToCents(countedCashInput);
+    const cents = countedCashInput.trim() ? parsePesosToCents(countedCashInput) : null;
     if (cents === null) {
       setFeedbackAction('close');
-      setFeedback({ type: 'error', text: 'Captura un efectivo contado válido en MXN.' });
+      setFeedback({ type: 'error', text: 'Cuenta billetes/monedas o captura el efectivo contado en MXN antes de cerrar.' });
       return;
     }
     void saveCashAction('close', () => onCloseShift(branchId, cents),
-      `Corte guardado en ${branch.name}.`, 'No se pudo cerrar el turno.');
+      `Corte guardado en ${branchName}.`, 'No se pudo cerrar el turno.');
   }
 
   function handleOpen() {
@@ -149,7 +151,7 @@ export function CajaView({
       return;
     }
     void saveCashAction('open', () => onOpenNewShift(branchId, amount),
-      `Nuevo turno abierto en ${branch.name}.`, 'No se pudo abrir el turno.');
+      `Nuevo turno abierto en ${branchName}.`, 'No se pudo abrir el turno.');
   }
 
   function handleMovement(event: React.FormEvent) {
@@ -175,7 +177,7 @@ export function CajaView({
         ? { closingDate: testDate, enforce2300Rule: false }
         : { enforce2300Rule: true });
       setNightFeedback(result.ok
-        ? { type: 'success', text: `Cierre nocturno verificado para ${branch.name}.` }
+        ? { type: 'success', text: `Cierre diario verificado para ${branchName}.` }
         : { type: 'error', text: result.error ?? 'No se pudo ejecutar el cierre.' });
     }, () => setNightFeedback({
       type: 'error',
@@ -188,11 +190,14 @@ export function CajaView({
       <section className="card">
         <h2 className="card-title">
           <span>
-            Caja · {branch.name} {openShift ? `· Turno #${openShift.number} (Abierto)` : '· Sin turno abierto'}
+            Caja · {branchName} {openShift ? `· Turno #${openShift.number} (Abierto)` : '· Sin turno abierto'}
           </span>
-          <span className={`badge ${openShift ? 'badge-success' : 'badge-warning'}`}>
-            {openShift ? `Turno #${openShift.number}` : 'Caja cerrada'}
-          </span>
+          <div className="card-title-actions">
+            {roleContextLabel && <span className="badge badge-info">{roleContextLabel}</span>}
+            <span className={`badge ${openShift ? 'badge-success' : 'badge-warning'}`}>
+              {openShift ? `Turno #${openShift.number}` : 'Caja cerrada'}
+            </span>
+          </div>
         </h2>
 
         {feedback && feedbackAction !== 'movement' && (
@@ -206,20 +211,20 @@ export function CajaView({
             <div className="metrics-grid">
               <div className="metric-box">
                 <div className="metric-label">Efectivo esperado</div>
-                <div className="metric-value">{formatMxn(openMetrics.expectedCashCents)}</div>
+                <div className="metric-value">{formatMxnCurrency(openMetrics.expectedCashCents)}</div>
               </div>
               <div className="metric-box">
                 <div className="metric-label">Tarjeta confirmada</div>
-                <div className="metric-value">{formatMxn(openMetrics.confirmedCardCents)}</div>
+                <div className="metric-value">{formatMxnCurrency(openMetrics.confirmedCardCents)}</div>
               </div>
               <div className="metric-box">
                 <div className="metric-label">Transferencia confirmada</div>
-                <div className="metric-value">{formatMxn(openMetrics.confirmedTransferCents)}</div>
+                <div className="metric-value">{formatMxnCurrency(openMetrics.confirmedTransferCents)}</div>
               </div>
               <div className="metric-box">
                 <div className="metric-label">Saldo pendiente (sucursal)</div>
                 <div className="metric-value" style={{ color: openMetrics.pendingBalanceCents > 0 ? 'var(--warning)' : 'inherit' }}>
-                  {formatMxn(openMetrics.pendingBalanceCents)}
+                  {formatMxnCurrency(openMetrics.pendingBalanceCents)}
                 </div>
               </div>
             </div>
@@ -301,11 +306,16 @@ export function CajaView({
                       id="counted-cash"
                       className="input"
                       inputMode="decimal"
+                      placeholder="Cuenta arriba o captura el total (ej. 1355.00)"
                       value={countedCashInput}
                       onChange={(e) => setCountedCashInput(e.target.value)}
                     />
                   </div>
-                  <button type="submit" className="btn btn-danger" disabled={pending !== null}>
+                  <button
+                    type="submit"
+                    className="btn btn-danger"
+                    disabled={pending !== null || parsedCountedCents === null}
+                  >
                     <Lock size={18} />
                     {pending === 'close' ? 'Guardando corte…' : `Cerrar turno #${openShift.number} y guardar corte`}
                   </button>
@@ -316,7 +326,7 @@ export function CajaView({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <p className="muted" style={{ margin: 0 }}>
-              No hay un turno abierto en <strong>{branch.name}</strong>. Abre un turno nuevo para registrar ventas o confirmar pagos pendientes.
+              No hay un turno abierto en <strong>{branchName}</strong>. Abre un turno nuevo para registrar ventas o confirmar pagos pendientes.
             </p>
             {canManage && <div className="cash-controls">
               <label className="field">Fondo inicial (MXN)
@@ -329,7 +339,7 @@ export function CajaView({
                 onClick={handleOpen}
               >
                 <PlayCircle size={18} />
-                {pending === 'open' ? 'Abriendo turno…' : `Abrir turno nuevo en ${branch.name}`}
+                {pending === 'open' ? 'Abriendo turno…' : `Abrir turno nuevo en ${branchName}`}
               </button>
             </div>}
           </div>
@@ -382,7 +392,7 @@ export function CajaView({
       {/* Historial de turnos */}
       <section className="card">
         <h2 className="card-title">
-          <span>Historial de turnos · {branch.name}</span>
+          <span>Historial de turnos · {branchName}</span>
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -455,7 +465,7 @@ export function CajaView({
         <h2 className="card-title">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <MoonStar size={18} aria-hidden="true" />
-            Cierre nocturno (23:00) y reportes · {branch.name}
+            Cierre diario / nocturno (23:00) · {branchName}
           </span>
           <span className="badge badge-info">{branchNightClosings.length} reporte(s)</span>
         </h2>
@@ -508,27 +518,36 @@ export function CajaView({
 
         {branchNightClosings.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
-            Aún no hay reportes de cierre nocturno guardados para {branch.name}.
+            Aún no hay reportes de cierre guardados para {branchName}.
           </p>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
-            {branchNightClosings.map((report) => (
-              <details key={report.id} className="night-closing-card">
-                <summary>
-                  <div>
-                    <strong>{report.closingDate}</strong> · {branch.name}{' '}
-                    <span className={`badge ${report.wasAutoClosed ? 'badge-warning' : 'badge-success'}`}>
-                      {report.wasAutoClosed ? `Turno #${report.shiftNumber ?? '-'} cerrado 23:00` : 'Corte manual previo'}
-                    </span>
-                  </div>
-                  <strong>{formatMxn(report.totalConfirmedCents)} confirmado</strong>
-                </summary>
-                <pre className="night-report-pre">{report.reportText}</pre>
-                <small className="muted">
-                  Ejecutado: {new Date(report.executedAt).toLocaleString('es-MX')} · {report.executedBy}
-                </small>
-              </details>
-            ))}
+            {branchNightClosings.map((report) => {
+              const execTime = new Date(report.executedAt).toLocaleTimeString('es-MX', {
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              const is2300 = report.reportText.includes('23:00');
+              return (
+                <details key={report.id} className="night-closing-card">
+                  <summary>
+                    <div>
+                      <strong>{report.closingDate}</strong> · {branchName}{' '}
+                      <span className={`badge ${report.wasAutoClosed ? 'badge-warning' : 'badge-success'}`}>
+                        {report.wasAutoClosed
+                          ? `Turno #${report.shiftNumber ?? '-'} · ${is2300 ? 'Auto 23:00' : `Corte ${execTime}`}`
+                          : `Corte manual · ${execTime}`}
+                      </span>
+                    </div>
+                    <strong>{formatMxnCurrency(report.totalConfirmedCents)} confirmado</strong>
+                  </summary>
+                  <pre className="night-report-pre">{report.reportText}</pre>
+                  <small className="muted">
+                    Ejecutado: {new Date(report.executedAt).toLocaleString('es-MX')} · {report.executedBy}
+                  </small>
+                </details>
+              );
+            })}
           </div>
         )}
       </section>

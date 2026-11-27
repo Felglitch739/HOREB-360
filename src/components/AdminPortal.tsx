@@ -9,6 +9,7 @@ import {
   Clock,
   FileSpreadsheet,
   LayoutDashboard,
+  LogOut,
   Menu,
   MoonStar,
   PackageCheck,
@@ -22,26 +23,38 @@ import {
   X,
 } from 'lucide-react';
 import { exportAdminConsolidatedToExcel, exportShiftsToExcel } from '../domain/excelExport';
-import { formatMxn } from '../domain/money';
+import { formatMxnCurrency, parsePesosToCents } from '../domain/money';
 import type { AdminTourTabId, TourTabId } from '../domain/sandboxManual';
 import {
   BRANCHES,
   ENCARGO_STAGES,
+  buildDailyRevenueTrend,
+  canDeliverOrder,
   getBranchCatalog,
-  getBranchInfo,
+  getBranchDisplayName,
   getBranchMachines,
   getBranchSettings,
   getBranchSummary,
   getGlobalAdminTotals,
   getOpenShift,
+  getOrderPaymentLines,
   getOrderPendingCents,
   getShiftMetrics,
 } from '../domain/rules';
-import type { BranchId, BranchSettings, CashMovement, EncargoStage, MachineKind, MachineStatus } from '../domain/types';
+import type {
+  BranchId,
+  BranchSettings,
+  CashMovement,
+  EncargoStage,
+  MachineKind,
+  MachineStatus,
+  PaymentMethod,
+} from '../domain/types';
 import type { Operation } from '../domain/operations';
 import type { SharedWorkspace } from '../Root';
 import type { BrandTheme } from '../theme';
 import { AdminFloorPlan } from './AdminFloorPlan';
+import { OrderCard } from './OrderCard';
 import { SharedStatus } from './SharedStatus';
 
 const AdminView = lazy(() => import('./AdminView').then((m) => ({ default: m.AdminView })));
@@ -49,6 +62,7 @@ const AjustesView = lazy(() => import('./AjustesView').then((m) => ({ default: m
 const AppTour = lazy(() => import('./AppTour').then((m) => ({ default: m.AppTour })));
 const CajaView = lazy(() => import('./CajaView').then((m) => ({ default: m.CajaView })));
 const ClientesView = lazy(() => import('./ClientesView').then((m) => ({ default: m.ClientesView })));
+const TicketModal = lazy(() => import('./TicketModal').then((m) => ({ default: m.TicketModal })));
 
 const ADMIN_NAV = [
   { id: 'resumen', label: 'Centro de Control', icon: LayoutDashboard },
@@ -99,6 +113,14 @@ export function AdminPortal({
   const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>('activas');
   const [inspectBranchId, setInspectBranchId] = useState<BranchId | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('caja');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [orderActionError, setOrderActionError] = useState<string | null>(null);
+  const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
+  const [drawerCollectOpen, setDrawerCollectOpen] = useState(false);
+  const [drawerPayMethod, setDrawerPayMethod] = useState<PaymentMethod>('efectivo');
+  const [drawerPayAmount, setDrawerPayAmount] = useState('');
+  const [drawerPayRef, setDrawerPayRef] = useState('');
+  const [drawerCollecting, setDrawerCollecting] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -121,13 +143,21 @@ export function AdminPortal({
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    if (!inspectBranchId) return;
+    if (!inspectBranchId && !selectedOrderId && !ticketOrderId) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setInspectBranchId(null);
+      if (e.key !== 'Escape') return;
+      if (ticketOrderId) {
+        setTicketOrderId(null);
+      } else if (selectedOrderId) {
+        setSelectedOrderId(null);
+        setDrawerCollectOpen(false);
+      } else if (inspectBranchId) {
+        setInspectBranchId(null);
+      }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [inspectBranchId]);
+  }, [inspectBranchId, selectedOrderId, ticketOrderId]);
 
   const activeBranchId: BranchId =
     scopeBranch !== 'all'
@@ -135,7 +165,7 @@ export function AdminPortal({
       : visibleBranches.find((b) => b.id === focusedBranch)?.id ??
         visibleBranches[0]?.id ??
         state.activeBranchId;
-  const activeBranch = getBranchInfo(activeBranchId);
+  const activeBranchName = getBranchDisplayName(state, activeBranchId);
   const activeRole = shared.roles[activeBranchId] ?? 'supervisor';
   const activeSettings = getBranchSettings(state, activeBranchId);
 
@@ -180,20 +210,14 @@ export function AdminPortal({
   const avgTicketCents =
     totals.orderCount > 0 ? Math.round(totals.totalConfirmedCents / totals.orderCount) : 0;
 
-  // 7-day consolidated chart
+  // 7-day consolidated chart using single source of truth
   const today = new Date();
   const scopedOrderIds = new Set(scopedOrders.map((o) => o.id));
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + index);
-    const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
-    const total = state.paymentLines.reduce((sum, line) => {
-      if (!line.confirmedAt || !scopedOrderIds.has(line.orderId)) return sum;
-      const ts = new Date(line.confirmedAt);
-      return ts >= date && ts < end ? sum + line.amountCents : sum;
-    }, 0);
-    return { date, total };
-  });
-  const maxDayTotal = Math.max(1, ...days.map((d) => d.total));
+  const trend = buildDailyRevenueTrend(state, scopedOrderIds, 7, today);
+  const days = trend.days;
+  const maxDayTotal = Math.max(1, ...days.map((d) => d.totalCents));
+  const shortDateFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short' });
+  const trendRangeLabel = `${shortDateFmt.format(trend.startDate)} – ${shortDateFmt.format(trend.endDate)}`;
 
   function navigate(tab: AdminTabId) {
     setActiveTab(tab);
@@ -222,7 +246,7 @@ export function AdminPortal({
   const maxBranchRevenue = Math.max(1, ...allBranchRows.map((r) => r.totalConfirmedCents));
 
   // Inspector data when open
-  const inspectedInfo = inspectBranchId ? getBranchInfo(inspectBranchId) : null;
+  const inspectedBranchName = inspectBranchId ? getBranchDisplayName(state, inspectBranchId) : null;
   const inspectedShift = inspectBranchId ? getOpenShift(state, inspectBranchId) : null;
   const inspectedShiftMetrics = inspectedShift ? getShiftMetrics(state, inspectedShift.id) : null;
   const inspectedSummary = inspectBranchId ? getBranchSummary(state, inspectBranchId) : null;
@@ -239,6 +263,13 @@ export function AdminPortal({
     ? (state.nightClosings ?? [])
         .filter((nc) => nc.branchId === inspectBranchId)
         .sort((a, b) => b.closingDate.localeCompare(a.closingDate))[0] ?? null
+    : null;
+
+  const selectedOrder = selectedOrderId
+    ? state.orders.find((o) => o.id === selectedOrderId) ?? null
+    : null;
+  const ticketOrder = ticketOrderId
+    ? state.orders.find((o) => o.id === ticketOrderId) ?? null
     : null;
 
   return (
@@ -303,8 +334,9 @@ export function AdminPortal({
           </nav>
 
           <SharedStatus
-            branchName={scopeBranch === 'all' ? `${visibleBranches.length} sucursales` : activeBranch.name}
+            branchName={scopeBranch === 'all' ? `${visibleBranches.length} sucursales` : activeBranchName}
             role={activeRole}
+            userEmail={shared.userEmail}
             isOnline={shared.isOnline}
             pendingSyncCount={shared.pendingSyncCount}
             syncing={shared.syncing}
@@ -318,6 +350,13 @@ export function AdminPortal({
               onClick={() => navigate('ajustes')}
             >
               <Settings size={17} aria-hidden="true" /> Ajustes
+            </button>
+            <button
+              type="button"
+              className="reset-button sidebar-logout-btn"
+              onClick={shared.signOut}
+            >
+              <LogOut size={17} aria-hidden="true" /> Cerrar sesión
             </button>
           </div>
         </div>
@@ -377,9 +416,9 @@ export function AdminPortal({
                 <h1 className="admin-hero-h1">{activeLabel}</h1>
                 <p className="admin-hero-sub">
                   {formatSpanishDate(today)} ·{' '}
-                  {scopeBranch === 'all' && (activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas')
+                  {scopeBranch === 'all' && (activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'clientes')
                     ? `Todas las sucursales (${visibleBranches.length})`
-                    : `Sucursal ${activeBranch.name}`}
+                    : `Sucursal ${activeBranchName}`}
                 </p>
               </div>
             </div>
@@ -387,7 +426,7 @@ export function AdminPortal({
             <div className="admin-hero-controls">
               {/* Branch scope pills */}
               <div className="admin-branch-pills" role="group" aria-label="Alcance de sucursal">
-                {(activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas') && (
+                {(activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'clientes') && (
                   <button
                     type="button"
                     className={`admin-branch-pill${scopeBranch === 'all' ? ' active' : ''}`}
@@ -399,7 +438,7 @@ export function AdminPortal({
                 )}
                 {visibleBranches.map((branch) => {
                   const isActive =
-                    activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas'
+                    activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'clientes'
                       ? scopeBranch === branch.id
                       : activeBranchId === branch.id;
                   return (
@@ -413,7 +452,7 @@ export function AdminPortal({
                         setScopeBranch(branch.id);
                       }}
                     >
-                      {branch.name}
+                      {getBranchDisplayName(state, branch.id)}
                     </button>
                   );
                 })}
@@ -504,9 +543,9 @@ export function AdminPortal({
               <div className="admin-kpi-grid" data-tour="overview-stats">
                 <div className="admin-kpi-card accent">
                   <span className="admin-eyebrow">Ingresos confirmados</span>
-                  <strong className="admin-kpi-number">{formatMxn(totals.totalConfirmedCents)}</strong>
+                  <strong className="admin-kpi-number">{formatMxnCurrency(totals.totalConfirmedCents)}</strong>
                   <span className="admin-kpi-meta">
-                    {totals.orderCount} órdenes · Ticket prom. {formatMxn(avgTicketCents)}
+                    {totals.orderCount} órdenes · Ticket prom. {formatMxnCurrency(avgTicketCents)}
                   </span>
                 </div>
 
@@ -514,7 +553,7 @@ export function AdminPortal({
                   <span className="admin-eyebrow">En proceso ahora</span>
                   <strong className="admin-kpi-number">{activeEncargos.length}</strong>
                   <span className="admin-kpi-meta">
-                    {countLavado} lavando · {countSecado} secando · {countListo} listos
+                    {countRecibido} recib. · {countLavado} lav. · {countSecado} sec. · {countListo} listos
                   </span>
                 </div>
 
@@ -524,7 +563,7 @@ export function AdminPortal({
                     className="admin-kpi-number"
                     style={{ color: totals.pendingCents > 0 ? 'var(--warning)' : 'inherit' }}
                   >
-                    {formatMxn(totals.pendingCents)}
+                    {formatMxnCurrency(totals.pendingCents)}
                   </strong>
                   <span className="admin-kpi-meta">
                     {pendingPaymentOrders.length} orden(es) con saldo pendiente
@@ -588,11 +627,13 @@ export function AdminPortal({
                   <div className="admin-live-orders-grid">
                     {pipelineOrders.slice(0, 12).map((order) => {
                       const pending = getOrderPendingCents(state, order.id);
-                      const branchName = getBranchInfo(order.branchId).name;
+                      const branchName = getBranchDisplayName(state, order.branchId);
                       const stageLabel = order.encargoStage
                         ? STAGE_LABELS[order.encargoStage]
                         : 'Autoservicio';
-                      const timeStr = new Date(order.createdAt).toLocaleTimeString('es-MX', {
+                      const dateTimeStr = new Date(order.createdAt).toLocaleString('es-MX', {
+                        day: '2-digit',
+                        month: 'short',
                         hour: '2-digit',
                         minute: '2-digit',
                       });
@@ -602,7 +643,11 @@ export function AdminPortal({
                           key={order.id}
                           type="button"
                           className="admin-live-order-card"
-                          onClick={() => openBranchInspector(order.branchId, 'ordenes')}
+                          onClick={() => {
+                            setOrderActionError(null);
+                            setDrawerCollectOpen(false);
+                            setSelectedOrderId(order.id);
+                          }}
                         >
                           <div className="admin-live-order-top">
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -623,17 +668,17 @@ export function AdminPortal({
                           </div>
                           <div className="admin-live-order-mid">
                             <span>{order.customerAlias || 'Mostrador'}</span>
-                            <strong>{formatMxn(order.totalCents)}</strong>
+                            <strong>{formatMxnCurrency(order.totalCents)}</strong>
                           </div>
                           <div className="admin-live-order-foot">
-                            <small className="muted">{timeStr}</small>
+                            <small className="muted">{dateTimeStr}</small>
                             {order.assignedMachineLabels && order.assignedMachineLabels.length > 0 && (
                               <small className="badge badge-info">
                                 {order.assignedMachineLabels.join(', ')}
                               </small>
                             )}
                             {pending > 0 ? (
-                              <small className="badge badge-warning">Pend. {formatMxn(pending)}</small>
+                              <small className="badge badge-warning">Pend. {formatMxnCurrency(pending)}</small>
                             ) : (
                               <small style={{ color: 'var(--success)', fontWeight: 700 }}>Pagado</small>
                             )}
@@ -671,7 +716,7 @@ export function AdminPortal({
                       return (
                         <article key={bId} className="admin-branch-card">
                           <div className="admin-branch-card-head">
-                            <strong>{row.branch.name}</strong>
+                            <strong>{getBranchDisplayName(state, bId)}</strong>
                             <span className={`badge ${shift ? 'badge-success' : 'badge-warning'}`}>
                               {shift ? `Turno #${shift.number}` : 'Cerrada'}
                             </span>
@@ -680,7 +725,7 @@ export function AdminPortal({
                           {/* Revenue bar */}
                           <div className="branch-rev-bar-wrap">
                             <div className="branch-rev-bar-head">
-                              <strong>{formatMxn(bSummary.totalConfirmedCents)}</strong>
+                              <strong>{formatMxnCurrency(bSummary.totalConfirmedCents)}</strong>
                               <small className="muted">{row.orderCount} folios</small>
                             </div>
                             <div className="loyalty-progress-track">
@@ -744,21 +789,27 @@ export function AdminPortal({
                   <div className="section-head">
                     <div>
                       <h2>Tendencia de ingresos</h2>
-                      <p>Últimos 7 días confirmados</p>
+                      <p>
+                        {trend.anchoredToHistory
+                          ? `Últimos 7 días con actividad (${trendRangeLabel})`
+                          : `Últimos 7 días confirmados (${trendRangeLabel})`}
+                      </p>
                     </div>
                   </div>
                   <div className="chart-summary">
                     <strong>
-                      {formatMxn(
+                      {formatMxnCurrency(
                         selectedDayIdx !== null
-                          ? days[selectedDayIdx].total
-                          : days.reduce((sum, day) => sum + day.total, 0),
+                          ? days[selectedDayIdx].totalCents
+                          : trend.periodTotalCents,
                       )}
                     </strong>
                     <span>
                       {selectedDayIdx !== null
                         ? dayLabelFmt.format(days[selectedDayIdx].date)
-                        : 'Total 7 días'}
+                        : trend.historicalTotalCents !== trend.periodTotalCents
+                          ? `Ventana 7 días · Histórico: ${formatMxnCurrency(trend.historicalTotalCents)}`
+                          : 'Total 7 días'}
                     </span>
                   </div>
                   <div className="histogram" aria-label="Ingresos consolidados por día">
@@ -770,7 +821,7 @@ export function AdminPortal({
                           key={day.date.toISOString()}
                           className={`chart-column chart-column-btn${isSelected ? ' selected' : ''}`}
                           aria-pressed={isSelected}
-                          title={dayLabelFmt.format(day.date) + ' · ' + formatMxn(day.total)}
+                          title={dayLabelFmt.format(day.date) + ' · ' + formatMxnCurrency(day.totalCents)}
                           onClick={() => setSelectedDayIdx((prev) => (prev === index ? null : index))}
                         >
                           <div className="bar-track">
@@ -780,7 +831,7 @@ export function AdminPortal({
                                 (index === 6 ? ' current' : '') +
                                 (isSelected ? ' selected' : '')
                               }
-                              style={{ height: Math.max(day.total ? 6 : 2, (day.total / maxDayTotal) * 100) + '%' }}
+                              style={{ height: Math.max(day.totalCents ? 6 : 2, (day.totalCents / maxDayTotal) * 100) + '%' }}
                             />
                           </div>
                           <span>{weekdayFmt.format(day.date).replace('.', '')}</span>
@@ -804,9 +855,18 @@ export function AdminPortal({
                   setScopeBranch(next);
                   if (next !== 'all') setFocusedBranch(next);
                 }}
-                onUpsertMachine={(branch, machine: { id?: string; code: string; name: string; kind: MachineKind }) =>
-                  run(branch, { action: 'upsertMachine', machine })
-                }
+                onUpsertMachine={(
+                  branch,
+                  machine: {
+                    id?: string;
+                    code: string;
+                    name: string;
+                    kind: MachineKind;
+                    model?: string;
+                    serialNumber?: string;
+                    capacityKg?: number;
+                  },
+                ) => run(branch, { action: 'upsertMachine', machine })}
                 onDeleteMachine={(branch, machineId) => run(branch, { action: 'deleteMachine', machineId })}
                 onSeedSampleMachines={(branch) => run(branch, { action: 'seedSampleMachines' })}
                 onSetMachineStatus={(
@@ -882,7 +942,7 @@ export function AdminPortal({
                                 return (
                                   <tr role="row" key={shift.id}>
                                     <td role="cell" data-row-heading>
-                                      <strong>{getBranchInfo(shift.branchId).name}</strong>
+                                      <strong>{getBranchDisplayName(state, shift.branchId)}</strong>
                                     </td>
                                     <td role="cell" data-label="Turno">Turno #{shift.number}</td>
                                     <td role="cell" data-label="Estado">
@@ -891,10 +951,10 @@ export function AdminPortal({
                                       </span>
                                     </td>
                                     <td role="cell" data-label="Efectivo esp." className="num">
-                                      {formatMxn(m.expectedCashCents)}
+                                      {formatMxnCurrency(m.expectedCashCents)}
                                     </td>
                                     <td role="cell" data-label="Contado" className="num">
-                                      {shift.status === 'cerrado' ? formatMxn(m.countedCashCents) : '—'}
+                                      {shift.status === 'cerrado' ? formatMxnCurrency(m.countedCashCents) : '—'}
                                     </td>
                                     <td
                                       role="cell"
@@ -910,11 +970,11 @@ export function AdminPortal({
                                       }`}
                                     >
                                       {shift.status === 'cerrado'
-                                        ? `${m.differenceCents > 0 ? '+' : ''}${formatMxn(m.differenceCents)}`
+                                        ? `${m.differenceCents > 0 ? '+' : ''}${formatMxnCurrency(m.differenceCents)}`
                                         : '—'}
                                     </td>
                                     <td role="cell" data-label="Tarjeta + Transf." className="num">
-                                      {formatMxn(m.confirmedCardCents + m.confirmedTransferCents)}
+                                      {formatMxnCurrency(m.confirmedCardCents + m.confirmedTransferCents)}
                                     </td>
                                     <td role="cell" data-label="Acción" className="num">
                                       <button
@@ -936,12 +996,12 @@ export function AdminPortal({
                       </div>
                     </section>
 
-                    {/* Cierres nocturnos consolidados (23:00) */}
+                    {/* Cierres de día y nocturnos consolidados */}
                     <section className="card">
                       <h2 className="card-title">
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                           <MoonStar size={18} aria-hidden="true" />
-                          Cierres nocturnos (23:00) · Todas las sucursales
+                          Cierres de día y nocturnos · Todas las sucursales
                         </span>
                         <span className="badge badge-info">
                           {(state.nightClosings ?? []).filter((nc) => scopedSet.has(nc.branchId)).length} reporte(s)
@@ -949,30 +1009,42 @@ export function AdminPortal({
                       </h2>
                       {(state.nightClosings ?? []).filter((nc) => scopedSet.has(nc.branchId)).length === 0 ? (
                         <p className="muted" style={{ margin: 0 }}>
-                          Aún no hay reportes de cierre nocturno guardados. Selecciona una sucursal arriba para gestionar su caja y cierres.
+                          Aún no hay reportes de cierre guardados. Selecciona una sucursal arriba para gestionar su caja y cierres.
                         </p>
                       ) : (
                         <div style={{ display: 'grid', gap: 10 }}>
                           {(state.nightClosings ?? [])
                             .filter((nc) => scopedSet.has(nc.branchId))
                             .sort((a, b) => b.closingDate.localeCompare(a.closingDate))
-                            .map((report) => (
-                              <details key={report.id} className="night-closing-card">
-                                <summary>
-                                  <div>
-                                    <strong>{report.closingDate}</strong> · {getBranchInfo(report.branchId).name}{' '}
-                                    <span className={`badge ${report.wasAutoClosed ? 'badge-warning' : 'badge-success'}`}>
-                                      {report.wasAutoClosed ? `Auto 23:00 (#${report.shiftNumber ?? '-'})` : 'Corte manual'}
-                                    </span>
-                                  </div>
-                                  <strong>{formatMxn(report.totalConfirmedCents)} confirmado</strong>
-                                </summary>
-                                <pre className="night-report-pre">{report.reportText}</pre>
-                                <small className="muted">
-                                  Ejecutado: {new Date(report.executedAt).toLocaleString('es-MX')} · {report.executedBy}
-                                </small>
-                              </details>
-                            ))}
+                            .map((report) => {
+                              const execTime = new Date(report.executedAt).toLocaleTimeString('es-MX', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false,
+                              });
+                              const isScheduled2300 = report.wasAutoClosed && report.reportText.includes('23:00');
+                              return (
+                                <details key={report.id} className="night-closing-card">
+                                  <summary>
+                                    <div>
+                                      <strong>{report.closingDate}</strong> · {getBranchDisplayName(state, report.branchId)}{' '}
+                                      <span className={`badge ${report.wasAutoClosed ? 'badge-warning' : 'badge-success'}`}>
+                                        {isScheduled2300
+                                          ? `Auto 23:00 (#${report.shiftNumber ?? '-'})`
+                                          : report.wasAutoClosed
+                                            ? `Corte ${execTime} (#${report.shiftNumber ?? '-'})`
+                                            : `Corte manual · ${execTime}`}
+                                      </span>
+                                    </div>
+                                    <strong>{formatMxnCurrency(report.totalConfirmedCents)} confirmado</strong>
+                                  </summary>
+                                  <pre className="night-report-pre">{report.reportText}</pre>
+                                  <small className="muted">
+                                    Ejecutado: {new Date(report.executedAt).toLocaleString('es-MX')} · {report.executedBy}
+                                  </small>
+                                </details>
+                              );
+                            })}
                         </div>
                       )}
                     </section>
@@ -983,6 +1055,7 @@ export function AdminPortal({
                     state={state}
                     branchId={activeBranchId}
                     canManage={activeRole === 'supervisor'}
+                    roleContextLabel="Vista Dirección"
                     onCloseShift={(branch, amount) => run(branch, { action: 'closeShift', amount })}
                     onOpenNewShift={(branch, amount) => run(branch, { action: 'openShift', amount })}
                     onMovement={(branch, kind: CashMovement['kind'], amount, reason) =>
@@ -1016,6 +1089,8 @@ export function AdminPortal({
                 <ClientesView
                   state={state}
                   branchId={activeBranchId}
+                  scopeBranch={scopeBranch}
+                  visibleBranches={branchIds}
                   role={activeRole}
                   onUpsertCustomer={(branch, customer) =>
                     run(branch, { action: 'upsertCustomer', customer })
@@ -1044,8 +1119,9 @@ export function AdminPortal({
               <AjustesView
                 key={activeBranchId}
                 branchId={activeBranchId}
-                branchName={activeBranch.name}
+                branchName={activeBranchName}
                 role={activeRole}
+                userEmail={shared.userEmail}
                 isOnline={shared.isOnline}
                 settings={activeSettings}
                 catalog={getBranchCatalog(state, activeBranchId)}
@@ -1058,6 +1134,7 @@ export function AdminPortal({
                 onStartTour={() => setTourOpen(true)}
                 onReload={shared.reload}
                 onSignOut={shared.signOut}
+                onUpdatePassword={shared.updatePassword}
                 modeSwitcher={{
                   title: 'Vista de Empleado / Mostrador',
                   description:
@@ -1072,7 +1149,7 @@ export function AdminPortal({
       </div>
 
       {/* ================= EXECUTIVE BRANCH INSPECTOR DRAWER ================= */}
-      {inspectBranchId && inspectedInfo && inspectedSummary && (
+      {inspectBranchId && inspectedBranchName && inspectedSummary && (
         <div
           className="orders-drawer-backdrop"
           onClick={(e) => {
@@ -1083,11 +1160,11 @@ export function AdminPortal({
             className="orders-drawer admin-inspector-drawer"
             role="dialog"
             aria-modal="true"
-            aria-label={`Inspector de ${inspectedInfo.name}`}
+            aria-label={`Inspector de ${inspectedBranchName}`}
           >
             <div className="orders-drawer-head">
               <div className="orders-drawer-title-group">
-                <h2>{inspectedInfo.name}</h2>
+                <h2>{inspectedBranchName}</h2>
                 <span className={`badge ${inspectedShift ? 'badge-success' : 'badge-warning'}`}>
                   {inspectedShift ? `Turno #${inspectedShift.number} abierto` : 'Caja cerrada'}
                 </span>
@@ -1138,20 +1215,20 @@ export function AdminPortal({
                   <div className="metrics-grid" style={{ marginBottom: 0 }}>
                     <div className="metric-box">
                       <span className="metric-label">Confirmado</span>
-                      <strong className="metric-value">{formatMxn(inspectedSummary.totalConfirmedCents)}</strong>
+                      <strong className="metric-value">{formatMxnCurrency(inspectedSummary.totalConfirmedCents)}</strong>
                     </div>
                     <div className="metric-box">
                       <span className="metric-label">Efectivo esperado</span>
                       <strong className="metric-value">
                         {inspectedShiftMetrics
-                          ? formatMxn(inspectedShiftMetrics.expectedCashCents)
-                          : formatMxn(inspectedSummary.cashCents)}
+                          ? formatMxnCurrency(inspectedShiftMetrics.expectedCashCents)
+                          : formatMxnCurrency(inspectedSummary.cashCents)}
                       </strong>
                     </div>
                     <div className="metric-box">
                       <span className="metric-label">Tarjeta / Transf.</span>
                       <strong className="metric-value">
-                        {formatMxn(inspectedSummary.cardCents + inspectedSummary.transferCents)}
+                        {formatMxnCurrency(inspectedSummary.cardCents + inspectedSummary.transferCents)}
                       </strong>
                     </div>
                     <div className="metric-box">
@@ -1160,7 +1237,7 @@ export function AdminPortal({
                         className="metric-value"
                         style={{ color: inspectedSummary.pendingCents > 0 ? 'var(--warning)' : 'inherit' }}
                       >
-                        {formatMxn(inspectedSummary.pendingCents)}
+                        {formatMxnCurrency(inspectedSummary.pendingCents)}
                       </strong>
                     </div>
                   </div>
@@ -1171,7 +1248,7 @@ export function AdminPortal({
                         Turno #{inspectedShift.number} en curso
                       </strong>
                       <small className="muted" style={{ display: 'block' }}>
-                        Fondo inicial: <strong>{formatMxn(inspectedShift.openingCashCents ?? 0)}</strong> ·
+                        Fondo inicial: <strong>{formatMxnCurrency(inspectedShift.openingCashCents ?? 0)}</strong> ·
                         Movimientos: <strong>{inspectedShift.cashMovements?.length ?? 0}</strong>
                       </small>
                       {(inspectedShift.cashMovements ?? []).length > 0 && (
@@ -1181,7 +1258,7 @@ export function AdminPortal({
                               <span>
                                 {mov.kind === 'entrada' ? 'Entrada' : 'Retiro'}: {mov.reason}
                               </span>
-                              <span>{formatMxn(mov.amountCents)}</span>
+                              <span>{formatMxnCurrency(mov.amountCents)}</span>
                             </li>
                           ))}
                         </ul>
@@ -1192,12 +1269,12 @@ export function AdminPortal({
                   {inspectedLastClosing && (
                     <div className="card" style={{ padding: 12, background: 'var(--surface-alt)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <strong style={{ fontSize: '0.9rem' }}>Último cierre nocturno</strong>
+                        <strong style={{ fontSize: '0.9rem' }}>Último cierre guardado</strong>
                         <span className="badge badge-info">{inspectedLastClosing.closingDate}</span>
                       </div>
                       <small className="muted">
-                        Total confirmado: <strong>{formatMxn(inspectedLastClosing.totalConfirmedCents)}</strong> ·{' '}
-                        {inspectedLastClosing.wasAutoClosed ? 'Cierre automático 23:00' : 'Cierre manual'}
+                        Total confirmado: <strong>{formatMxnCurrency(inspectedLastClosing.totalConfirmedCents)}</strong> ·{' '}
+                        {inspectedLastClosing.wasAutoClosed ? 'Cierre automático' : 'Cierre manual'}
                       </small>
                     </div>
                   )}
@@ -1234,14 +1311,29 @@ export function AdminPortal({
                   {inspectedActiveOrders.length === 0 ? (
                     <p className="muted" style={{ margin: 0 }}>
                       <CheckCircle2 size={15} style={{ verticalAlign: 'text-bottom', marginRight: 5 }} />
-                      Sin encargos activos ni saldos pendientes en {inspectedInfo.name}.
+                      Sin encargos activos ni saldos pendientes en {inspectedBranchName}.
                     </p>
                   ) : (
                     <div style={{ display: 'grid', gap: 8 }}>
                       {inspectedActiveOrders.map((order) => {
                         const pending = getOrderPendingCents(state, order.id);
+                        const dateTimeStr = new Date(order.createdAt).toLocaleString('es-MX', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        });
                         return (
-                          <div key={order.id} className="admin-live-order-card static">
+                          <button
+                            key={order.id}
+                            type="button"
+                            className="admin-live-order-card"
+                            onClick={() => {
+                              setOrderActionError(null);
+                              setDrawerCollectOpen(false);
+                              setSelectedOrderId(order.id);
+                            }}
+                          >
                             <div className="admin-live-order-top">
                               <strong>{order.folio}</strong>
                               <span
@@ -1258,27 +1350,22 @@ export function AdminPortal({
                             </div>
                             <div className="admin-live-order-mid">
                               <span>{order.customerAlias || 'Mostrador'}</span>
-                              <strong>{formatMxn(order.totalCents)}</strong>
+                              <strong>{formatMxnCurrency(order.totalCents)}</strong>
                             </div>
                             <div className="admin-live-order-foot">
-                              <small className="muted">
-                                {new Date(order.createdAt).toLocaleTimeString('es-MX', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </small>
+                              <small className="muted">{dateTimeStr}</small>
                               {order.assignedMachineLabels && order.assignedMachineLabels.length > 0 && (
                                 <small className="badge badge-info">
                                   {order.assignedMachineLabels.join(', ')}
                                 </small>
                               )}
                               {pending > 0 ? (
-                                <small className="badge badge-warning">Pend. {formatMxn(pending)}</small>
+                                <small className="badge badge-warning">Pend. {formatMxnCurrency(pending)}</small>
                               ) : (
                                 <small style={{ color: 'var(--success)', fontWeight: 700 }}>Pagado</small>
                               )}
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
@@ -1290,7 +1377,7 @@ export function AdminPortal({
                 <>
                   {inspectedMachines.length === 0 ? (
                     <p className="muted" style={{ margin: 0 }}>
-                      No hay equipos registrados en {inspectedInfo.name}.
+                      No hay equipos registrados en {inspectedBranchName}.
                     </p>
                   ) : (
                     <div style={{ display: 'grid', gap: 8 }}>
@@ -1338,6 +1425,274 @@ export function AdminPortal({
           </aside>
         </div>
       )}
+
+      {/* ================= ORDER DETAIL DRAWER ================= */}
+      {selectedOrder && (
+        <div
+          className="orders-drawer-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setSelectedOrderId(null);
+              setDrawerCollectOpen(false);
+            }
+          }}
+        >
+          <aside
+            className="orders-drawer admin-inspector-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Detalle de orden ${selectedOrder.folio}`}
+          >
+            <div className="orders-drawer-head">
+              <div className="orders-drawer-title-group">
+                <h2>{selectedOrder.folio}</h2>
+                <span className="badge badge-info">
+                  {getBranchDisplayName(state, selectedOrder.branchId)}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm orders-drawer-close"
+                aria-label="Cerrar detalle de orden"
+                onClick={() => {
+                  setSelectedOrderId(null);
+                  setDrawerCollectOpen(false);
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="orders-drawer-body" style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+              {orderActionError && (
+                <div className="alert alert-danger" role="alert">
+                  <AlertTriangle size={16} />
+                  <span>{orderActionError}</span>
+                </div>
+              )}
+
+              <OrderCard
+                key={selectedOrder.id}
+                order={selectedOrder}
+                branchMachines={getBranchMachines(state, selectedOrder.branchId)}
+                paymentLines={getOrderPaymentLines(state, selectedOrder.id)}
+                ticket={state.tickets[selectedOrder.id]}
+                pendingCents={getOrderPendingCents(state, selectedOrder.id)}
+                deliverCheck={canDeliverOrder(state, selectedOrder.id)}
+                hasOpenShift={Boolean(getOpenShift(state, selectedOrder.branchId))}
+                initialExpanded
+                onStartCheckout={(order) => {
+                  const pend = getOrderPendingCents(state, order.id);
+                  setOrderActionError(null);
+                  setDrawerPayMethod('efectivo');
+                  setDrawerPayAmount(pend > 0 ? (pend / 100).toFixed(2) : '');
+                  setDrawerPayRef('');
+                  setDrawerCollectOpen((open) => !open);
+                }}
+                onConfirmPaymentLine={async (lineId, reference) => {
+                  const res = await run(selectedOrder.branchId, { action: 'confirm', lineId, reference });
+                  if (!res.ok) setOrderActionError(res.error ?? 'No se pudo confirmar el cobro.');
+                  else setOrderActionError(null);
+                }}
+                onOpenTicket={(orderId) => setTicketOrderId(orderId)}
+                onAdvanceEncargo={async (orderId, machineIds) => {
+                  const res = await run(selectedOrder.branchId, { action: 'advance', orderId, machineIds });
+                  if (!res.ok) setOrderActionError(res.error ?? 'No se pudo avanzar la etapa.');
+                  else setOrderActionError(null);
+                }}
+                onDeliverEncargo={async (orderId) => {
+                  const res = await run(selectedOrder.branchId, { action: 'deliver', orderId });
+                  if (!res.ok) setOrderActionError(res.error ?? 'No se pudo entregar la orden.');
+                  else setOrderActionError(null);
+                }}
+                onRecordWhatsappSent={async (orderId) => {
+                  const res = await run(selectedOrder.branchId, { action: 'recordWhatsappSent', orderId });
+                  if (!res.ok) setOrderActionError(res.error ?? 'No se pudo registrar el envío.');
+                  else setOrderActionError(null);
+                }}
+              />
+
+              {drawerCollectOpen && getOrderPendingCents(state, selectedOrder.id) > 0 && (
+                <form
+                  className="card"
+                  style={{ padding: 14, display: 'grid', gap: 10, background: 'var(--surface-alt)' }}
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const pend = getOrderPendingCents(state, selectedOrder.id);
+                    const amountCents = drawerPayAmount.trim() ? parsePesosToCents(drawerPayAmount) : pend;
+                    if (amountCents === null || !Number.isFinite(amountCents) || amountCents <= 0 || amountCents > pend) {
+                      setOrderActionError(
+                        `Ingresa un monto entre $0.01 MXN y ${formatMxnCurrency(pend)}.`,
+                      );
+                      return;
+                    }
+                    setDrawerCollecting(true);
+                    setOrderActionError(null);
+                    const res = await run(selectedOrder.branchId, {
+                      action: 'capture',
+                      orderId: selectedOrder.id,
+                      lines: [
+                        {
+                          method: drawerPayMethod,
+                          amountCents,
+                          reference: drawerPayRef.trim() || undefined,
+                        },
+                      ],
+                    });
+                    setDrawerCollecting(false);
+                    if (!res.ok) {
+                      setOrderActionError(res.error ?? 'No se pudo registrar el cobro.');
+                    } else {
+                      setDrawerCollectOpen(false);
+                    }
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <strong style={{ fontSize: '0.92rem' }}>Cobro rápido en Dirección</strong>
+                    <span className="badge badge-warning">
+                      Saldo {formatMxnCurrency(getOrderPendingCents(state, selectedOrder.id))}
+                    </span>
+                  </div>
+                  <div className="segmented segmented-3">
+                    {(
+                      [
+                        { id: 'efectivo', label: 'Efectivo' },
+                        { id: 'tarjeta', label: 'Tarjeta' },
+                        { id: 'transferencia', label: 'Transferencia' },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className={drawerPayMethod === m.id ? 'active' : ''}
+                        onClick={() => setDrawerPayMethod(m.id)}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="field-row">
+                    <div className="field" style={{ flex: 1 }}>
+                      <label htmlFor="admin-drawer-pay-amount">Monto a cobrar ($ MXN)</label>
+                      <input
+                        id="admin-drawer-pay-amount"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={drawerPayAmount}
+                        onChange={(e) => setDrawerPayAmount(e.target.value)}
+                      />
+                    </div>
+                    {drawerPayMethod !== 'efectivo' && (
+                      <div className="field" style={{ flex: 1 }}>
+                        <label htmlFor="admin-drawer-pay-ref">Referencia (opcional)</label>
+                        <input
+                          id="admin-drawer-pay-ref"
+                          type="text"
+                          value={drawerPayRef}
+                          placeholder={drawerPayMethod === 'tarjeta' ? 'Folio voucher' : 'Clave rastreo'}
+                          onChange={(e) => setDrawerPayRef(e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="order-actions">
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={drawerCollecting}>
+                      {drawerCollecting ? 'Registrando…' : 'Registrar cobro'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setSelectedOrderId(null);
+                        setDrawerCollectOpen(false);
+                        onSwitchToEmployeeView();
+                      }}
+                    >
+                      <Store size={14} /> Ir a Mostrador
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {selectedOrder.serviceType === 'encargo' &&
+                (selectedOrder.encargoStage === 'recibido' ||
+                  selectedOrder.encargoStage === 'lavado' ||
+                  selectedOrder.encargoStage === 'secado') && (
+                  <div className="card" style={{ padding: 12, background: 'var(--surface-alt)' }}>
+                    <strong style={{ display: 'block', fontSize: '0.88rem', marginBottom: 8 }}>
+                      Asignación rápida de equipos
+                    </strong>
+                    {(() => {
+                      const branchMachines = getBranchMachines(state, selectedOrder.branchId).filter((m) =>
+                        selectedOrder.encargoStage === 'secado'
+                          ? m.kind === 'secadora'
+                          : m.kind === 'lavadora',
+                      );
+                      const selectable = branchMachines.filter(
+                        (m) => m.status === 'disponible' || m.currentOrderId === selectedOrder.id,
+                      );
+                      if (selectable.length === 0) {
+                        return (
+                          <p className="muted" style={{ margin: 0, fontSize: '0.84rem' }}>
+                            Sin equipos disponibles en este momento.
+                          </p>
+                        );
+                      }
+                      const currentIds = new Set(selectedOrder.assignedMachineIds ?? []);
+                      return (
+                        <div className="machine-pick-grid">
+                          {selectable.map((m) => {
+                            const active = currentIds.has(m.id);
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className={`machine-pick-pill${active ? ' selected' : ''}`}
+                                aria-pressed={active}
+                                onClick={async () => {
+                                  const next = new Set(currentIds);
+                                  if (next.has(m.id)) next.delete(m.id);
+                                  else next.add(m.id);
+                                  const res = await run(selectedOrder.branchId, {
+                                    action: 'assignMachines',
+                                    orderId: selectedOrder.id,
+                                    machineIds: Array.from(next),
+                                  });
+                                  if (!res.ok) setOrderActionError(res.error ?? 'No se pudo reasignar.');
+                                  else setOrderActionError(null);
+                                }}
+                              >
+                                {m.code}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      <Suspense fallback={null}>
+        {ticketOrder && state.tickets[ticketOrder.id] && (
+          <TicketModal
+            order={ticketOrder}
+            paymentLines={getOrderPaymentLines(state, ticketOrder.id)}
+            ticket={state.tickets[ticketOrder.id]}
+            branchSettings={getBranchSettings(state, ticketOrder.branchId)}
+            actorRole={shared.roles[ticketOrder.branchId] ?? 'supervisor'}
+            onEmit={(orderId, simulateFailure) =>
+              run(ticketOrder.branchId, { action: 'emit', orderId, simulateFailure })
+            }
+            onReprint={(orderId) => run(ticketOrder.branchId, { action: 'reprint', orderId })}
+            onClose={() => setTicketOrderId(null)}
+          />
+        )}
+      </Suspense>
       <Suspense fallback={null}>
         {tourOpen && (
           <AppTour

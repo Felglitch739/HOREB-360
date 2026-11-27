@@ -10,7 +10,7 @@ import {
   Receipt,
   Sparkles,
 } from 'lucide-react';
-import { formatMxn } from '../domain/money';
+import { formatMxn, formatMxnCurrency } from '../domain/money';
 import { ENCARGO_STAGES, buildOrderReadyWhatsappMessage, getBranchInfo, getOrderLineItems } from '../domain/rules';
 import type { EncargoStage, Machine, Order, PaymentLine, TicketState } from '../domain/types';
 
@@ -23,6 +23,7 @@ interface OrderCardProps {
   deliverCheck: { allowed: boolean; reason?: string };
   hasOpenShift: boolean;
   activeCheckout?: boolean;
+  initialExpanded?: boolean;
   onStartCheckout: (order: Order, sourceElement?: HTMLElement | null) => void;
   onConfirmPaymentLine: (lineId: string, reference?: string) => Promise<void>;
   onOpenTicket: (orderId: string) => void;
@@ -57,6 +58,7 @@ export function OrderCard({
   deliverCheck,
   hasOpenShift,
   activeCheckout = false,
+  initialExpanded = false,
   onStartCheckout,
   onConfirmPaymentLine,
   onOpenTicket,
@@ -64,7 +66,7 @@ export function OrderCard({
   onDeliverEncargo,
   onRecordWhatsappSent,
 }: OrderCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [refDrafts, setRefDrafts] = useState<Record<string, string>>({});
   const [selectedNextMachines, setSelectedNextMachines] = useState<string[]>([]);
@@ -108,7 +110,13 @@ export function OrderCard({
   }
 
   function renderQuickAction() {
-    if (paymentLines.length === 0 && order.serviceType === 'encargo' && order.totalCents > 0) {
+    const hasPendingUnconfirmedLine = Boolean(firstPendingLine);
+    const hasCollectableBalance =
+      order.serviceType === 'encargo' &&
+      pendingCents > 0 &&
+      !hasPendingUnconfirmedLine;
+
+    if (hasCollectableBalance) {
       return (
         <button
           type="button"
@@ -117,7 +125,7 @@ export function OrderCard({
           aria-controls={activeCheckout ? 'checkout-form' : undefined}
           onClick={(event) => onStartCheckout(order, event.currentTarget)}
         >
-          {activeCheckout ? 'Ir al cobro' : 'Cobrar'}
+          {activeCheckout ? 'Ir al cobro' : paymentLines.length > 0 ? 'Cobrar saldo' : 'Cobrar'}
         </button>
       );
     }
@@ -178,7 +186,9 @@ export function OrderCard({
   }
 
   const quickAction = !expanded ? renderQuickAction() : null;
-  const timeStr = new Date(order.createdAt).toLocaleTimeString('es-MX', {
+  const dateTimeStr = new Date(order.createdAt).toLocaleString('es-MX', {
+    day: '2-digit',
+    month: 'short',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -223,12 +233,12 @@ export function OrderCard({
             <span className="order-client">
               {order.serviceType === 'encargo' ? order.customerAlias : 'Mostrador autoservicio'}
             </span>
-            <span className="muted">· {timeStr}</span>
+            <span className="muted">· {dateTimeStr}</span>
           </div>
         </button>
 
         <div className="order-summary-right">
-          <strong className="order-total">{formatMxn(order.totalCents)}</strong>
+          <strong className="order-total">{formatMxnCurrency(order.totalCents)}</strong>
           {quickAction}
           <button
             type="button"
@@ -254,8 +264,20 @@ export function OrderCard({
           <div className="order-meta">
             <span>
               {order.serviceType === 'encargo' ? 'Encargo' : 'Autoservicio'} ·{' '}
-              {lineItems.map((item) => `${item.name} x${item.quantity}`).join(' · ')} · {timeStr}
+              {lineItems.map((item) => `${item.name} x${item.quantity}`).join(' · ')} · {dateTimeStr}
             </span>
+            {(order.weightKg || order.promisedDeliveryAt || order.manualDiscountCents || order.notes) && (
+              <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {order.weightKg && <span className="badge badge-info">Peso: {order.weightKg} kg</span>}
+                {order.promisedDeliveryAt && (
+                  <span className="badge badge-info">Entrega prom.: {order.promisedDeliveryAt}</span>
+                )}
+                {order.manualDiscountCents ? (
+                  <span className="badge badge-success">Desc.: -{formatMxn(order.manualDiscountCents)}</span>
+                ) : null}
+                {order.notes && <span className="muted">Nota: {order.notes}</span>}
+              </div>
+            )}
             {order.assignedMachineLabels && order.assignedMachineLabels.length > 0 && (
               <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                 {order.assignedMachineLabels.map((label) => (
@@ -443,7 +465,7 @@ export function OrderCard({
           )}
 
           <div className="order-actions">
-            {paymentLines.length === 0 && order.serviceType === 'encargo' && order.totalCents > 0 && (
+            {order.serviceType === 'encargo' && pendingCents > 0 && !firstPendingLine && (
               <button
                 type="button"
                 className={`btn btn-sm ${activeCheckout ? 'btn-secondary' : 'btn-primary'}`}
@@ -451,7 +473,7 @@ export function OrderCard({
                 aria-controls={activeCheckout ? 'checkout-form' : undefined}
                 onClick={(event) => onStartCheckout(order, event.currentTarget)}
               >
-                {activeCheckout ? 'Ir al cobro' : 'Cobrar encargo'}
+                {activeCheckout ? 'Ir al cobro' : paymentLines.length > 0 ? 'Cobrar saldo' : 'Cobrar encargo'}
               </button>
             )}
 

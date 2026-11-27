@@ -4293,6 +4293,106 @@ th {
   }
 }
 
+/* Sidebar logout button (light & dark themes) */
+.sidebar-logout-btn {
+  width: 100%;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--sidebar-border);
+  background: transparent;
+  color: var(--sidebar-ink-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-logout-btn:hover,
+.sidebar-logout-btn:focus-visible {
+  background: rgba(185, 28, 28, 0.14);
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.45);
+}
+
+.admin-sidebar .sidebar-logout-btn:hover,
+.admin-sidebar .sidebar-logout-btn:focus-visible {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+/* 3-way segmented control for encargo payment timing */
+.segmented.segmented-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented.segmented-3 button {
+  font-size: 0.8rem;
+  padding: 6px 8px;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+@media (max-width: 420px) {
+  .segmented.segmented-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* AdminView date & service filter toolbar */
+.report-filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+
+.report-filters-bar .filter-row {
+  margin-bottom: 0;
+}
+
+/* Mobile & Tablet horizontal overflow guards (~390px and 761-1080px) */
+@media (max-width: 640px) {
+  .admin-hero-bar,
+  .admin-hero-controls {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-branch-pills {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .admin-branch-pill {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .pipeline-stage-strip {
+    flex-wrap: wrap;
+  }
+
+  .pos-layout,
+  .pos-builder,
+  .pos-payment-col,
+  .orders-drawer.admin-inspector-drawer {
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
 /* Coarse pointer (tablets & touchscreens) minimum 40–44px touch targets */
 @media (pointer: coarse) {
   .filter-pill,

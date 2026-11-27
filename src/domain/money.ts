@@ -9,6 +9,10 @@ export function formatMxn(cents: number): string {
   return `${sign}$${pesos.toLocaleString('es-MX')}.${String(remCents).padStart(2, '0')}`;
 }
 
+export function formatMxnCurrency(cents: number): string {
+  return `${formatMxn(cents)} MXN`;
+}
+
 /**
  * Convierte una cadena en pesos MXN (ej. "70", "30.50", "$40") a centavos enteros.
  * Devuelve null si no es un importe válido no negativo.

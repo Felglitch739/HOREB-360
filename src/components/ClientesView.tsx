@@ -13,14 +13,17 @@ import {
   X,
 } from 'lucide-react';
 import { exportCustomersToExcel } from '../domain/excelExport';
-import { formatMxn } from '../domain/money';
-import { getBranchInfo, getCustomerOrders, getCustomers } from '../domain/rules';
+import { formatMxn, formatMxnCurrency } from '../domain/money';
+import { BRANCHES, getBranchDisplayName, getCustomerOrders, getCustomers } from '../domain/rules';
 import type { BranchRole } from '../domain/sharedState';
 import type { BranchId, Customer, DemoState } from '../domain/types';
+import { CustomSelect } from './CustomSelect';
 
 interface ClientesViewProps {
   state: DemoState;
   branchId: BranchId;
+  scopeBranch?: BranchId | 'all';
+  visibleBranches?: BranchId[];
   role: BranchRole;
   onUpsertCustomer: (
     branchId: BranchId,
@@ -32,21 +35,37 @@ interface ClientesViewProps {
 export function ClientesView({
   state,
   branchId,
+  scopeBranch,
+  visibleBranches,
   role,
   onUpsertCustomer,
   onSeedSampleCustomers,
 }: ClientesViewProps) {
-  const customers = getCustomers(state);
+  const allCustomers = getCustomers(state);
   const raffleTickets = state.raffleTickets ?? [];
+  const effectiveScope: BranchId | 'all' = scopeBranch ?? branchId;
+  const branchOptions = (visibleBranches ?? BRANCHES.map((b) => b.id)).map((id) => ({
+    value: id,
+    label: getBranchDisplayName(state, id),
+  }));
+
+  const [showAllBranches, setShowAllBranches] = useState(false);
   const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(customers[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
+  const [formBranchId, setFormBranchId] = useState<BranchId>(branchId);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [contactConsent, setContactConsent] = useState(true);
+  const [contactConsent, setContactConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  useEffect(() => {
+    setSelectedId(null);
+    setQuery('');
+    setShowAllBranches(false);
+  }, [effectiveScope]);
 
   useEffect(() => {
     if (!formOpen) return;
@@ -57,11 +76,22 @@ export function ClientesView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [formOpen]);
 
+  const branchScopedCustomers =
+    effectiveScope === 'all' || showAllBranches
+      ? allCustomers
+      : allCustomers.filter((customer) => {
+          if (customer.createdBranchId === effectiveScope) return true;
+          return state.orders.some(
+            (order) => order.customerId === customer.id && order.branchId === effectiveScope,
+          );
+        });
+
   const term = query.trim().toLowerCase();
-  const filtered = customers.filter(
+  const filtered = branchScopedCustomers.filter(
     (c) => !term || c.name.toLowerCase().includes(term) || c.phone.includes(term),
   );
-  const selectedCustomer = customers.find((c) => c.id === selectedId) ?? filtered[0] ?? null;
+  const selectedCustomer =
+    branchScopedCustomers.find((c) => c.id === selectedId) ?? filtered[0] ?? null;
   const historyOrders = selectedCustomer ? getCustomerOrders(state, selectedCustomer.id) : [];
   const customerTickets = selectedCustomer
     ? raffleTickets.filter((t) => t.customerId === selectedCustomer.id)
@@ -69,15 +99,17 @@ export function ClientesView({
 
   function openNewCustomer() {
     setEditingId(undefined);
+    setFormBranchId(effectiveScope === 'all' ? branchId : effectiveScope);
     setName('');
     setPhone('');
-    setContactConsent(true);
+    setContactConsent(false);
     setFeedback(null);
     setFormOpen(true);
   }
 
   function startEdit(customer: Customer) {
     setEditingId(customer.id);
+    setFormBranchId(customer.createdBranchId ?? (effectiveScope === 'all' ? branchId : effectiveScope));
     setName(customer.name);
     setPhone(customer.phone);
     setContactConsent(customer.contactConsent);
@@ -90,7 +122,7 @@ export function ClientesView({
     setEditingId(undefined);
     setName('');
     setPhone('');
-    setContactConsent(true);
+    setContactConsent(false);
   }
 
   async function handleSave(event: React.FormEvent) {
@@ -99,7 +131,7 @@ export function ClientesView({
     setBusy(true);
     setFeedback(null);
     try {
-      const res = await onUpsertCustomer(branchId, {
+      const res = await onUpsertCustomer(formBranchId, {
         id: editingId,
         name,
         phone,
@@ -112,7 +144,9 @@ export function ClientesView({
       if (res.customer) setSelectedId(res.customer.id);
       setFeedback({
         type: 'success',
-        text: editingId ? 'Ficha de cliente actualizada.' : `Cliente ${res.customer?.name ?? name} registrado.`,
+        text: editingId
+          ? 'Ficha de cliente actualizada.'
+          : `Cliente ${res.customer?.name ?? name} registrado en ${getBranchDisplayName(state, formBranchId)}.`,
       });
       closeForm();
     } finally {
@@ -120,20 +154,34 @@ export function ClientesView({
     }
   }
 
+  const scopeLabel =
+    effectiveScope === 'all' || showAllBranches
+      ? 'Todas las sucursales'
+      : getBranchDisplayName(state, effectiveScope);
+
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <section className="card">
         <h2 className="card-title">
           <span className="card-title-main">
-            <span>Directorio y lealtad 10+1</span>
-            <span className="badge badge-info">{customers.length} clientes</span>
+            <span>Directorio y lealtad 10+1 · {scopeLabel}</span>
+            <span className="badge badge-info">{branchScopedCustomers.length} clientes</span>
           </span>
           <div className="card-title-actions">
+            {effectiveScope !== 'all' && allCustomers.length > branchScopedCustomers.length && (
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${showAllBranches ? ' active' : ''}`}
+                onClick={() => setShowAllBranches((prev) => !prev)}
+              >
+                {showAllBranches ? `Solo ${getBranchDisplayName(state, effectiveScope)}` : `Ver todas (${allCustomers.length})`}
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              disabled={customers.length === 0}
-              onClick={() => exportCustomersToExcel(state, customers)}
+              disabled={branchScopedCustomers.length === 0}
+              onClick={() => exportCustomersToExcel(state, branchScopedCustomers)}
             >
               <FileSpreadsheet size={15} aria-hidden="true" /> Exportar Excel
             </button>
@@ -144,7 +192,7 @@ export function ClientesView({
         </h2>
 
         <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: '0.86rem' }}>
-          Por cada <strong>10 combos pagados</strong> el cliente habilita <strong>1 combo gratis</strong>; al completarlo se emite <strong>1 boleto</strong> para la rifa anual.
+          Por cada <strong>10 combos pagados y completados</strong> el cliente habilita <strong>1 combo gratis</strong>; al completarlo se emite <strong>1 boleto</strong> para la rifa anual.
         </p>
 
         {feedback && !formOpen && (
@@ -153,16 +201,18 @@ export function ClientesView({
           </div>
         )}
 
-        {customers.length === 0 ? (
+        {branchScopedCustomers.length === 0 ? (
           <div className="empty-state-box">
             <p className="muted" style={{ margin: 0 }}>
-              Aún no hay fichas de clientes. Puedes cobrar rápido sin ficha desde Mostrador o registrar clientes frecuentes aquí.
+              {allCustomers.length === 0
+                ? 'Aún no hay fichas de clientes. Puedes cobrar rápido sin ficha desde Mostrador o registrar clientes frecuentes aquí.'
+                : `Aún no hay clientes registrados en ${getBranchDisplayName(state, effectiveScope === 'all' ? branchId : effectiveScope)}.`}
             </p>
             <div className="order-actions" style={{ marginTop: 10 }}>
               <button type="button" className="btn btn-primary btn-sm" onClick={openNewCustomer}>
-                <UserPlus size={15} /> Registrar primer cliente
+                <UserPlus size={15} /> Registrar cliente en {getBranchDisplayName(state, effectiveScope === 'all' ? branchId : effectiveScope)}
               </button>
-              {import.meta.env.DEV && role === 'supervisor' && (
+              {import.meta.env.DEV && role === 'supervisor' && allCustomers.length === 0 && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -174,7 +224,7 @@ export function ClientesView({
                     if (!res.ok && res.error) setFeedback({ type: 'error', text: res.error });
                   }}
                 >
-                  Cargar clientes de prueba (dev)
+                  Cargar clientes demo (desarrollo)
                 </button>
               )}
             </div>
@@ -223,6 +273,9 @@ export function ClientesView({
                         </div>
                         <div className="customer-row-sub">
                           <span><Phone size={12} /> {customer.phone}</span>
+                          {customer.createdBranchId && (
+                            <span className="muted">{getBranchDisplayName(state, customer.createdBranchId)}</span>
+                          )}
                           {customer.freeCombosAvailable > 0 && (
                             <span className="badge badge-success">
                               <Gift size={12} /> {customer.freeCombosAvailable} gratis
@@ -247,8 +300,11 @@ export function ClientesView({
                   <div>
                     <h3>{selectedCustomer.name}</h3>
                     <small className="muted">
-                      Tel: {selectedCustomer.phone} ·{' '}
-                      {selectedCustomer.contactConsent ? 'Acepta avisos WhatsApp' : 'Sin consentimiento WA'}
+                      Tel: {selectedCustomer.phone}
+                      {selectedCustomer.createdBranchId
+                        ? ` · Sucursal: ${getBranchDisplayName(state, selectedCustomer.createdBranchId)}`
+                        : ''}{' '}
+                      · {selectedCustomer.contactConsent ? 'Acepta avisos WhatsApp' : 'Sin consentimiento WA'}
                     </small>
                   </div>
                   <button
@@ -287,7 +343,7 @@ export function ClientesView({
                   <div className="metric-box">
                     <span className="metric-label">Total consumido</span>
                     <strong className="metric-value">
-                      {formatMxn(historyOrders.reduce((sum, o) => sum + o.totalCents, 0))}
+                      {formatMxnCurrency(historyOrders.reduce((sum, o) => sum + o.totalCents, 0))}
                     </strong>
                   </div>
                 </div>
@@ -329,7 +385,7 @@ export function ClientesView({
                         {historyOrders.map((ord) => (
                           <tr key={ord.id}>
                             <td><strong>{ord.folio}</strong></td>
-                            <td>{getBranchInfo(ord.branchId).name}</td>
+                            <td>{getBranchDisplayName(state, ord.branchId)}</td>
                             <td className="num">{formatMxn(ord.totalCents)}</td>
                             <td>
                               {ord.loyaltyProcessedAt ? (
@@ -389,8 +445,17 @@ export function ClientesView({
               )}
 
               <form onSubmit={handleSave}>
+                <div className="field">
+                  <label>Sucursal de registro *</label>
+                  <CustomSelect
+                    ariaLabel="Sucursal del cliente"
+                    value={formBranchId}
+                    options={branchOptions}
+                    onChange={(val) => setFormBranchId(val)}
+                  />
+                </div>
                 <label className="field">
-                  Nombre completo
+                  Nombre completo *
                   <input
                     className="input"
                     placeholder="Ej. María Fernanda López"
@@ -401,7 +466,7 @@ export function ClientesView({
                   />
                 </label>
                 <label className="field">
-                  Teléfono / WhatsApp
+                  Teléfono / WhatsApp *
                   <input
                     className="input"
                     type="tel"

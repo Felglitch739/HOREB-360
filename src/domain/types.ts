@@ -86,6 +86,9 @@ export interface Machine {
   code: string;
   name: string;
   kind: MachineKind;
+  model?: string;
+  serialNumber?: string;
+  capacityKg?: number;
   status: MachineStatus;
   currentOrderId: string | null;
   currentOrderFolio?: string | null;
@@ -171,6 +174,8 @@ export interface Order {
   freeCombosRedeemed?: number;
   /** Descuento aplicado por lealtad en centavos */
   loyaltyDiscountCents?: number;
+  /** Descuento manual en centavos */
+  manualDiscountCents?: number;
   /** Marca cuando esta orden ya otorgó sus puntos / recompensa / boleto (evita duplicados) */
   loyaltyProcessedAt?: string | null;
   /** Total en centavos enteros */
@@ -179,6 +184,9 @@ export interface Order {
   orderStatus: OrderStatus;
   assignedMachineIds?: string[];
   assignedMachineLabels?: string[];
+  promisedDeliveryAt?: string | null;
+  weightKg?: number | null;
+  notes?: string | null;
   whatsappPreparedAt?: string | null;
   whatsappMessage?: string | null;
   whatsappSentAt?: string | null;
@@ -260,6 +268,8 @@ export interface Shift {
 
 export interface BranchSettings {
   comboPriceCents: number;
+  branchDisplayName?: string;
+  branchAddress?: string;
   businessName: string;
   branchPhone: string;
   scheduleText: string;

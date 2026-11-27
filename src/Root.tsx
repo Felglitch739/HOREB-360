@@ -60,6 +60,7 @@ interface OperationResponse {
 export interface SharedWorkspace {
   state: ReturnType<typeof combineBranches>;
   roles: Partial<Record<BranchId, BranchRole>>;
+  userEmail?: string;
   isOnline: boolean;
   pendingSyncCount: number;
   syncing: boolean;
@@ -69,6 +70,7 @@ export interface SharedWorkspace {
   exitPractice?: () => void;
   resetPractice?: () => void;
   applyPracticeState?: (updater: (prev: DemoState) => DemoState) => void;
+  updatePassword?: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   execute: (
     branch: BranchId,
     operation: Operation,
@@ -512,6 +514,24 @@ export function Root() {
     setPracticeState((prev) => updater(prev ?? createTrainingSandboxState()));
   }
 
+  async function updatePassword(newPassword: string): Promise<{ ok: boolean; error?: string }> {
+    if (practiceMode) {
+      return { ok: false, error: 'Sal del Modo Práctica para cambiar tu contraseña real.' };
+    }
+    if (newPassword.length < 8) {
+      return { ok: false, error: 'La contraseña debe tener al menos 8 caracteres.' };
+    }
+    try {
+      const { error: updateErr } = await client.auth.updateUser({ password: newPassword });
+      if (updateErr) {
+        return { ok: false, error: updateErr.message || 'No se pudo actualizar la contraseña.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Error de conexión al actualizar la contraseña.' };
+    }
+  }
+
   if (session && rows?.length && memberships.length > 0) {
     const roles: Partial<Record<BranchId, BranchRole>> = Object.fromEntries(
       memberships.map((entry) => [entry.branch_id, entry.role]),
@@ -546,6 +566,7 @@ export function Root() {
     const sharedProps: SharedWorkspace = {
       state: activePractice ? practiceState : effective.combinedState,
       roles,
+      userEmail: session.user.email ?? undefined,
       isOnline,
       pendingSyncCount: activePractice ? 0 : pendingQueue.length,
       syncing: activePractice ? false : syncing,
@@ -555,6 +576,7 @@ export function Root() {
       exitPractice,
       resetPractice,
       applyPracticeState,
+      updatePassword,
       execute: activePractice ? executePractice : execute,
       reload,
       syncNow,

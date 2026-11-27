@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import {
   getBranchCatalog,
-  getBranchInfo,
+  getBranchDisplayName,
   getBranchMachines,
   getCustomers,
   getOpenShift,
@@ -59,7 +59,7 @@ export function MostradorView({
   onUpsertCustomer,
   onOpenTicket,
 }: MostradorViewProps) {
-  const branch = getBranchInfo(branchId);
+  const branchName = getBranchDisplayName(state, branchId);
   const catalog = getBranchCatalog(state, branchId);
   const machines = getBranchMachines(state, branchId);
   const customers = getCustomers(state);
@@ -73,6 +73,11 @@ export function MostradorView({
   const checkoutSourceRect = useRef<DOMRect | undefined>(undefined);
   const checkoutCue = useRef<Animation | null>(null);
   const checkoutOrder = state.orders.find((order) => order.id === checkoutId) ?? null;
+
+  useEffect(() => {
+    setQuery(initialQuery);
+    setFilter(initialFilter);
+  }, [branchId, initialQuery, initialFilter]);
 
   useEffect(() => {
     if (ordersOnly || !ordersDrawerOpen) return;
@@ -231,12 +236,14 @@ export function MostradorView({
     onRecordWhatsappSent: handleRecordWhatsappSent,
   };
 
+  const checkoutPendingCents = checkoutOrder ? getOrderPendingCents(state, checkoutOrder.id) : 0;
+
   if (!ordersOnly) {
     return (
       <div className="mostrador-stage">
         <CheckoutPanel
           branchId={branchId}
-          branchName={branch.name}
+          branchName={branchName}
           catalog={catalog}
           machines={machines}
           customers={customers}
@@ -244,6 +251,7 @@ export function MostradorView({
           isOffline={isOffline}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}
+          checkoutPendingCents={checkoutPendingCents}
           feedback={feedback}
           onFeedback={setFeedback}
           onCancelCheckout={closeCheckout}
@@ -300,7 +308,7 @@ export function MostradorView({
       {checkoutOrder && (
         <CheckoutPanel
           branchId={branchId}
-          branchName={branch.name}
+          branchName={branchName}
           catalog={catalog}
           machines={machines}
           customers={customers}
@@ -308,6 +316,7 @@ export function MostradorView({
           isOffline={isOffline}
           suggestedFolio={suggestedFolio}
           checkoutOrder={checkoutOrder}
+          checkoutPendingCents={checkoutPendingCents}
           feedback={feedback}
           onFeedback={setFeedback}
           onCancelCheckout={closeCheckout}

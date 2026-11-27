@@ -56,13 +56,22 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
   let state = createExampleState(base);
   const nowIso = base.toISOString();
 
-  // Sembrar clientes de lealtad y boleto de rifa
+  // Sembrar clientes de lealtad y boleto de rifa en Lomas, Treviño y Sucursal 3
   const custRes = seedSampleCustomersForTesting(state, 'lomas', 'Modo Práctica', nowIso);
   if (custRes.ok) {
     state = custRes.state;
   }
+  const extraCustomers = [
+    { branchId: 'trevino' as const, name: 'Mateo Castillo [Demo]', phone: '8682113344', contactConsent: true },
+    { branchId: 'trevino' as const, name: 'Valeria Ortiz [Demo]', phone: '8682557788', contactConsent: false },
+    { branchId: 'sucursal-3' as const, name: 'Sofía Herrera [Demo]', phone: '8683449900', contactConsent: true },
+  ];
+  for (const extra of extraCustomers) {
+    const res = upsertCustomer(state, extra.branchId, extra, 'Modo Práctica', nowIso);
+    if (res.ok) state = res.state;
+  }
 
-  // Sembrar máquinas en las 3 sucursales
+  // Sembrar máquinas en las 3 sucursales (8+8 Lomas, 8+8 Treviño, 7+7 Sucursal 3)
   for (const branchId of ['lomas', 'trevino', 'sucursal-3'] as const) {
     const mRes = seedSampleMachinesForBranch(state, branchId, 'Modo Práctica', nowIso);
     if (mRes.ok) {
@@ -70,17 +79,31 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
     }
   }
 
-  // Asignar lavadora L1 en Lomas a un encargo en etapa 'lavado' y marcar L3 fuera de servicio
-  const lomasMachines = getBranchMachines(state, 'lomas');
-  const washingOrder = state.orders.find(
-    (o) => o.branchId === 'lomas' && o.encargoStage === 'lavado',
-  );
-  const l1 = lomasMachines.find((m) => m.code === 'L1');
-  if (washingOrder && l1) {
-    const assigned = assignOrderMachines(state, washingOrder.id, [l1.id], 'Modo Práctica', nowIso);
-    if (assigned.ok) state = assigned.state;
+  // Vincular TODAS las órdenes en etapa 'lavado' o 'secado' con equipos disponibles en su sucursal
+  for (const branchId of ['lomas', 'trevino', 'sucursal-3'] as const) {
+    for (const order of state.orders.filter((o) => o.branchId === branchId)) {
+      if (order.encargoStage === 'lavado') {
+        const freeWasher = getBranchMachines(state, branchId).find(
+          (m) => m.kind === 'lavadora' && m.status === 'disponible',
+        );
+        if (freeWasher) {
+          const assigned = assignOrderMachines(state, order.id, [freeWasher.id], 'Modo Práctica', nowIso);
+          if (assigned.ok) state = assigned.state;
+        }
+      } else if (order.encargoStage === 'secado') {
+        const freeDryer = getBranchMachines(state, branchId).find(
+          (m) => m.kind === 'secadora' && m.status === 'disponible',
+        );
+        if (freeDryer) {
+          const assigned = assignOrderMachines(state, order.id, [freeDryer.id], 'Modo Práctica', nowIso);
+          if (assigned.ok) state = assigned.state;
+        }
+      }
+    }
   }
-  const l3 = lomasMachines.find((m) => m.code === 'L3');
+
+  // Marcar un equipo de Lomas fuera de servicio para demostración
+  const l3 = getBranchMachines(state, 'lomas').find((m) => m.code === 'L3' && m.status === 'disponible');
   if (l3) {
     const offline = setMachineStatus(state, 'lomas', l3.id, 'fuera_de_servicio', {
       reason: 'Mantenimiento preventivo (Demo)',
@@ -90,15 +113,21 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
     if (offline.ok) state = offline.state;
   }
 
-  // Asignar secadora S1 en Lomas a un encargo en etapa 'secado'
-  const dryingOrder = state.orders.find(
-    (o) => o.branchId === 'lomas' && o.encargoStage === 'secado',
-  );
-  const s1 = getBranchMachines(state, 'lomas').find((m) => m.code === 'S1');
-  if (dryingOrder && s1) {
-    const assigned = assignOrderMachines(state, dryingOrder.id, [s1.id], 'Modo Práctica', nowIso);
-    if (assigned.ok) state = assigned.state;
-  }
+  // Vincular órdenes de Treviño y Sucursal 3 con sus clientes locales
+  const trevCust = (state.customers ?? []).find((c) => c.createdBranchId === 'trevino');
+  const s3Cust = (state.customers ?? []).find((c) => c.createdBranchId === 'sucursal-3');
+  state = {
+    ...state,
+    orders: state.orders.map((o) => {
+      if (o.branchId === 'trevino' && !o.customerId && trevCust) {
+        return { ...o, customerId: trevCust.id, customerPhone: trevCust.phone };
+      }
+      if (o.branchId === 'sucursal-3' && o.serviceType === 'encargo' && !o.customerId && s3Cust) {
+        return { ...o, customerId: s3Cust.id, customerPhone: s3Cust.phone };
+      }
+      return o;
+    }),
+  };
 
   // Crear un encargo explícito "Cobrar al recoger" sin pagos registrados ($140.00 pendientes)
   const unpaidOrder = createOrder(state, {
@@ -107,11 +136,28 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
     serviceType: 'encargo',
     customerAlias: 'Roberto Garza (Demo)',
     comboCount: 2,
+    weightKg: 8.5,
+    notes: 'Separar ropa blanca (Demo)',
     paymentLines: [],
     actorLabel: 'Modo Práctica',
   });
   if (unpaidOrder.ok) {
     state = unpaidOrder.state;
+  }
+
+  // Crear un encargo con anticipo parcial ($50.00 de $140.00 -> $90.00 pendientes)
+  const partialOrder = createOrder(state, {
+    branchId: 'lomas',
+    now: nowIso,
+    serviceType: 'encargo',
+    customerAlias: 'Patricia Vega (Anticipo Demo)',
+    comboCount: 2,
+    allowPartialPayment: true,
+    paymentLines: [{ method: 'efectivo', amountCents: 5000, cashReceivedCents: 5000 }],
+    actorLabel: 'Modo Práctica',
+  });
+  if (partialOrder.ok) {
+    state = partialOrder.state;
   }
 
   return state;
