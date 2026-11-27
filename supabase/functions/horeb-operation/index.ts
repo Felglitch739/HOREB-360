@@ -157,6 +157,32 @@ const requestSchema = z.object({
         catalog: z.array(catalogItemSchema).min(1).max(30).optional(),
       }),
     }),
+    z.object({
+      action: z.literal('upsertSupplyItem'),
+      supply: z.object({
+        id: id.optional(),
+        name: z.string().trim().min(1).max(80),
+        unitLabel: z.string().trim().min(1).max(24),
+        unitCostCents: amount.min(100).max(50_000_000),
+        notes: z.string().trim().max(120).optional(),
+      }),
+    }),
+    z.object({ action: z.literal('deleteSupplyItem'), supplyId: id }),
+    z.object({
+      action: z.literal('upsertExpense'),
+      expense: z.object({
+        id: id.optional(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        category: z.enum(['insumos', 'renta', 'luz', 'agua', 'gas', 'sueldos', 'mantenimiento']),
+        concept: z.string().trim().min(1).max(100),
+        unitLabel: z.string().trim().max(24).optional(),
+        quantity: z.number().positive().max(10000),
+        unitCostCents: amount.min(100).max(50_000_000),
+        supplyItemId: z.string().trim().max(120).nullable().optional(),
+        notes: z.string().trim().max(160).optional(),
+      }),
+    }),
+    z.object({ action: z.literal('deleteExpense'), expenseId: id }),
   ]),
 });
 
@@ -389,6 +415,10 @@ Deno.serve(async (request) => {
       'runRaffleDraw',
       'runNightClosing',
       'confirmTransferBatch',
+      'upsertSupplyItem',
+      'deleteSupplyItem',
+      'upsertExpense',
+      'deleteExpense',
     ].includes(operation.action)
   ) {
     const latestAudit = persisted.state.auditLogs?.[0];

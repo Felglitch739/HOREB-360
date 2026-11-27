@@ -195,6 +195,47 @@ export interface Order {
   deliveredAt: string | null;
 }
 
+export type ExpenseCategory =
+  | 'insumos'
+  | 'renta'
+  | 'luz'
+  | 'agua'
+  | 'gas'
+  | 'sueldos'
+  | 'mantenimiento';
+
+export interface SupplyItem {
+  id: string;
+  branchId: BranchId;
+  name: string;
+  unitLabel: string;
+  /** Costo unitario en centavos enteros MXN (ej. 7000 = $70.00 MXN) */
+  unitCostCents: number;
+  notes?: string;
+  updatedAt: string;
+  updatedBy?: string | null;
+}
+
+export interface BranchExpense {
+  id: string;
+  branchId: BranchId;
+  /** Fecha del gasto en formato YYYY-MM-DD */
+  date: string;
+  category: ExpenseCategory;
+  concept: string;
+  unitLabel?: string;
+  quantity: number;
+  /** Costo unitario en centavos enteros MXN */
+  unitCostCents: number;
+  /** Total en centavos enteros MXN = Math.round(quantity * unitCostCents) */
+  totalCents: number;
+  supplyItemId?: string | null;
+  notes?: string;
+  createdAt: string;
+  createdBy?: string | null;
+  updatedAt: string;
+}
+
 export interface BranchAuditEntry {
   id: string;
   branchId: BranchId;
@@ -208,7 +249,8 @@ export interface BranchAuditEntry {
     | 'lealtad'
     | 'rifa'
     | 'cierre_nocturno'
-    | 'conciliacion';
+    | 'conciliacion'
+    | 'gasto';
   message: string;
   actor: string;
   createdAt: string;
@@ -296,4 +338,6 @@ export interface DemoState {
   raffleDraws?: RaffleDraw[];
   nightClosings?: NightClosingReport[];
   auditLogs?: BranchAuditEntry[];
+  expenses?: BranchExpense[];
+  supplyCatalog?: SupplyItem[];
 }

@@ -1,6 +1,11 @@
 import {
+  calculateProfitAndLoss,
   ENCARGO_STAGES,
+  EXPENSE_CATEGORIES,
+  getBranchDisplayName,
+  getBranchExpenses,
   getBranchInfo,
+  getBranchSupplies,
   getCustomerOrders,
   getGlobalAdminTotals,
   getOrderLineItems,
@@ -8,7 +13,7 @@ import {
   getOrderPendingCents,
   getShiftMetrics,
 } from './rules';
-import type { BranchId, Customer, DemoState, Order, Shift } from './types';
+import type { BranchId, Customer, DemoState, ExpenseCategory, Order, Shift } from './types';
 
 export type ExcelCell =
   | string
@@ -611,4 +616,131 @@ export function exportAdminConsolidatedToExcel(state: DemoState, branches: Branc
     ...buildShiftsSheets(state, shifts),
     buildCustomersSheet(state, customers),
   ]);
+}
+
+const EXPENSE_CATEGORY_LABEL = Object.fromEntries(
+  EXPENSE_CATEGORIES.map((c) => [c.id, c.label]),
+) as Record<ExpenseCategory, string>;
+
+export function buildExpensesAndProfitSheets(
+  state: DemoState,
+  options: {
+    branches: BranchId[];
+    fromDate?: string;
+    toDate?: string;
+    periodLabel?: string;
+  },
+): ExcelSheet[] {
+  const { branches, fromDate, toDate, periodLabel } = options;
+  const pnl = calculateProfitAndLoss(state, { branches, fromDate, toDate });
+  const expenses = getBranchExpenses(state, branches).filter((exp) => {
+    if (fromDate && exp.date < fromDate) return false;
+    if (toDate && exp.date > toDate) return false;
+    return true;
+  });
+  const supplies = getBranchSupplies(state, branches);
+
+  const profitSheet: ExcelSheet = {
+    name: 'Ganancia Neta',
+    headers: [
+      'Sucursal',
+      'Periodo',
+      'Ingresos confirmados MXN',
+      'Gastos totales MXN',
+      'Gasto en insumos MXN',
+      'Ganancia neta MXN',
+      'Margen %',
+      'Registros de gasto',
+    ],
+    rows: [
+      ...pnl.byBranch.map((row) => [
+        txt(row.branchName),
+        txt(periodLabel ?? 'Todo el historial'),
+        mxn(row.revenueCents),
+        mxn(row.expensesCents),
+        mxn(row.suppliesCents),
+        mxn(row.netProfitCents),
+        txt(row.marginPct === null ? '—' : `${row.marginPct}%`),
+        int(row.expenseCount),
+      ]),
+      [
+        txt('TOTAL CONSOLIDADO'),
+        txt(periodLabel ?? 'Todo el historial'),
+        mxn(pnl.revenueCents),
+        mxn(pnl.expensesCents),
+        mxn(pnl.suppliesCents),
+        mxn(pnl.netProfitCents),
+        txt(pnl.marginPct === null ? '—' : `${pnl.marginPct}%`),
+        int(pnl.expenseCount),
+      ],
+    ],
+  };
+
+  const categorySheet: ExcelSheet = {
+    name: 'Gastos por Categoría',
+    headers: ['Categoría', 'Registros', 'Total MXN', '% del gasto'],
+    rows: pnl.byCategory.map((row) => [
+      txt(row.label),
+      int(row.count),
+      mxn(row.totalCents),
+      txt(`${row.sharePct}%`),
+    ]),
+  };
+
+  const detailSheet: ExcelSheet = {
+    name: 'Detalle de Gastos',
+    headers: [
+      'Fecha',
+      'Sucursal',
+      'Categoría',
+      'Concepto',
+      'Cantidad',
+      'Unidad',
+      'Costo unitario MXN',
+      'Total MXN',
+      'Notas',
+      'Registrado por',
+    ],
+    rows: expenses.map((exp) => [
+      txt(exp.date),
+      txt(getBranchDisplayName(state, exp.branchId)),
+      txt(EXPENSE_CATEGORY_LABEL[exp.category] ?? exp.category),
+      txt(exp.concept),
+      { value: exp.quantity, format: 'decimal' },
+      txt(exp.unitLabel ?? 'unidad'),
+      mxn(exp.unitCostCents),
+      mxn(exp.totalCents),
+      txt(exp.notes ?? ''),
+      txt(exp.createdBy ?? ''),
+    ]),
+  };
+
+  const supplySheet: ExcelSheet = {
+    name: 'Catálogo Insumos',
+    headers: ['Sucursal', 'Insumo', 'Unidad', 'Costo unitario MXN', 'Notas'],
+    rows: supplies.map((item) => [
+      txt(getBranchDisplayName(state, item.branchId)),
+      txt(item.name),
+      txt(item.unitLabel),
+      mxn(item.unitCostCents),
+      txt(item.notes ?? ''),
+    ]),
+  };
+
+  return [profitSheet, categorySheet, detailSheet, supplySheet];
+}
+
+export function exportExpensesAndProfitToExcel(
+  state: DemoState,
+  options: {
+    branches: BranchId[];
+    fromDate?: string;
+    toDate?: string;
+    periodLabel?: string;
+    slug?: string;
+  },
+) {
+  const sheets = buildExpensesAndProfitSheets(state, options);
+  const slug = options.slug ?? (options.branches.length === 1 ? options.branches[0] : 'consolidadas');
+  downloadXlsx(`horeb360-gastos-ganancia-${slug}-${slugDate()}.xlsx`, sheets);
 }

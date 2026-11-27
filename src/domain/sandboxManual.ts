@@ -1,5 +1,6 @@
 import { createExampleState } from './examples';
 import {
+  DEFAULT_SUPPLY_ITEMS,
   advanceEncargoStage,
   assignOrderMachines,
   captureEncargoPayment,
@@ -11,7 +12,9 @@ import {
   seedSampleMachinesForBranch,
   setMachineStatus,
   upsertCustomer,
+  upsertExpense,
   upsertMachine,
+  upsertSupplyItem,
 } from './rules';
 import type { BranchId, DemoState } from './types';
 
@@ -25,7 +28,7 @@ export type TourTabId =
   | 'admin'
   | 'ajustes';
 
-export type AdminTourTabId = 'resumen' | 'equipos' | 'finanzas' | 'clientes' | 'ajustes';
+export type AdminTourTabId = 'resumen' | 'equipos' | 'finanzas' | 'gastos' | 'clientes' | 'ajustes';
 
 export interface WalkthroughStep {
   tab: TourTabId;
@@ -158,6 +161,87 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
   });
   if (partialOrder.ok) {
     state = partialOrder.state;
+  }
+
+  // Sembrar catálogo de insumos (estilo QLAK) en las 3 sucursales y gastos de demostración
+  for (const branchId of ['lomas', 'trevino', 'sucursal-3'] as const) {
+    for (const sup of DEFAULT_SUPPLY_ITEMS) {
+      const supRes = upsertSupplyItem(state, branchId, sup, 'Modo Práctica', nowIso);
+      if (supRes.ok) state = supRes.state;
+    }
+  }
+
+  const matamorosDay = (daysAgo: number) => {
+    const d = new Date(base.getTime() - daysAgo * 86_400_000);
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Matamoros',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+  };
+
+  const sampleExpenses = [
+    {
+      branchId: 'lomas' as const,
+      date: matamorosDay(0),
+      category: 'insumos' as const,
+      concept: 'Jabón líquido',
+      unitLabel: 'garrafa',
+      quantity: 4,
+      unitCostCents: 18000,
+      notes: 'Compra semanal de detergente líquido',
+    },
+    {
+      branchId: 'lomas' as const,
+      date: matamorosDay(1),
+      category: 'insumos' as const,
+      concept: 'Jabón para lavadora',
+      unitLabel: 'unidad',
+      quantity: 6,
+      unitCostCents: 7000,
+      notes: 'Reposición de mostrador',
+    },
+    {
+      branchId: 'lomas' as const,
+      date: matamorosDay(2),
+      category: 'luz' as const,
+      concept: 'Recibo CFE bimestral (parcial semana)',
+      unitLabel: 'recibo',
+      quantity: 1,
+      unitCostCents: 145000,
+    },
+    {
+      branchId: 'trevino' as const,
+      date: matamorosDay(1),
+      category: 'insumos' as const,
+      concept: 'Suavizante concentrado',
+      unitLabel: 'garrafa',
+      quantity: 3,
+      unitCostCents: 12500,
+    },
+    {
+      branchId: 'trevino' as const,
+      date: matamorosDay(3),
+      category: 'gas' as const,
+      concept: 'Recarga de gas para secadoras',
+      unitLabel: 'carga',
+      quantity: 1,
+      unitCostCents: 98000,
+    },
+    {
+      branchId: 'sucursal-3' as const,
+      date: matamorosDay(2),
+      category: 'mantenimiento' as const,
+      concept: 'Limpieza de trampas y revisión de válvulas',
+      unitLabel: 'servicio',
+      quantity: 1,
+      unitCostCents: 65000,
+    },
+  ];
+  for (const exp of sampleExpenses) {
+    const expRes = upsertExpense(state, exp.branchId, exp, 'Modo Práctica', nowIso);
+    if (expRes.ok) state = expRes.state;
   }
 
   return state;

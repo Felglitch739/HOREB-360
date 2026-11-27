@@ -1,6 +1,7 @@
 import { COMBO_PRICE_CENTS, formatMxn } from './money.ts';
 import type {
   BranchAuditEntry,
+  BranchExpense,
   BranchId,
   BranchInfo,
   BranchSettings,
@@ -9,6 +10,7 @@ import type {
   Customer,
   DemoState,
   EncargoStage,
+  ExpenseCategory,
   LoyaltyEvent,
   Machine,
   MachineKind,
@@ -21,6 +23,7 @@ import type {
   RaffleTicket,
   Shift,
   ShiftClosingSummary,
+  SupplyItem,
   TicketState,
 } from './types.ts';
 
@@ -2194,5 +2197,416 @@ export function recordCashMovement(
     ok: true,
     state: { ...state, shifts: state.shifts.map((item) => item.id === shift.id ? updated : item) },
     data: updated,
+  };
+}
+
+export const EXPENSE_CATEGORIES: Array<{
+  id: ExpenseCategory;
+  label: string;
+  defaultUnit: string;
+}> = [
+  { id: 'insumos', label: 'Insumos (jabón, suavizante, bolsas)', defaultUnit: 'garrafa' },
+  { id: 'renta', label: 'Renta de local', defaultUnit: 'mes' },
+  { id: 'luz', label: 'Electricidad (CFE)', defaultUnit: 'recibo' },
+  { id: 'agua', label: 'Agua potable', defaultUnit: 'recibo' },
+  { id: 'gas', label: 'Gas / Caldera', defaultUnit: 'carga' },
+  { id: 'sueldos', label: 'Sueldos y nómina', defaultUnit: 'nómina' },
+  { id: 'mantenimiento', label: 'Mantenimiento y refacciones', defaultUnit: 'servicio' },
+];
+
+export const DEFAULT_SUPPLY_ITEMS: Array<{
+  name: string;
+  unitLabel: string;
+  unitCostCents: number;
+  notes?: string;
+}> = [
+  { name: 'Jabón para lavadora', unitLabel: 'unidad', unitCostCents: 7000, notes: 'Presentación estándar de mostrador' },
+  { name: 'Jabón líquido', unitLabel: 'garrafa', unitCostCents: 18000, notes: 'Detergente líquido de alta eficiencia' },
+  { name: 'Suavizante concentrado', unitLabel: 'garrafa', unitCostCents: 12500 },
+  { name: 'Cloro / Quitamanchas', unitLabel: 'litro', unitCostCents: 4500 },
+  { name: 'Bolsas para encargo', unitLabel: 'paquete', unitCostCents: 9500 },
+];
+
+const localIsoDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Matamoros',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function toBranchDateKey(isoOrDate: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoOrDate)) return isoOrDate;
+  const parsed = new Date(isoOrDate);
+  if (Number.isNaN(parsed.getTime())) return isoOrDate.slice(0, 10);
+  return localIsoDateFormatter.format(parsed);
+}
+
+export function getBranchExpenses(state: DemoState, branches?: BranchId[]): BranchExpense[] {
+  const list = state.expenses ?? [];
+  const filtered = branches ? list.filter((e) => branches.includes(e.branchId)) : list;
+  return [...filtered].sort((a, b) =>
+    a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date),
+  );
+}
+
+export function getBranchSupplies(state: DemoState, branches?: BranchId[]): SupplyItem[] {
+  const list = state.supplyCatalog ?? [];
+  const filtered = branches ? list.filter((s) => branches.includes(s.branchId)) : list;
+  return [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+export function upsertSupplyItem(
+  state: DemoState,
+  branchId: BranchId,
+  input: {
+    id?: string;
+    name: string;
+    unitLabel: string;
+    unitCostCents: number;
+    notes?: string;
+  },
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<SupplyItem> {
+  const cleanName = input.name.trim().slice(0, 80);
+  const cleanUnit = input.unitLabel.trim().slice(0, 24) || 'unidad';
+  const cleanNotes = input.notes?.trim().slice(0, 120) || undefined;
+  if (!cleanName) {
+    return { ok: false, error: 'Ingresa el nombre del insumo (ej. Jabón líquido).' };
+  }
+  if (!Number.isSafeInteger(input.unitCostCents) || input.unitCostCents < 100 || input.unitCostCents > 50_000_000) {
+    return { ok: false, error: 'El costo unitario debe ser al menos $1.00 MXN.' };
+  }
+
+  const list = state.supplyCatalog ?? [];
+  const existing = input.id ? list.find((s) => s.id === input.id && s.branchId === branchId) : undefined;
+  if (input.id && !existing) {
+    return { ok: false, error: 'No se encontró el insumo en la sucursal seleccionada.' };
+  }
+  const duplicate = list.find(
+    (s) =>
+      s.branchId === branchId &&
+      s.id !== existing?.id &&
+      s.name.toLowerCase() === cleanName.toLowerCase() &&
+      s.unitLabel.toLowerCase() === cleanUnit.toLowerCase(),
+  );
+  if (duplicate) {
+    return { ok: false, error: `Ya existe "${cleanName}" (${cleanUnit}) en ${getBranchDisplayName(state, branchId)}.` };
+  }
+
+  const item: SupplyItem = {
+    id: existing?.id ?? `sup-${branchId}-${crypto.randomUUID()}`,
+    branchId,
+    name: cleanName,
+    unitLabel: cleanUnit,
+    unitCostCents: input.unitCostCents,
+    notes: cleanNotes,
+    updatedAt: now,
+    updatedBy: actorLabel,
+  };
+
+  const nextList = existing
+    ? list.map((s) => (s.id === existing.id ? item : s))
+    : [item, ...list];
+
+  const auditEntry: BranchAuditEntry = {
+    id: `aud-${crypto.randomUUID()}`,
+    branchId,
+    category: 'gasto',
+    message: existing
+      ? `Insumo actualizado: ${item.name} (${formatMxn(item.unitCostCents)} MXN/${item.unitLabel})`
+      : `Insumo registrado: ${item.name} (${formatMxn(item.unitCostCents)} MXN/${item.unitLabel})`,
+    actor: actorLabel,
+    createdAt: now,
+    previousValue: existing ? formatMxn(existing.unitCostCents) : undefined,
+    nextValue: formatMxn(item.unitCostCents),
+  };
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      supplyCatalog: nextList,
+      auditLogs: [auditEntry, ...(state.auditLogs ?? [])].slice(0, 120),
+    },
+    data: item,
+  };
+}
+
+export function deleteSupplyItem(
+  state: DemoState,
+  branchId: BranchId,
+  supplyId: string,
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<SupplyItem> {
+  const list = state.supplyCatalog ?? [];
+  const target = list.find((s) => s.id === supplyId && s.branchId === branchId);
+  if (!target) {
+    return { ok: false, error: 'Insumo no encontrado en esta sucursal.' };
+  }
+  const auditEntry: BranchAuditEntry = {
+    id: `aud-${crypto.randomUUID()}`,
+    branchId,
+    category: 'gasto',
+    message: `Insumo eliminado: ${target.name} (${target.unitLabel})`,
+    actor: actorLabel,
+    createdAt: now,
+  };
+  return {
+    ok: true,
+    state: {
+      ...state,
+      supplyCatalog: list.filter((s) => s.id !== supplyId),
+      auditLogs: [auditEntry, ...(state.auditLogs ?? [])].slice(0, 120),
+    },
+    data: target,
+  };
+}
+
+export function upsertExpense(
+  state: DemoState,
+  branchId: BranchId,
+  input: {
+    id?: string;
+    date: string;
+    category: ExpenseCategory;
+    concept: string;
+    unitLabel?: string;
+    quantity: number;
+    unitCostCents: number;
+    supplyItemId?: string | null;
+    notes?: string;
+  },
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<BranchExpense> {
+  const date = input.date.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, error: 'Selecciona una fecha válida (YYYY-MM-DD).' };
+  }
+  const cleanConcept = input.concept.trim().slice(0, 100);
+  if (!cleanConcept) {
+    return { ok: false, error: 'Describe el concepto del gasto.' };
+  }
+  const qty = Math.round(input.quantity * 100) / 100;
+  if (!Number.isFinite(qty) || qty <= 0 || qty > 10_000) {
+    return { ok: false, error: 'La cantidad debe ser mayor a 0 y menor o igual a 10,000.' };
+  }
+  if (!Number.isSafeInteger(input.unitCostCents) || input.unitCostCents < 100 || input.unitCostCents > 50_000_000) {
+    return { ok: false, error: 'El costo unitario debe ser al menos $1.00 MXN.' };
+  }
+
+  const totalCents = Math.round(qty * input.unitCostCents);
+  const categoryMeta = EXPENSE_CATEGORIES.find((c) => c.id === input.category);
+  const cleanUnit = input.unitLabel?.trim().slice(0, 24) || categoryMeta?.defaultUnit || 'unidad';
+  const cleanNotes = input.notes?.trim().slice(0, 160) || undefined;
+
+  const list = state.expenses ?? [];
+  const existing = input.id ? list.find((e) => e.id === input.id && e.branchId === branchId) : undefined;
+  if (input.id && !existing) {
+    return { ok: false, error: 'No se encontró el gasto en esta sucursal.' };
+  }
+
+  const expense: BranchExpense = {
+    id: existing?.id ?? `exp-${branchId}-${crypto.randomUUID()}`,
+    branchId,
+    date,
+    category: input.category,
+    concept: cleanConcept,
+    unitLabel: cleanUnit,
+    quantity: qty,
+    unitCostCents: input.unitCostCents,
+    totalCents,
+    supplyItemId: input.supplyItemId ?? null,
+    notes: cleanNotes,
+    createdAt: existing?.createdAt ?? now,
+    createdBy: existing?.createdBy ?? actorLabel,
+    updatedAt: now,
+  };
+
+  const nextList = existing
+    ? list.map((e) => (e.id === existing.id ? expense : e))
+    : [expense, ...list];
+
+  const auditEntry: BranchAuditEntry = {
+    id: `aud-${crypto.randomUUID()}`,
+    branchId,
+    category: 'gasto',
+    message: `${existing ? 'Gasto editado' : 'Gasto registrado'} (${categoryMeta?.label ?? input.category}): ${expense.concept} · ${expense.quantity} × ${formatMxn(expense.unitCostCents)} = ${formatMxn(expense.totalCents)} MXN`,
+    actor: actorLabel,
+    createdAt: now,
+    previousValue: existing ? formatMxn(existing.totalCents) : undefined,
+    nextValue: formatMxn(expense.totalCents),
+  };
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      expenses: nextList,
+      auditLogs: [auditEntry, ...(state.auditLogs ?? [])].slice(0, 120),
+    },
+    data: expense,
+  };
+}
+
+export function deleteExpense(
+  state: DemoState,
+  branchId: BranchId,
+  expenseId: string,
+  actorLabel = 'Supervisión',
+  now = new Date().toISOString(),
+): DomainResult<BranchExpense> {
+  const list = state.expenses ?? [];
+  const target = list.find((e) => e.id === expenseId && e.branchId === branchId);
+  if (!target) {
+    return { ok: false, error: 'No se encontró el gasto a eliminar.' };
+  }
+  const auditEntry: BranchAuditEntry = {
+    id: `aud-${crypto.randomUUID()}`,
+    branchId,
+    category: 'gasto',
+    message: `Gasto eliminado: ${target.concept} (${formatMxn(target.totalCents)} MXN)`,
+    actor: actorLabel,
+    createdAt: now,
+  };
+  return {
+    ok: true,
+    state: {
+      ...state,
+      expenses: list.filter((e) => e.id !== expenseId),
+      auditLogs: [auditEntry, ...(state.auditLogs ?? [])].slice(0, 120),
+    },
+    data: target,
+  };
+}
+
+export interface ProfitAndLossSummary {
+  revenueCents: number;
+  expensesCents: number;
+  suppliesCents: number;
+  netProfitCents: number;
+  marginPct: number | null;
+  expenseCount: number;
+  confirmedLinesCount: number;
+  byCategory: Array<{
+    category: ExpenseCategory;
+    label: string;
+    totalCents: number;
+    count: number;
+    sharePct: number;
+  }>;
+  byBranch: Array<{
+    branchId: BranchId;
+    branchName: string;
+    revenueCents: number;
+    expensesCents: number;
+    suppliesCents: number;
+    netProfitCents: number;
+    marginPct: number | null;
+    expenseCount: number;
+  }>;
+}
+
+export function calculateProfitAndLoss(
+  state: DemoState,
+  options: {
+    branches?: BranchId[];
+    fromDate?: string;
+    toDate?: string;
+  } = {},
+): ProfitAndLossSummary {
+  const targetBranches = options.branches && options.branches.length > 0
+    ? options.branches
+    : BRANCHES.map((b) => b.id);
+  const branchSet = new Set(targetBranches);
+  const fromDate = options.fromDate?.trim() || undefined;
+  const toDate = options.toDate?.trim() || undefined;
+  const inRange = (dateKey: string) => {
+    if (fromDate && dateKey < fromDate) return false;
+    if (toDate && dateKey > toDate) return false;
+    return true;
+  };
+
+  const orderBranchMap = new Map<string, BranchId>();
+  for (const ord of state.orders) {
+    if (branchSet.has(ord.branchId)) {
+      orderBranchMap.set(ord.id, ord.branchId);
+    }
+  }
+
+  const revenueByBranch = new Map<BranchId, number>();
+  let confirmedLinesCount = 0;
+  for (const line of state.paymentLines) {
+    if (line.status !== 'confirmado') continue;
+    const ordBranch = orderBranchMap.get(line.orderId);
+    if (!ordBranch) continue;
+    const dateKey = toBranchDateKey(line.confirmedAt ?? line.createdAt);
+    if (!inRange(dateKey)) continue;
+    confirmedLinesCount += 1;
+    revenueByBranch.set(ordBranch, (revenueByBranch.get(ordBranch) ?? 0) + line.amountCents);
+  }
+
+  const scopedExpenses = getBranchExpenses(state, targetBranches).filter((exp) => inRange(exp.date));
+  const categoryTotals = new Map<ExpenseCategory, { totalCents: number; count: number }>();
+  const expensesByBranch = new Map<BranchId, { totalCents: number; suppliesCents: number; count: number }>();
+
+  for (const exp of scopedExpenses) {
+    const cat = categoryTotals.get(exp.category) ?? { totalCents: 0, count: 0 };
+    cat.totalCents += exp.totalCents;
+    cat.count += 1;
+    categoryTotals.set(exp.category, cat);
+
+    const bStats = expensesByBranch.get(exp.branchId) ?? { totalCents: 0, suppliesCents: 0, count: 0 };
+    bStats.totalCents += exp.totalCents;
+    if (exp.category === 'insumos') bStats.suppliesCents += exp.totalCents;
+    bStats.count += 1;
+    expensesByBranch.set(exp.branchId, bStats);
+  }
+
+  const revenueCents = targetBranches.reduce((sum, b) => sum + (revenueByBranch.get(b) ?? 0), 0);
+  const expensesCents = scopedExpenses.reduce((sum, e) => sum + e.totalCents, 0);
+  const suppliesCents = categoryTotals.get('insumos')?.totalCents ?? 0;
+  const netProfitCents = revenueCents - expensesCents;
+  const marginPct = revenueCents > 0 ? Math.round((netProfitCents / revenueCents) * 1000) / 10 : null;
+
+  const byCategory = EXPENSE_CATEGORIES.map((cat) => {
+    const entry = categoryTotals.get(cat.id) ?? { totalCents: 0, count: 0 };
+    return {
+      category: cat.id,
+      label: cat.label,
+      totalCents: entry.totalCents,
+      count: entry.count,
+      sharePct: expensesCents > 0 ? Math.round((entry.totalCents / expensesCents) * 1000) / 10 : 0,
+    };
+  });
+
+  const byBranch = targetBranches.map((branchId) => {
+    const bRev = revenueByBranch.get(branchId) ?? 0;
+    const bExp = expensesByBranch.get(branchId) ?? { totalCents: 0, suppliesCents: 0, count: 0 };
+    const bNet = bRev - bExp.totalCents;
+    return {
+      branchId,
+      branchName: getBranchDisplayName(state, branchId),
+      revenueCents: bRev,
+      expensesCents: bExp.totalCents,
+      suppliesCents: bExp.suppliesCents,
+      netProfitCents: bNet,
+      marginPct: bRev > 0 ? Math.round((bNet / bRev) * 1000) / 10 : null,
+      expenseCount: bExp.count,
+    };
+  });
+
+  return {
+    revenueCents,
+    expensesCents,
+    suppliesCents,
+    netProfitCents,
+    marginPct,
+    expenseCount: scopedExpenses.length,
+    confirmedLinesCount,
+    byCategory,
+    byBranch,
   };
 }

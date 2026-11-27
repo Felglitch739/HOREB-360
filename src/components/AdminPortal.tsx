@@ -19,6 +19,7 @@ import {
   Settings,
   Store,
   Users,
+  Wallet,
   WashingMachine,
   X,
 } from 'lucide-react';
@@ -62,12 +63,16 @@ const AjustesView = lazy(() => import('./AjustesView').then((m) => ({ default: m
 const AppTour = lazy(() => import('./AppTour').then((m) => ({ default: m.AppTour })));
 const CajaView = lazy(() => import('./CajaView').then((m) => ({ default: m.CajaView })));
 const ClientesView = lazy(() => import('./ClientesView').then((m) => ({ default: m.ClientesView })));
+const GastosGananciaView = lazy(() =>
+  import('./GastosGananciaView').then((m) => ({ default: m.GastosGananciaView })),
+);
 const TicketModal = lazy(() => import('./TicketModal').then((m) => ({ default: m.TicketModal })));
 
 const ADMIN_NAV = [
   { id: 'resumen', label: 'Centro de Control', icon: LayoutDashboard },
   { id: 'equipos', label: 'Mapa de Equipos', icon: WashingMachine },
   { id: 'finanzas', label: 'Finanzas y Cortes', icon: BarChart3 },
+  { id: 'gastos', label: 'Gastos y Ganancia', icon: Wallet },
   { id: 'clientes', label: 'Clientes y Rifa', icon: Users },
 ] as const;
 
@@ -416,7 +421,7 @@ export function AdminPortal({
                 <h1 className="admin-hero-h1">{activeLabel}</h1>
                 <p className="admin-hero-sub">
                   {formatSpanishDate(today)} ·{' '}
-                  {scopeBranch === 'all' && (activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'clientes')
+                  {scopeBranch === 'all' && (activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'gastos' || activeTab === 'clientes')
                     ? `Todas las sucursales (${visibleBranches.length})`
                     : `Sucursal ${activeBranchName}`}
                 </p>
@@ -426,7 +431,7 @@ export function AdminPortal({
             <div className="admin-hero-controls">
               {/* Branch scope pills */}
               <div className="admin-branch-pills" role="group" aria-label="Alcance de sucursal">
-                {(activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'clientes') && (
+                {(activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'gastos' || activeTab === 'clientes') && (
                   <button
                     type="button"
                     className={`admin-branch-pill${scopeBranch === 'all' ? ' active' : ''}`}
@@ -438,7 +443,7 @@ export function AdminPortal({
                 )}
                 {visibleBranches.map((branch) => {
                   const isActive =
-                    activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'clientes'
+                    activeTab === 'resumen' || activeTab === 'equipos' || activeTab === 'finanzas' || activeTab === 'gastos' || activeTab === 'clientes'
                       ? scopeBranch === branch.id
                       : activeBranchId === branch.id;
                   return (
@@ -1080,6 +1085,24 @@ export function AdminPortal({
                     }
                   />
                 )}
+              </div>
+            )}
+
+            {/* ================= TAB 3B: GASTOS Y GANANCIA ================= */}
+            {activeTab === 'gastos' && (
+              <div style={{ display: 'grid', gap: 16 }} data-tour-page="gastos">
+                <GastosGananciaView
+                  state={state}
+                  branches={scopedBranchIds}
+                  activeBranchId={activeBranchId}
+                  scopeBranch={scopeBranch}
+                  role={activeRole}
+                  localFallbackActive={shared.expensesLocalFallback}
+                  onUpsertSupply={(branch, supply) => run(branch, { action: 'upsertSupplyItem', supply })}
+                  onDeleteSupply={(branch, supplyId) => run(branch, { action: 'deleteSupplyItem', supplyId })}
+                  onUpsertExpense={(branch, expense) => run(branch, { action: 'upsertExpense', expense })}
+                  onDeleteExpense={(branch, expenseId) => run(branch, { action: 'deleteExpense', expenseId })}
+                />
               </div>
             )}
 

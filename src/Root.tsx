@@ -30,8 +30,82 @@ import {
   type DbRaffleTicketRow,
   type GlobalRecordsBundle,
 } from './domain/sharedState';
-import type { BranchId, Customer, DemoState, Order } from './domain/types';
+import type { BranchExpense, BranchId, Customer, DemoState, Order, SupplyItem } from './domain/types';
 import { useBrandTheme } from './theme';
+
+const EXPENSE_OVERLAY_PREFIX = 'horeb_local_expenses_v1_';
+const EXPENSE_ACTIONS = new Set<Operation['action']>([
+  'upsertSupplyItem',
+  'deleteSupplyItem',
+  'upsertExpense',
+  'deleteExpense',
+]);
+
+interface LocalExpenseOverlay {
+  supplies: SupplyItem[];
+  deletedSupplyIds: string[];
+  expenses: BranchExpense[];
+  deletedExpenseIds: string[];
+}
+
+function readLocalExpenseOverlay(userId: string): LocalExpenseOverlay {
+  try {
+    const raw = localStorage.getItem(`${EXPENSE_OVERLAY_PREFIX}${userId}`);
+    if (!raw) return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [] };
+    const parsed = JSON.parse(raw) as Partial<LocalExpenseOverlay>;
+    return {
+      supplies: Array.isArray(parsed.supplies) ? parsed.supplies : [],
+      deletedSupplyIds: Array.isArray(parsed.deletedSupplyIds) ? parsed.deletedSupplyIds : [],
+      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      deletedExpenseIds: Array.isArray(parsed.deletedExpenseIds) ? parsed.deletedExpenseIds : [],
+    };
+  } catch {
+    return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [] };
+  }
+}
+
+function writeLocalExpenseOverlay(userId: string, overlay: LocalExpenseOverlay) {
+  try {
+    localStorage.setItem(`${EXPENSE_OVERLAY_PREFIX}${userId}`, JSON.stringify(overlay));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function applyExpenseOverlay(state: DemoState, overlay: LocalExpenseOverlay): DemoState {
+  if (
+    overlay.supplies.length === 0 &&
+    overlay.deletedSupplyIds.length === 0 &&
+    overlay.expenses.length === 0 &&
+    overlay.deletedExpenseIds.length === 0
+  ) {
+    return state;
+  }
+  const deletedSup = new Set(overlay.deletedSupplyIds);
+  const deletedExp = new Set(overlay.deletedExpenseIds);
+  const supMap = new Map<string, SupplyItem>();
+  for (const s of state.supplyCatalog ?? []) {
+    if (!deletedSup.has(s.id)) supMap.set(s.id, s);
+  }
+  for (const s of overlay.supplies) {
+    if (!deletedSup.has(s.id)) supMap.set(s.id, s);
+  }
+  const expMap = new Map<string, BranchExpense>();
+  for (const e of state.expenses ?? []) {
+    if (!deletedExp.has(e.id)) expMap.set(e.id, e);
+  }
+  for (const e of overlay.expenses) {
+    if (!deletedExp.has(e.id)) expMap.set(e.id, e);
+  }
+  const expenses = Array.from(expMap.values()).sort((a, b) =>
+    a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date),
+  );
+  return {
+    ...state,
+    supplyCatalog: Array.from(supMap.values()),
+    expenses,
+  };
+}
 
 const App = lazy(() => import('./App').then((module) => ({ default: module.App })));
 const AdminPortal = lazy(() =>
@@ -65,6 +139,7 @@ export interface SharedWorkspace {
   pendingSyncCount: number;
   syncing: boolean;
   syncWarning?: string;
+  expensesLocalFallback?: boolean;
   isPracticeMode?: boolean;
   startPractice?: () => void;
   exitPractice?: () => void;
@@ -87,6 +162,13 @@ export function Root() {
   const [rows, setRows] = useState<BranchRow[] | null>(null);
   const [globalRecords, setGlobalRecords] = useState<GlobalRecordsBundle>({});
   const [pendingQueue, setPendingQueue] = useState<QueuedOperation[]>([]);
+  const [localExpenseOverlay, setLocalExpenseOverlay] = useState<LocalExpenseOverlay>({
+    supplies: [],
+    deletedSupplyIds: [],
+    expenses: [],
+    deletedExpenseIds: [],
+  });
+  const [expensesLocalFallback, setExpensesLocalFallback] = useState(false);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
@@ -334,9 +416,14 @@ export function Root() {
     setGlobalRecords({});
     setPendingQueue([]);
     setSyncWarning('');
+    setExpensesLocalFallback(false);
     const userId = session?.user.id;
-    if (!userId) return;
+    if (!userId) {
+      setLocalExpenseOverlay({ supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [] });
+      return;
+    }
 
+    setLocalExpenseOverlay(readLocalExpenseOverlay(userId));
     const cachedQueue = readOfflineQueue(userId);
     setPendingQueue(cachedQueue);
 
@@ -365,6 +452,70 @@ export function Root() {
       }
       return next;
     });
+  }
+
+  function applyExpenseLocallyFallback(branch: BranchId, operation: Operation) {
+    const userId = session?.user.id;
+    if (!userId || !rows?.length) {
+      return { ok: false as const, error: 'Sin sesión activa para guardar gastos.' };
+    }
+    const rolesMap = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
+    if (rolesMap[branch] !== 'supervisor') {
+      return { ok: false as const, error: 'Solo Dirección / Supervisión puede administrar gastos e insumos.' };
+    }
+    const baseCombined = combineBranches(rows, globalRecords);
+    const current = applyExpenseOverlay(baseCombined, localExpenseOverlay);
+    const result = operate(current, branch, operation, {
+      role: 'supervisor',
+      actorLabel: session.user.email ?? userId,
+    });
+    if (!result.ok) return { ok: false as const, error: result.error };
+
+    let nextOverlay: LocalExpenseOverlay = {
+      supplies: [...localExpenseOverlay.supplies],
+      deletedSupplyIds: [...localExpenseOverlay.deletedSupplyIds],
+      expenses: [...localExpenseOverlay.expenses],
+      deletedExpenseIds: [...localExpenseOverlay.deletedExpenseIds],
+    };
+
+    if (operation.action === 'upsertSupplyItem') {
+      const targetList = result.state.supplyCatalog ?? [];
+      const baseIds = new Set((baseCombined.supplyCatalog ?? []).map((s) => s.id));
+      const nextMap = new Map(nextOverlay.supplies.map((s) => [s.id, s]));
+      for (const s of targetList) {
+        const prevOverlay = nextMap.get(s.id);
+        if (!baseIds.has(s.id) || (prevOverlay && JSON.stringify(prevOverlay) !== JSON.stringify(s)) || JSON.stringify(s) !== JSON.stringify((baseCombined.supplyCatalog ?? []).find((x) => x.id === s.id))) {
+          nextMap.set(s.id, s);
+        }
+      }
+      nextOverlay.supplies = Array.from(nextMap.values());
+    } else if (operation.action === 'deleteSupplyItem') {
+      nextOverlay.supplies = nextOverlay.supplies.filter((s) => s.id !== operation.supplyId);
+      if (!nextOverlay.deletedSupplyIds.includes(operation.supplyId)) {
+        nextOverlay.deletedSupplyIds.push(operation.supplyId);
+      }
+    } else if (operation.action === 'upsertExpense') {
+      const targetList = result.state.expenses ?? [];
+      const baseMap = new Map((baseCombined.expenses ?? []).map((e) => [e.id, e]));
+      const nextMap = new Map(nextOverlay.expenses.map((e) => [e.id, e]));
+      for (const e of targetList) {
+        const baseItem = baseMap.get(e.id);
+        if (!baseItem || JSON.stringify(baseItem) !== JSON.stringify(e)) {
+          nextMap.set(e.id, e);
+        }
+      }
+      nextOverlay.expenses = Array.from(nextMap.values());
+    } else if (operation.action === 'deleteExpense') {
+      nextOverlay.expenses = nextOverlay.expenses.filter((e) => e.id !== operation.expenseId);
+      if (!nextOverlay.deletedExpenseIds.includes(operation.expenseId)) {
+        nextOverlay.deletedExpenseIds.push(operation.expenseId);
+      }
+    }
+
+    writeLocalExpenseOverlay(userId, nextOverlay);
+    setLocalExpenseOverlay(nextOverlay);
+    setExpensesLocalFallback(true);
+    return { ok: true as const };
   }
 
   function runLocallyOffline(branch: BranchId, operation: Operation, operationId: string) {
@@ -399,12 +550,18 @@ export function Root() {
       const operationId = crypto.randomUUID();
       const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       if (browserOffline || !isOnline || pendingQueue.length > 0) {
+        if (EXPENSE_ACTIONS.has(operation.action)) {
+          return applyExpenseLocallyFallback(branch, operation);
+        }
         return runLocallyOffline(branch, operation, operationId);
       }
 
       const outcome = await invokeSingleRemote(branch, base.version, operationId, operation);
       if (outcome.status === 'network_error') {
         setIsOnline(false);
+        if (EXPENSE_ACTIONS.has(operation.action)) {
+          return applyExpenseLocallyFallback(branch, operation);
+        }
         return runLocallyOffline(branch, operation, operationId);
       }
       if (outcome.status === 'conflict') {
@@ -413,6 +570,9 @@ export function Root() {
         return { ok: false, error: outcome.error };
       }
       if (outcome.status === 'rejected') {
+        if (EXPENSE_ACTIONS.has(operation.action) && outcome.error === 'Revisa los datos de la operación.') {
+          return applyExpenseLocallyFallback(branch, operation);
+        }
         return { ok: false, error: outcome.error };
       }
 
@@ -563,14 +723,17 @@ export function Root() {
       return { ok: true, order: result.order, customer: result.customer };
     };
 
+    const mergedCombinedState = applyExpenseOverlay(effective.combinedState, localExpenseOverlay);
+
     const sharedProps: SharedWorkspace = {
-      state: activePractice ? practiceState : effective.combinedState,
+      state: activePractice ? practiceState : mergedCombinedState,
       roles,
       userEmail: session.user.email ?? undefined,
       isOnline,
       pendingSyncCount: activePractice ? 0 : pendingQueue.length,
       syncing: activePractice ? false : syncing,
       syncWarning: activePractice ? undefined : syncWarning || undefined,
+      expensesLocalFallback: activePractice ? false : expensesLocalFallback,
       isPracticeMode: activePractice,
       startPractice,
       exitPractice,
