@@ -50,11 +50,27 @@ describe('sandboxManual (training state & walkthrough flows)', () => {
     const baseState = createTrainingSandboxState();
     const originalOrdersCount = baseState.orders.length;
 
-    expect(WALKTHROUGH_FLOWS.length).toBe(6);
+    expect(WALKTHROUGH_FLOWS.length).toBeGreaterThanOrEqual(7);
+    expect(WALKTHROUGH_FLOWS[0].id).toBe('recorrido-general-admin');
+    expect(WALKTHROUGH_FLOWS[1].id).toBe('recorrido-general-pos');
 
     for (const flow of WALKTHROUGH_FLOWS) {
+      expect(['admin', 'pos', 'both']).toContain(flow.scope);
       expect(flow.steps.length).toBeGreaterThanOrEqual(3);
       for (const step of flow.steps) {
+        expect(step.selector.trim().length).toBeGreaterThan(0);
+        if (step.demoActions) {
+          expect(step.demoActions.length).toBeGreaterThan(0);
+          for (const action of step.demoActions) {
+            if (action.type !== 'pause') {
+              expect(action.selector.trim().length).toBeGreaterThan(0);
+              expect(action.caption.trim().length).toBeGreaterThan(0);
+            }
+            if (action.type === 'type') {
+              expect(action.text.length).toBeGreaterThan(0);
+            }
+          }
+        }
         if (step.simulate) {
           const nextState = step.simulate(baseState, 'lomas');
           expect(nextState).not.toBe(baseState);

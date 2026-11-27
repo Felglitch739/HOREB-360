@@ -234,6 +234,7 @@ export function Root() {
   const [workspaceMode, setWorkspaceMode] = useState<'admin' | 'pos'>('admin');
   const [practiceMode, setPracticeMode] = useState(false);
   const [practiceState, setPracticeState] = useState<DemoState | null>(null);
+  const [pendingTourFlowId, setPendingTourFlowId] = useState<string | null>(null);
   const interacting = useRef(false);
   const syncingRef = useRef(false);
 
@@ -864,6 +865,13 @@ export function Root() {
             theme={theme}
             onSetTheme={setTheme}
             onSwitchToEmployeeView={() => setWorkspaceMode('pos')}
+            initialTourFlowId={pendingTourFlowId}
+            onClearInitialTourFlow={() => setPendingTourFlowId(null)}
+            onLaunchPosFlow={(flowId) => {
+              startPractice();
+              setPendingTourFlowId(flowId);
+              setWorkspaceMode('pos');
+            }}
           />
         </Suspense>
       );
@@ -877,6 +885,17 @@ export function Root() {
           theme={theme}
           onSetTheme={setTheme}
           onSwitchToAdminView={hasSupervisorRole ? () => setWorkspaceMode('admin') : undefined}
+          initialTourFlowId={pendingTourFlowId}
+          onClearInitialTourFlow={() => setPendingTourFlowId(null)}
+          onLaunchAdminFlow={
+            hasSupervisorRole
+              ? (flowId) => {
+                  startPractice();
+                  setPendingTourFlowId(flowId);
+                  setWorkspaceMode('admin');
+                }
+              : undefined
+          }
         />
       </Suspense>
     );

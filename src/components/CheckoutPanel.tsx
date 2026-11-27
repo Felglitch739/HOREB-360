@@ -671,6 +671,7 @@ export function CheckoutPanel({
 
       <button
         type="submit"
+        data-tour-id="pos-submit-order"
         className="btn btn-primary btn-full checkout-submit-btn"
         disabled={!openShift || submitting || (!checkoutOrder && selectedItems.length === 0)}
       >
@@ -816,7 +817,7 @@ export function CheckoutPanel({
         <div className="pos-top-grid">
           <div className="field">
             <span className="checkout-field-label" id="checkout-service-label">Tipo de servicio</span>
-            <div className="segmented" role="group" aria-labelledby="checkout-service-label">
+            <div className="segmented" data-tour-id="pos-service-toggle" role="group" aria-labelledby="checkout-service-label">
               <button
                 type="button"
                 className={`seg-btn ${serviceType === 'autoservicio' ? 'active' : ''}`}
@@ -827,6 +828,7 @@ export function CheckoutPanel({
               </button>
               <button
                 type="button"
+                data-tour-id="pos-service-encargo"
                 className={`seg-btn ${serviceType === 'encargo' ? 'active' : ''}`}
                 aria-pressed={serviceType === 'encargo'}
                 onClick={() => setServiceType('encargo')}
@@ -841,6 +843,7 @@ export function CheckoutPanel({
               <span className="checkout-field-label">Cliente y lealtad</span>
               <button
                 type="button"
+                data-tour-id="pos-new-customer-btn"
                 className="ticket-fallback-link"
                 aria-expanded={showNewCustomer}
                 onClick={() => setShowNewCustomer((prev) => !prev)}
@@ -884,6 +887,7 @@ export function CheckoutPanel({
             <div className="quick-customer-inputs">
               <input
                 className="input input-sm"
+                data-tour-id="pos-new-customer-name"
                 aria-label="Nombre del cliente"
                 placeholder="Nombre del cliente *"
                 value={newCustName}
@@ -892,6 +896,7 @@ export function CheckoutPanel({
               />
               <input
                 className="input input-sm"
+                data-tour-id="pos-new-customer-phone"
                 type="tel"
                 aria-label="Teléfono del cliente"
                 inputMode="tel"
@@ -905,6 +910,7 @@ export function CheckoutPanel({
               <label className="checkbox-row" style={{ minHeight: 36, padding: '4px 10px' }}>
                 <input
                   type="checkbox"
+                  data-tour-id="pos-new-customer-consent"
                   checked={newCustConsent}
                   onChange={(e) => setNewCustConsent(e.target.checked)}
                 />
@@ -912,6 +918,7 @@ export function CheckoutPanel({
               </label>
               <button
                 type="button"
+                data-tour-id="pos-new-customer-save"
                 className="btn btn-secondary btn-sm"
                 disabled={savingCustomer}
                 onClick={async () => {
@@ -1064,6 +1071,7 @@ export function CheckoutPanel({
                     </span>
                     <button
                       type="button"
+                      data-tour-id={`pos-catalog-add-${item.id}`}
                       className="btn btn-secondary btn-sm qty-btn"
                       onClick={() => updateItemQuantity(item.id, 1)}
                       aria-label={`Agregar ${item.name}`}

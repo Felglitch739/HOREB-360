@@ -566,7 +566,7 @@ export function GastosGananciaView({
       </section>
 
       {/* 4 KPIs ejecutivos */}
-      <div className="admin-kpi-grid">
+      <div className="admin-kpi-grid" data-tour-id="gastos-kpis">
         <div className="admin-kpi-card">
           <span className="admin-eyebrow">Ingresos confirmados</span>
           <strong className="admin-kpi-number">{formatMxnCurrency(pnl.revenueCents)}</strong>
@@ -616,7 +616,7 @@ export function GastosGananciaView({
 
       {/* Dos columnas proporción áurea: Registrar gasto (izq) + Desglose/Sucursales (der) */}
       <div className="admin-two-col-exec">
-        <section className="card">
+        <section className="card" data-tour-id="gastos-form">
           <div className="section-head" style={{ marginBottom: 14 }}>
             <div>
               <h2>
@@ -818,7 +818,7 @@ export function GastosGananciaView({
               )}
 
               <div className="order-actions">
-                <button type="submit" className="btn btn-primary" disabled={expBusy}>
+                <button type="submit" data-tour-id="gastos-submit-btn" className="btn btn-primary" disabled={expBusy}>
                   <Plus size={15} />
                   {expBusy
                     ? 'Guardando…'
@@ -833,7 +833,7 @@ export function GastosGananciaView({
 
         {/* COLUMNA DERECHA: Desglose por categoría y Utilidad por sucursal */}
         <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
-          <section className="card">
+          <section className="card" data-tour-id="gastos-categories">
             <div className="section-head" style={{ marginBottom: 12 }}>
               <div>
                 <h2>Gastos por categoría</h2>

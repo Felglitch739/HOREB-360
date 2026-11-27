@@ -185,7 +185,7 @@ export function ClientesView({
             >
               <FileSpreadsheet size={15} aria-hidden="true" /> Exportar Excel
             </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={openNewCustomer}>
+            <button type="button" data-tour-id="clientes-new-btn" className="btn btn-primary btn-sm" onClick={openNewCustomer}>
               <UserPlus size={16} aria-hidden="true" /> Nuevo cliente
             </button>
           </div>
@@ -458,6 +458,7 @@ export function ClientesView({
                   Nombre completo *
                   <input
                     className="input"
+                    data-tour-id="clientes-name-input"
                     placeholder="Ej. María Fernanda López"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -469,6 +470,7 @@ export function ClientesView({
                   Teléfono / WhatsApp *
                   <input
                     className="input"
+                    data-tour-id="clientes-phone-input"
                     type="tel"
                     inputMode="tel"
                     placeholder="10 dígitos (ej. 8681234567)"
@@ -481,6 +483,7 @@ export function ClientesView({
                 <label className="checkbox-row field">
                   <input
                     type="checkbox"
+                    data-tour-id="clientes-consent-checkbox"
                     checked={contactConsent}
                     onChange={(e) => setContactConsent(e.target.checked)}
                   />
@@ -488,7 +491,7 @@ export function ClientesView({
                 </label>
 
                 <div className="order-actions" style={{ marginTop: 14 }}>
-                  <button type="submit" className="btn btn-primary" disabled={busy}>
+                  <button type="submit" data-tour-id="clientes-save-btn" className="btn btn-primary" disabled={busy}>
                     <Plus size={16} />
                     {editingId ? 'Guardar cambios' : 'Guardar ficha de cliente'}
                   </button>

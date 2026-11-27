@@ -1,7 +1,6 @@
 import { createExampleState } from './examples';
 import {
   DEFAULT_SUPPLY_ITEMS,
-  advanceEncargoStage,
   assignOrderMachines,
   buildDemoShowcaseMachines,
   captureEncargoPayment,
@@ -29,19 +28,29 @@ export type TourTabId =
 
 export type AdminTourTabId = 'resumen' | 'equipos' | 'finanzas' | 'gastos' | 'clientes' | 'ajustes';
 
+export type GuidedAction =
+  | { type: 'click'; selector: string; caption: string; onlyIfMissingSelector?: string; delayMs?: number }
+  | { type: 'type'; selector: string; text: string; caption: string; charDelayMs?: number }
+  | { type: 'check'; selector: string; checked: boolean; caption: string; delayMs?: number }
+  | { type: 'pause'; ms: number; caption?: string };
+
 export interface WalkthroughStep {
   tab: TourTabId;
   adminTab?: AdminTourTabId;
   selector: string;
+  adminSelector?: string;
   title: string;
   description: string;
   tip?: string;
   simLabel?: string;
+  demoActions?: GuidedAction[];
   simulate?: (state: DemoState, branchId: BranchId) => DemoState;
 }
 
 export interface WalkthroughFlow {
   id: string;
+  scope: 'admin' | 'pos' | 'both';
+  featured?: boolean;
   title: string;
   subtitle: string;
   badge: string;
@@ -51,7 +60,7 @@ export interface WalkthroughFlow {
 
 /**
  * Crea un estado de práctica aislado en memoria con órdenes activas,
- * saldos por cobrar, clientes de lealtad 10+1 y padrón de equipos en las 3 sucursales.
+ * saldos por cobrar, clientes de lealtad 10+1 y 44 máquinas de demostración.
  * Nunca se persiste ni se envía a Supabase.
  */
 export function createTrainingSandboxState(base = new Date()): DemoState {
@@ -233,30 +242,200 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
 
 export const WALKTHROUGH_FLOWS: readonly WalkthroughFlow[] = [
   {
+    id: 'recorrido-general-admin',
+    scope: 'admin',
+    featured: true,
+    title: 'Recorrido general · Portal de Dirección',
+    subtitle: 'Paseo rápido de 6 pasos por todas las pestañas de administrador: KPIs, 44 máquinas, cortes, gastos y clientes.',
+    badge: 'Vista general',
+    durationLabel: '6 pasos · ~90 seg',
+    steps: [
+      {
+        tab: 'inicio',
+        adminTab: 'resumen',
+        selector: '[data-tour-id="admin-kpis"]',
+        title: '1. Centro de Control',
+        description:
+          'Resumen ejecutivo de Lomas y Treviño: ingresos en $ MXN, órdenes en proceso, saldo por cobrar, mezcla de cobro y tendencia semanal.',
+      },
+      {
+        tab: 'equipos',
+        adminTab: 'equipos',
+        selector: '[data-tour-id="floor-summary"]',
+        title: '2. Mapa Visual de Equipos (44 máquinas)',
+        description:
+          'Supervisa en planta las 22 máquinas de Lomas y 22 de Treviño (11 lavadoras + 11 secadoras cada una), filtrando disponibles, en uso o fuera de servicio.',
+      },
+      {
+        tab: 'caja',
+        adminTab: 'finanzas',
+        selector: '[data-tour-page="finanzas"]',
+        title: '3. Finanzas, Turnos y Cortes',
+        description:
+          'Consulta cortes abiertos o cerrados por sucursal, valida transferencias bancarias y descarga reportes consolidados a Excel.',
+      },
+      {
+        tab: 'admin',
+        adminTab: 'gastos',
+        selector: '[data-tour-id="gastos-kpis"]',
+        title: '4. Gastos, Insumos y Ganancia Neta',
+        description:
+          'Registra compras de jabón o gastos operativos (renta, luz, gas, sueldos) y calcula la ganancia neta real por semana, mes o fecha.',
+      },
+      {
+        tab: 'clientes',
+        adminTab: 'clientes',
+        selector: '[data-tour-page="clientes"]',
+        title: '5. Clientes, Lealtad 10+1 y Rifa Anual',
+        description:
+          'Consulta clientes por sucursal, revisa su progreso hacia su combo gratis y gestiona boletos y sorteos anuales.',
+      },
+      {
+        tab: 'ajustes',
+        adminTab: 'ajustes',
+        selector: '[data-tour-page="ajustes"]',
+        title: '6. Ajustes y cambio a Mostrador',
+        description:
+          'Edita precios del catálogo, agrega servicios nuevos, cambia contraseñas o entra a la vista operativa de Mostrador cuando lo necesites.',
+      },
+    ],
+  },
+  {
+    id: 'recorrido-general-pos',
+    scope: 'pos',
+    featured: true,
+    title: 'Recorrido general · Mostrador y Operación',
+    subtitle: 'Paseo rápido de 7 pasos por cada pestaña que usa el personal en tienda: cobrar, entregar y cerrar turno.',
+    badge: 'Vista general',
+    durationLabel: '7 pasos · ~2 min',
+    steps: [
+      {
+        tab: 'inicio',
+        adminTab: 'resumen',
+        selector: '[data-tour="overview-stats"]',
+        title: '1. Inicio de turno',
+        description:
+          'Muestra ventas del turno actual, saldo pendiente por cobrar y accesos rápidos para abrir Mostrador o atender órdenes pendientes.',
+      },
+      {
+        tab: 'mostrador',
+        adminTab: 'resumen',
+        selector: '#checkout-form',
+        title: '2. Mostrador (POS)',
+        description:
+          'Crea ventas de Autoservicio o Encargo en segundos, da de alta clientes frecuentes, elige pago completo/anticipo/al recoger y cobra.',
+      },
+      {
+        tab: 'ordenes',
+        adminTab: 'resumen',
+        selector: '[data-tour="orders-panel"]',
+        title: '3. Órdenes y tablero Kanban',
+        description:
+          'Rastrea cada folio (Recibido → Lavado → Secado → Listo → Entregado), cobra saldos pendientes y envía avisos por WhatsApp.',
+      },
+      {
+        tab: 'equipos',
+        adminTab: 'equipos',
+        selector: '[data-tour-page="equipos"]',
+        title: '4. Equipos de sucursal',
+        description:
+          'Verifica qué lavadoras y secadoras están libres, en uso o en mantenimiento preventivo antes de asignar una orden.',
+      },
+      {
+        tab: 'clientes',
+        adminTab: 'clientes',
+        selector: '[data-tour-page="clientes"]',
+        title: '5. Clientes y programa 10+1',
+        description:
+          'Busca clientes por nombre o teléfono, crea fichas nuevas y revisa sus combos gratis y boletos acumulados.',
+      },
+      {
+        tab: 'caja',
+        adminTab: 'finanzas',
+        selector: '[data-tour="caja-panel"]',
+        title: '6. Caja y arqueo',
+        description:
+          'Cuenta billetes y monedas, registra retiros o entradas de efectivo, confirma transferencias y cierra el turno al final del día.',
+      },
+      {
+        tab: 'ajustes',
+        adminTab: 'ajustes',
+        selector: '[data-tour-page="ajustes"]',
+        title: '7. Ajustes de mostrador',
+        description:
+          'Configura impresora térmica (80 mm / 58 mm), revisa el manual o regresa al Portal de Dirección si tienes permiso de administrador.',
+      },
+    ],
+  },
+  {
     id: 'orden-completa',
-    title: '1. Orden completa: de cliente nuevo a cobro',
-    subtitle: 'Cómo registrar un cliente nuevo, armar su carrito, asignar lavadora y cobrar con cambio.',
+    scope: 'pos',
+    title: '1. Orden completa: cliente nuevo a cobro',
+    subtitle: 'Observa en vivo cómo se registra un cliente letra por letra, se arma el carrito, se calcula cambio y se guarda la orden.',
     badge: 'Mostrador POS',
-    durationLabel: '4 pasos · ~2 min',
+    durationLabel: '4 pasos · Animado',
     steps: [
       {
         tab: 'mostrador',
         adminTab: 'resumen',
-        selector: '#checkout-service-label',
+        selector: '[data-tour-id="pos-service-toggle"]',
         title: 'Elige Autoservicio o Encargo',
         description:
-          'En Mostrador la pantalla prioriza la creación rápida: a la izquierda armas la orden y a la derecha ves el resumen y cobro. Elige Autoservicio (el cliente lava en el momento) o Encargo (deja su ropa y se marca etapa).',
-        tip: 'Puedes ocultar el menú lateral con el botón superior izquierdo para trabajar a pantalla completa en tablets.',
+          'Indica si el cliente lava en el momento (Autoservicio) o si deja su ropa para seguimiento por etapas (Encargo).',
+        simLabel: 'Ver cambio a "Encargo"',
+        demoActions: [
+          {
+            type: 'click',
+            selector: '[data-tour-id="pos-service-encargo"]',
+            caption: 'Seleccionando servicio "Encargo"...',
+          },
+        ],
       },
       {
         tab: 'mostrador',
         adminTab: 'clientes',
-        selector: '#checkout-form .catalog-head-row',
-        title: 'Registra o selecciona un cliente (Lealtad 10+1)',
+        selector: '[data-tour-id="pos-new-customer-btn"]',
+        title: 'Registra un cliente nuevo en vivo',
         description:
-          'Haz clic en "Nuevo cliente" para dar de alta nombre y teléfono de 10 dígitos sin salir de Mostrador, o elige uno del selector para que acumule combos hacia su combo gratis y boleto de rifa.',
-        tip: 'Si el cliente solo viene de paso y no quiere ficha, déjalo en "Cobro rápido (sin ficha)".',
-        simLabel: 'Simular alta de "Ana Sofía Garza (Demo)"',
+          'Haz clic en "Nuevo cliente", captura nombre completo, teléfono de 10 dígitos, autoriza WhatsApp y guarda la ficha sin salir del mostrador.',
+        tip: 'Mira cómo el tutorial abre el panel, teclea los datos ficticios y selecciona a la clienta automáticamente.',
+        simLabel: 'Animar alta de "Ana Sofía Garza (Demo)"',
+        demoActions: [
+          {
+            type: 'click',
+            selector: '[data-tour-id="pos-new-customer-btn"]',
+            onlyIfMissingSelector: '[data-tour-id="pos-new-customer-name"]',
+            caption: 'Abriendo formulario de nuevo cliente...',
+          },
+          {
+            type: 'type',
+            selector: '[data-tour-id="pos-new-customer-name"]',
+            text: 'Ana Sofía Garza (Demo)',
+            caption: 'Escribiendo nombre: Ana Sofía Garza (Demo)',
+          },
+          {
+            type: 'type',
+            selector: '[data-tour-id="pos-new-customer-phone"]',
+            text: '8685550192',
+            caption: 'Escribiendo teléfono: 8685550192',
+          },
+          {
+            type: 'check',
+            selector: '[data-tour-id="pos-new-customer-consent"]',
+            checked: true,
+            caption: 'Marcando autorización de WhatsApp...',
+          },
+          {
+            type: 'pause',
+            ms: 450,
+            caption: 'Confirmando ficha del cliente...',
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="pos-new-customer-save"]',
+            caption: 'Guardando ficha y seleccionando cliente...',
+          },
+        ],
         simulate: (state, branchId) => {
           const uniquePhone = `868${String(Math.floor(1000000 + Math.random() * 8999999))}`;
           const res = upsertCustomer(
@@ -275,21 +454,54 @@ export const WALKTHROUGH_FLOWS: readonly WalkthroughFlow[] = [
       {
         tab: 'mostrador',
         adminTab: 'equipos',
-        selector: '#checkout-catalog-label',
-        title: 'Agrega servicios y asigna lavadora (opcional)',
+        selector: '.pos-catalog-grid',
+        title: 'Agrega servicios al carrito',
         description:
-          'Toca cualquier tarjeta del catálogo para sumar +1 rápidamente o usa los botones - y +. Si un servicio ocupa máquina, puedes desplegar "Asignar lavadora (opcional)" para apartar un equipo libre.',
-        tip: 'Usa los filtros "Lavado / Secado" e "Insumos y extras" cuando el catálogo tenga muchos productos.',
+          'Toca el botón + de cualquier servicio para armar la orden. Si es encargo, también puedes elegir Pago completo, Anticipo parcial o Al recoger.',
+        simLabel: 'Animar suma de 2 combos ($140.00)',
+        demoActions: [
+          {
+            type: 'click',
+            selector: '[data-tour-id="pos-catalog-add-combo"]',
+            caption: 'Agregando 1° Combo Lavado + Secado ($70)...',
+          },
+          {
+            type: 'pause',
+            ms: 350,
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="pos-catalog-add-combo"]',
+            caption: 'Agregando 2° Combo Lavado + Secado ($140 total)...',
+          },
+        ],
       },
       {
         tab: 'mostrador',
         adminTab: 'finanzas',
         selector: '.pos-payment-col',
-        title: 'Cobra y emite el comprobante',
+        title: 'Cobra y emite la orden',
         description:
-          'Selecciona Efectivo (con chips rápidos como Exacto, $100, $200), Tarjeta, Transferencia o Mixto. Al guardar verás el cambio a entregar y el botón "Ver / emitir comprobante".',
-        tip: 'Si es Encargo y pagará después, marca "Cobrar al recoger" para que quede con saldo pendiente.',
-        simLabel: 'Simular orden pagada en efectivo ($140.00)',
+          'Captura el efectivo recibido (o elige Tarjeta, Transferencia o Mixto), verifica el cambio calculado al instante y guarda la orden.',
+        simLabel: 'Animar cobro con billete de $200 y guardar',
+        demoActions: [
+          {
+            type: 'type',
+            selector: '#cash-received-input',
+            text: '200',
+            caption: 'Capturando $200.00 en efectivo (calcula $60 de cambio)...',
+          },
+          {
+            type: 'pause',
+            ms: 550,
+            caption: 'Listo para guardar orden y generar folio...',
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="pos-submit-order"]',
+            caption: 'Guardando orden pagada en el sistema...',
+          },
+        ],
         simulate: (state, branchId) => {
           const customer = (state.customers ?? [])[0];
           const res = createOrder(state, {
@@ -307,46 +519,275 @@ export const WALKTHROUGH_FLOWS: readonly WalkthroughFlow[] = [
     ],
   },
   {
+    id: 'equipos-monitoreo',
+    scope: 'admin',
+    title: '2. Mapa visual de 44 máquinas y filtros',
+    subtitle: 'Supervisa en tiempo real disponibilidad, ciclos en uso y mantenimiento en Lomas y Treviño.',
+    badge: 'Dirección · Equipos',
+    durationLabel: '3 pasos · Animado',
+    steps: [
+      {
+        tab: 'equipos',
+        adminTab: 'equipos',
+        selector: '[data-tour-id="floor-summary"]',
+        title: 'Prueba los filtros por estado',
+        description:
+          'Alterna entre Disponibles, En uso y Fuera de servicio para ubicar al instante las lavadoras y secadoras que requieren atención.',
+        simLabel: 'Animar recorrido por los filtros',
+        demoActions: [
+          {
+            type: 'click',
+            selector: '[data-tour-id="floor-filter-en_uso"]',
+            caption: 'Filtrando máquinas En uso...',
+          },
+          {
+            type: 'pause',
+            ms: 950,
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="floor-filter-fuera_de_servicio"]',
+            caption: 'Filtrando máquinas Fuera de servicio...',
+          },
+          {
+            type: 'pause',
+            ms: 950,
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="floor-filter-todos"]',
+            caption: 'Mostrando las 44 máquinas nuevamente...',
+          },
+        ],
+      },
+      {
+        tab: 'equipos',
+        adminTab: 'equipos',
+        selector: '.floor-tile-grid, .machine-grid',
+        title: 'Inspecciona ciclos activos y folios',
+        description:
+          'Cada equipo en uso muestra su tambor animado, el folio asignado y el tiempo estimado restante para responder rápido a clientes.',
+      },
+      {
+        tab: 'equipos',
+        adminTab: 'equipos',
+        selector: '[data-tour-id="floor-add-machine-btn"], .equipos-toolbar',
+        title: 'Agrega una lavadora o secadora',
+        description:
+          'Desde "Agregar equipo" puedes registrar nuevas máquinas con código, modelo LG y capacidad en kg.',
+        simLabel: 'Simular alta de lavadora demo',
+        simulate: (state, branchId) => {
+          const codeNum = getBranchMachines(state, branchId).length + 1;
+          const res = upsertMachine(
+            state,
+            branchId,
+            {
+              code: `LD${codeNum}`,
+              name: `Lavadora Demo #${codeNum}`,
+              kind: 'lavadora',
+            },
+            'Modo Práctica',
+          );
+          return res.ok ? res.state : state;
+        },
+      },
+    ],
+  },
+  {
+    id: 'gastos-ganancia',
+    scope: 'admin',
+    title: '3. Gastos, catálogo de insumos y ganancia neta',
+    subtitle: 'Observa cómo capturar una compra de jabón con cálculo automático y ver la ganancia neta en vivo.',
+    badge: 'Dirección · Finanzas',
+    durationLabel: '3 pasos · Animado',
+    steps: [
+      {
+        tab: 'admin',
+        adminTab: 'gastos',
+        selector: '[data-tour-id="gastos-kpis"]',
+        title: 'Ingresos, Gastos y Ganancia Neta',
+        description:
+          'Los 4 indicadores superiores restan automáticamente tus gastos del periodo a los ingresos confirmados, mostrando el margen real.',
+      },
+      {
+        tab: 'admin',
+        adminTab: 'gastos',
+        selector: '[data-tour-id="gastos-form"]',
+        title: 'Registra una compra de insumos en vivo',
+        description:
+          'Captura concepto, unidad, cantidad y costo unitario; puedes elegir un insumo del catálogo o escribirlo directo.',
+        simLabel: 'Animar compra de 4 garrafas de jabón ($720)',
+        demoActions: [
+          {
+            type: 'type',
+            selector: '#exp-concept',
+            text: 'Jabón líquido',
+            caption: 'Escribiendo insumo: Jabón líquido...',
+          },
+          {
+            type: 'type',
+            selector: '#exp-unit',
+            text: 'garrafa',
+            caption: 'Unidad: garrafa',
+          },
+          {
+            type: 'type',
+            selector: '#exp-qty',
+            text: '4',
+            caption: 'Cantidad: 4 garrafas...',
+          },
+          {
+            type: 'type',
+            selector: '#exp-cost',
+            text: '180',
+            caption: 'Costo unitario $180.00 = $720.00 MXN total...',
+          },
+          {
+            type: 'pause',
+            ms: 550,
+            caption: 'Guardando gasto y actualizando ganancia neta...',
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="gastos-submit-btn"]',
+            caption: 'Registrando gasto...',
+          },
+        ],
+      },
+      {
+        tab: 'admin',
+        adminTab: 'gastos',
+        selector: '[data-tour-id="gastos-categories"]',
+        title: 'Filtra por categoría y exporta a Excel',
+        description:
+          'Toca cualquier barra (Insumos, Luz, Gas, Renta, Sueldos, Mantenimiento) para filtrar el historial y descarga el libro Excel de 4 hojas.',
+      },
+    ],
+  },
+  {
+    id: 'clientes-lealtad',
+    scope: 'both',
+    title: '4. Alta de clientes, Lealtad 10+1 y Rifa',
+    subtitle: 'Mira cómo registrar una ficha paso a paso, ver su progreso hacia combo gratis y controlar boletos.',
+    badge: 'Fidelización',
+    durationLabel: '3 pasos · Animado',
+    steps: [
+      {
+        tab: 'clientes',
+        adminTab: 'clientes',
+        selector: '[data-tour-id="clientes-new-btn"]',
+        title: 'Abre y llena el alta de cliente en vivo',
+        description:
+          'Presiona "Nuevo cliente", captura nombre y teléfono de 10 dígitos, autoriza avisos de WhatsApp y guarda su ficha.',
+        simLabel: 'Animar registro de "Valentina Ruiz (Demo)"',
+        demoActions: [
+          {
+            type: 'click',
+            selector: '[data-tour-id="clientes-new-btn"]',
+            onlyIfMissingSelector: '[data-tour-id="clientes-name-input"]',
+            caption: 'Abriendo cajón de registro de cliente...',
+          },
+          {
+            type: 'type',
+            selector: '[data-tour-id="clientes-name-input"]',
+            text: 'Valentina Ruiz (Demo)',
+            caption: 'Escribiendo nombre completo...',
+          },
+          {
+            type: 'type',
+            selector: '[data-tour-id="clientes-phone-input"]',
+            text: '8684129901',
+            caption: 'Escribiendo teléfono WhatsApp...',
+          },
+          {
+            type: 'check',
+            selector: '[data-tour-id="clientes-consent-checkbox"]',
+            checked: true,
+            caption: 'Autorizando avisos por WhatsApp...',
+          },
+          {
+            type: 'pause',
+            ms: 450,
+            caption: 'Guardando ficha de lealtad...',
+          },
+          {
+            type: 'click',
+            selector: '[data-tour-id="clientes-save-btn"]',
+            caption: 'Guardando cliente...',
+          },
+        ],
+        simulate: (state, branchId) => {
+          const randomDigits = String(Math.floor(1000000 + Math.random() * 8999999));
+          const res = upsertCustomer(
+            state,
+            branchId,
+            {
+              name: 'Valentina Ruiz (Demo)',
+              phone: `868${randomDigits}`,
+              contactConsent: true,
+            },
+            'Modo Práctica',
+          );
+          return res.ok ? res.state : state;
+        },
+      },
+      {
+        tab: 'clientes',
+        adminTab: 'clientes',
+        selector: '.clientes-master-detail',
+        title: 'Consulta avance 10+1 e historial',
+        description:
+          'A la izquierda filtras clientes por nombre o teléfono; a la derecha ves sus combos acumulados, combos gratis y órdenes previas.',
+      },
+      {
+        tab: 'admin',
+        adminTab: 'clientes',
+        selector: '[data-tour="admin-panel"]',
+        title: 'Boletos digitales y Rifa Anual',
+        description:
+          'Al canjear un combo gratis y cerrar la orden, se genera un boleto digital único para el sorteo del 23 de diciembre.',
+      },
+    ],
+  },
+  {
     id: 'saldos-pendientes',
-    title: '2. Saldos pendientes: sucursal, hora y si sigue activa',
-    subtitle: 'Cómo detectar qué falta por cobrar, de qué sucursal es, a qué hora se creó y en qué etapa va.',
-    badge: 'Cobranza y control',
-    durationLabel: '4 pasos · ~2 min',
+    scope: 'pos',
+    title: '5. Saldos pendientes, sucursal y cobranza',
+    subtitle: 'Identifica qué falta por cobrar, de qué sucursal es cada folio, su hora y liquida o confirma transferencias.',
+    badge: 'Mostrador POS · Cobranza',
+    durationLabel: '4 pasos · ~90 seg',
     steps: [
       {
         tab: 'inicio',
         adminTab: 'resumen',
         selector: '[data-tour="overview-stats"]',
-        title: 'Detecta al instante si falta algo por cobrar',
+        title: 'Detecta saldos por cobrar al instante',
         description:
-          'En Inicio (o en el Centro de Control Admin) el cuadro "Por cobrar" se resalta en ámbar cuando hay dinero pendiente. Al tocarlo te lleva directo al listado filtrado con esas órdenes.',
-        tip: 'En la barra superior siempre ves la sucursal activa y si su turno de Caja está abierto.',
+          'El indicador "Por cobrar" se resalta en ámbar cuando existen encargos pendientes de liquidar o transferencias sin verificar.',
       },
       {
         tab: 'ordenes',
         adminTab: 'resumen',
         selector: '[data-tour="orders-panel"] .order-toolbar',
-        title: 'Filtra por "Por cobrar" y por fecha',
+        title: 'Filtra por "Por cobrar" y fecha',
         description:
-          'Usa el selector derecho para elegir "Por cobrar" y los botones de fecha (Hoy, Ayer, Últimos 7 días) para encontrar órdenes atrasadas o del turno anterior.',
-        tip: 'En Mostrador puedes abrir el mismo listado sin salir de caja con el botón "Órdenes" en la esquina superior derecha.',
+          'Elige el filtro "Por cobrar" y la fecha para localizar órdenes de días anteriores o del turno actual.',
       },
       {
         tab: 'ordenes',
         adminTab: 'resumen',
         selector: '.order-list',
-        title: 'Cómo leer sucursal, hora, folio y si sigue activa',
+        title: 'Lee sucursal, hora y estado de un vistazo',
         description:
-          'Cada tarjeta te da todo de un vistazo: el prefijo del folio indica la sucursal (LOM- Lomas, TRE- Treviño); junto al folio ves la etapa activa (Recibido, Lavado, Secado o Listo); abajo aparece el cliente y la hora exacta; y la etiqueta ámbar muestra el saldo "Pendiente $XX.XX".',
-        tip: 'Las órdenes con etiqueta "Entregado" se atenúan para distinguirlas fácilmente de las que siguen activas.',
+          'El prefijo indica sucursal (LOM- Lomas, TRE- Treviño), la insignia muestra su etapa y la etiqueta ámbar detalla el saldo restante.',
       },
       {
         tab: 'ordenes',
         adminTab: 'finanzas',
         selector: '.order-list',
-        title: 'Cobra un encargo pendiente o confirma una transferencia',
+        title: 'Liquida saldo o confirma transferencia',
         description:
-          'Si el cliente dejó el encargo "Cobrar al recoger", presiona "Cobrar" para abrir el panel de pago. Si pagó por transferencia y falta validarla en banco, presiona "Confirmar" o abre la tarjeta para ingresar la referencia.',
+          'Usa "Cobrar saldo" en encargos pendientes o confirma transferencias SPEI desde la tarjeta.',
         simLabel: 'Simular cobro de un saldo pendiente',
         simulate: (state, branchId) => {
           const unpaid = state.orders.find(
@@ -379,186 +820,39 @@ export const WALKTHROUGH_FLOWS: readonly WalkthroughFlow[] = [
     ],
   },
   {
-    id: 'ciclo-encargo',
-    title: '3. Ciclo de encargo, tablero Kanban y WhatsApp',
-    subtitle: 'Sigue el progreso Recibido → Lavado → Secado → Listo y avisa al cliente cuando esté terminado.',
-    badge: 'Operación diaria',
-    durationLabel: '3 pasos · ~90 seg',
-    steps: [
-      {
-        tab: 'ordenes',
-        adminTab: 'resumen',
-        selector: '.view-toggle-group',
-        title: 'Alterna entre vista Lista y tablero Kanban',
-        description:
-          'En la pestaña Órdenes cambia al modo "Kanban" para ver 4 columnas visuales: Recibido, Lavado, Secado y Listo. Es ideal en tablets para controlar el taller de un vistazo.',
-        tip: 'Cada columna te permite avanzar de etapa con un solo toque.',
-      },
-      {
-        tab: 'ordenes',
-        adminTab: 'resumen',
-        selector: '.order-list',
-        title: 'Avanza etapas y asigna equipo al pasar',
-        description:
-          'Al expandir un encargo ves la barra de progreso de 5 pasos y puedes asignar la lavadora o secadora correspondiente; al avanzar de etapa la máquina anterior se libera automáticamente.',
-        simLabel: 'Simular avance de etapa en una orden activa',
-        simulate: (state, branchId) => {
-          const candidate =
-            state.orders.find(
-              (o) =>
-                o.branchId === branchId &&
-                o.serviceType === 'encargo' &&
-                (o.encargoStage === 'recibido' || o.encargoStage === 'lavado' || o.encargoStage === 'secado'),
-            ) ??
-            state.orders.find(
-              (o) =>
-                o.serviceType === 'encargo' &&
-                (o.encargoStage === 'recibido' || o.encargoStage === 'lavado' || o.encargoStage === 'secado'),
-            );
-          if (!candidate) return state;
-          const res = advanceEncargoStage(state, candidate.id, { actorLabel: 'Modo Práctica' });
-          return res.ok ? res.state : state;
-        },
-      },
-      {
-        tab: 'ordenes',
-        adminTab: 'resumen',
-        selector: '.order-list',
-        title: 'Avisa por WhatsApp y registra la entrega',
-        description:
-          'Cuando un encargo llega a "Listo", aparece automáticamente el mensaje prellenado con folio, sucursal y saldo (si debe algo) para abrir WhatsApp en 1 clic. Al entregar al cliente, presiona "Entregar".',
-        tip: 'No podrás entregar un encargo si aún tiene saldo pendiente por cobrar.',
-      },
-    ],
-  },
-  {
-    id: 'clientes-lealtad',
-    title: '4. Agregar cliente, Lealtad 10+1 y Rifa anual',
-    subtitle: 'Cómo dar de alta clientes frecuentes, revisar su avance hacia el combo gratis y ver boletos de rifa.',
-    badge: 'Fidelización',
-    durationLabel: '3 pasos · ~90 seg',
-    steps: [
-      {
-        tab: 'clientes',
-        adminTab: 'clientes',
-        selector: '[data-tour-page="clientes"]',
-        title: 'Abre el alta desde "Nuevo cliente"',
-        description:
-          'En la pestaña Clientes presiona "Nuevo cliente" para abrir el panel lateral de registro. Captura nombre completo, teléfono a 10 dígitos y confirma si autoriza avisos por WhatsApp.',
-        simLabel: 'Simular registro de cliente frecuente',
-        simulate: (state, branchId) => {
-          const randomDigits = String(Math.floor(1000000 + Math.random() * 8999999));
-          const res = upsertCustomer(
-            state,
-            branchId,
-            {
-              name: 'Valentina Ruiz (Demo)',
-              phone: `868${randomDigits}`,
-              contactConsent: true,
-            },
-            'Modo Práctica',
-          );
-          return res.ok ? res.state : state;
-        },
-      },
-      {
-        tab: 'clientes',
-        adminTab: 'clientes',
-        selector: '.clientes-master-detail',
-        title: 'Consulta el progreso 10+1 y el historial por folio',
-        description:
-          'A la izquierda buscas por nombre o teléfono; a la derecha ves su barra de progreso hacia 10 combos, sus combos gratis disponibles, boletos de rifa emitidos y todas sus órdenes.',
-        tip: 'Los combos se acreditan automáticamente al completar órdenes pagadas a nombre del cliente.',
-      },
-      {
-        tab: 'admin',
-        adminTab: 'clientes',
-        selector: '[data-tour="admin-panel"]',
-        title: 'Controla los boletos y ejecuta la Rifa Anual',
-        description:
-          'Cuando un cliente canjea su combo gratis y termina la orden, recibe un boleto digital único para el sorteo anual que Supervisión puede ejecutar con historial auditable.',
-      },
-    ],
-  },
-  {
-    id: 'equipos-monitoreo',
-    title: '5. Agregar lavadora/secadora y ver tiempos de ciclo',
-    subtitle: 'Alta de máquinas al padrón, seguimiento de ciclos en uso y reporte fuera de servicio.',
-    badge: 'Taller y equipos',
-    durationLabel: '3 pasos · ~90 seg',
-    steps: [
-      {
-        tab: 'equipos',
-        adminTab: 'equipos',
-        selector: '[data-tour-page="equipos"]',
-        title: 'Filtra por estado con las tarjetas superiores',
-        description:
-          'Toca Disponibles, En uso o Fuera de servicio para enfocar solo los equipos que te interesan. En el Portal Admin cuentas además con el Mapa Visual de planta por zonas.',
-      },
-      {
-        tab: 'equipos',
-        adminTab: 'equipos',
-        selector: '.machine-grid',
-        title: 'Revisa qué folio ocupa cada equipo y su tiempo estimado',
-        description:
-          'Las máquinas en uso muestran el folio asignado, una barra de progreso del ciclo y los minutos transcurridos/restantes estimados para responder rápido si un cliente pregunta por su ropa.',
-        tip: 'Si una máquina falla, captura el motivo y presiona "Fuera de servicio" para bloquearla en Mostrador.',
-      },
-      {
-        tab: 'equipos',
-        adminTab: 'equipos',
-        selector: '.equipos-toolbar',
-        title: 'Agrega una nueva lavadora o secadora (Supervisión)',
-        description:
-          'Presiona "Agregar equipo", define un código corto (ej. L4, S3), su nombre o capacidad y el tipo (Lavadora o Secadora). Quedará disponible de inmediato para asignar en órdenes.',
-        simLabel: 'Simular alta de lavadora "L-DEMO"',
-        simulate: (state, branchId) => {
-          const codeNum = getBranchMachines(state, branchId).length + 1;
-          const res = upsertMachine(
-            state,
-            branchId,
-            {
-              code: `LD${codeNum}`,
-              name: `Lavadora Demo #${codeNum}`,
-              kind: 'lavadora',
-            },
-            'Modo Práctica',
-          );
-          return res.ok ? res.state : state;
-        },
-      },
-    ],
-  },
-  {
     id: 'caja-corte',
-    title: '6. Arqueo de efectivo, transferencias y corte 23:00',
-    subtitle: 'Cuenta billetes y monedas, concilia pagos externos, cierra turno y exporta a Excel.',
-    badge: 'Caja y finanzas',
-    durationLabel: '3 pasos · ~2 min',
+    scope: 'both',
+    title: '6. Arqueo de efectivo, conciliación y cortes',
+    subtitle: 'Cuenta billetes y monedas, confirma pagos en lote, realiza el corte del día y exporta turnos a Excel.',
+    badge: 'Caja y Finanzas',
+    durationLabel: '3 pasos · ~90 seg',
     steps: [
       {
         tab: 'caja',
         adminTab: 'finanzas',
         selector: '[data-tour="caja-panel"]',
-        title: 'Usa el contador interactivo de billetes y monedas',
+        adminSelector: '[data-tour-page="finanzas"]',
+        title: 'Contador de billetes y monedas',
         description:
-          'En Caja abre "Contar billetes y monedas" para ingresar la cantidad de piezas de cada denominación ($1,000 a $0.50). El total y la diferencia (Cuadrado, Sobrante o Faltante) se calculan al instante.',
+          'Ingresa piezas de $1,000 a $0.50 MXN para calcular el efectivo contado y comparar al centavo contra lo esperado.',
       },
       {
         tab: 'caja',
         adminTab: 'finanzas',
         selector: '.transfer-inbox, [data-tour="caja-panel"]',
-        title: 'Registra entradas/retiros y verifica transferencias',
+        adminSelector: '[data-tour-page="finanzas"]',
+        title: 'Conciliación bancaria y movimientos',
         description:
-          'Registra compras de insumos o retiros con su motivo y confirma en lote las transferencias SPEI o pagos con terminal que ya reflejen en tu cuenta bancaria.',
+          'Registra entradas/retiros con motivo obligatorio y confirma pagos con tarjeta o transferencias SPEI pendientes.',
       },
       {
         tab: 'caja',
         adminTab: 'finanzas',
         selector: '.night-closing-card, [data-tour="caja-panel"]',
-        title: 'Corte nocturno de las 23:00 y Excel (.xlsx)',
+        adminSelector: '[data-tour-page="finanzas"]',
+        title: 'Reportes de cierre y Excel (.xlsx)',
         description:
-          'Consulta el historial de turnos y cierres nocturnos. Desde "Exportar Excel" descargas un libro .xlsx con hojas separadas para turnos y movimientos de caja.',
+          'Revisa el historial de turnos y cierres por sucursal y descarga el reporte completo en Excel.',
       },
     ],
   },

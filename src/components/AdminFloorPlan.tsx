@@ -265,7 +265,7 @@ export function AdminFloorPlan({
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       {/* Visual Occupancy Summary Bar */}
-      <section className="card admin-floor-summary">
+      <section className="card admin-floor-summary" data-tour-id="floor-summary">
         <div className="admin-floor-summary-top">
           <div>
             <span className="admin-eyebrow">Ocupación operativa</span>
@@ -283,7 +283,7 @@ export function AdminFloorPlan({
               <Activity size={15} aria-hidden="true" />
               {showThinq ? 'Ocultar ThinQ' : 'Vista ThinQ'}
             </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={openNewMachine}>
+            <button type="button" data-tour-id="floor-add-machine-btn" className="btn btn-primary btn-sm" onClick={openNewMachine}>
               <Plus size={15} aria-hidden="true" /> Agregar equipo
             </button>
           </div>
@@ -325,6 +325,7 @@ export function AdminFloorPlan({
               <button
                 key={pill.id}
                 type="button"
+                data-tour-id={`floor-filter-${pill.id}`}
                 className={`filter-pill${statusFilter === pill.id ? ' active' : ''}`}
                 aria-pressed={statusFilter === pill.id}
                 onClick={() => setStatusFilter(pill.id)}

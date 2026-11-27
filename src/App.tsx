@@ -41,12 +41,24 @@ const navigation = [
 
 type TabId = (typeof navigation)[number]['id'] | 'ajustes';
 
-export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminView }: {
+export function App({
+  shared,
+  sharedNotice,
+  theme,
+  onSetTheme,
+  onSwitchToAdminView,
+  initialTourFlowId,
+  onClearInitialTourFlow,
+  onLaunchAdminFlow,
+}: {
   shared: SharedWorkspace;
   sharedNotice?: string;
   theme: BrandTheme;
   onSetTheme: (theme: BrandTheme) => void;
   onSwitchToAdminView?: () => void;
+  initialTourFlowId?: string | null;
+  onClearInitialTourFlow?: () => void;
+  onLaunchAdminFlow?: (flowId: string) => void;
 }) {
   const [selectedBranch, setSelectedBranch] = useState(shared.state.activeBranchId);
   const state = shared.state;
@@ -56,6 +68,10 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
   const [orderQuery, setOrderQuery] = useState('');
   const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialTourFlowId) setTourOpen(true);
+  }, [initialTourFlowId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -573,6 +589,9 @@ export function App({ shared, sharedNotice, theme, onSetTheme, onSwitchToAdminVi
           <AppTour
             mode="pos"
             branchId={activeBranchId}
+            initialFlowId={initialTourFlowId}
+            onClearInitialFlow={onClearInitialTourFlow}
+            onSwitchModeAndLaunch={onLaunchAdminFlow}
             isPracticeMode={shared.isPracticeMode}
             onStartPractice={shared.startPractice}
             onExitPractice={shared.exitPractice}

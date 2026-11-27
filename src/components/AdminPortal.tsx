@@ -97,6 +97,9 @@ interface AdminPortalProps {
   theme: BrandTheme;
   onSetTheme: (theme: BrandTheme) => void;
   onSwitchToEmployeeView: () => void;
+  initialTourFlowId?: string | null;
+  onClearInitialTourFlow?: () => void;
+  onLaunchPosFlow?: (flowId: string) => void;
 }
 
 export function AdminPortal({
@@ -105,6 +108,9 @@ export function AdminPortal({
   theme,
   onSetTheme,
   onSwitchToEmployeeView,
+  initialTourFlowId,
+  onClearInitialTourFlow,
+  onLaunchPosFlow,
 }: AdminPortalProps) {
   const state = shared.state;
   const visibleBranches = BRANCHES.filter((branch) => shared.roles[branch.id]);
@@ -127,6 +133,10 @@ export function AdminPortal({
   const [drawerPayRef, setDrawerPayRef] = useState('');
   const [drawerCollecting, setDrawerCollecting] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialTourFlowId) setTourOpen(true);
+  }, [initialTourFlowId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -545,7 +555,7 @@ export function AdminPortal({
               )}
 
               {/* Executive KPI Strip */}
-              <div className="admin-kpi-grid" data-tour="overview-stats">
+              <div className="admin-kpi-grid" data-tour="overview-stats" data-tour-id="admin-kpis">
                 <div className="admin-kpi-card accent">
                   <span className="admin-eyebrow">Ingresos confirmados</span>
                   <strong className="admin-kpi-number">{formatMxnCurrency(totals.totalConfirmedCents)}</strong>
@@ -591,7 +601,7 @@ export function AdminPortal({
               </div>
 
               {/* Live Operations Pipeline (Recibido / Lavado / Secado / Listo / Por Cobrar) */}
-              <section className="card">
+              <section className="card" data-tour-id="admin-pipeline">
                 <div className="section-head" style={{ marginBottom: 12 }}>
                   <div>
                     <h2>Operación en vivo · Órdenes activas</h2>
@@ -887,7 +897,7 @@ export function AdminPortal({
           {/* ================= TAB 3: FINANZAS Y CORTES ================= */}
           <Suspense fallback={<p className="muted" role="status">Cargando sección…</p>}>
             {activeTab === 'finanzas' && (
-              <div style={{ display: 'grid', gap: 16 }}>
+              <div style={{ display: 'grid', gap: 16 }} data-tour-page="finanzas">
                 <AdminView
                   section="finanzas"
                   state={state}
@@ -1139,33 +1149,35 @@ export function AdminPortal({
 
             {/* ================= TAB 5: AJUSTES ================= */}
             {activeTab === 'ajustes' && (
-              <AjustesView
-                key={activeBranchId}
-                branchId={activeBranchId}
-                branchName={activeBranchName}
-                role={activeRole}
-                userEmail={shared.userEmail}
-                isOnline={shared.isOnline}
-                settings={activeSettings}
-                catalog={getBranchCatalog(state, activeBranchId)}
-                auditLogs={(state.auditLogs ?? []).filter((entry) => entry.branchId === activeBranchId)}
-                theme={theme}
-                onSetTheme={onSetTheme}
-                onSaveSettings={(branch, settings: Partial<BranchSettings>) =>
-                  run(branch, { action: 'updateSettings', settings })
-                }
-                onStartTour={() => setTourOpen(true)}
-                onReload={shared.reload}
-                onSignOut={shared.signOut}
-                onUpdatePassword={shared.updatePassword}
-                modeSwitcher={{
-                  title: 'Vista de Empleado / Mostrador',
-                  description:
-                    'Cambia a la interfaz operativa de Mostrador (POS, creación rápida de órdenes y entrega) que usan los empleados en tienda.',
-                  buttonLabel: 'Pasar a vista de Mostrador (Empleado)',
-                  onSwitch: onSwitchToEmployeeView,
-                }}
-              />
+              <div data-tour-page="ajustes">
+                <AjustesView
+                  key={activeBranchId}
+                  branchId={activeBranchId}
+                  branchName={activeBranchName}
+                  role={activeRole}
+                  userEmail={shared.userEmail}
+                  isOnline={shared.isOnline}
+                  settings={activeSettings}
+                  catalog={getBranchCatalog(state, activeBranchId)}
+                  auditLogs={(state.auditLogs ?? []).filter((entry) => entry.branchId === activeBranchId)}
+                  theme={theme}
+                  onSetTheme={onSetTheme}
+                  onSaveSettings={(branch, settings: Partial<BranchSettings>) =>
+                    run(branch, { action: 'updateSettings', settings })
+                  }
+                  onStartTour={() => setTourOpen(true)}
+                  onReload={shared.reload}
+                  onSignOut={shared.signOut}
+                  onUpdatePassword={shared.updatePassword}
+                  modeSwitcher={{
+                    title: 'Vista de Empleado / Mostrador',
+                    description:
+                      'Cambia a la interfaz operativa de Mostrador (POS, creación rápida de órdenes y entrega) que usan los empleados en tienda.',
+                    buttonLabel: 'Pasar a vista de Mostrador (Empleado)',
+                    onSwitch: onSwitchToEmployeeView,
+                  }}
+                />
+              </div>
             )}
           </Suspense>
         </main>
@@ -1721,6 +1733,9 @@ export function AdminPortal({
           <AppTour
             mode="admin"
             branchId={activeBranchId}
+            initialFlowId={initialTourFlowId}
+            onClearInitialFlow={onClearInitialTourFlow}
+            onSwitchModeAndLaunch={onLaunchPosFlow}
             isPracticeMode={shared.isPracticeMode}
             onStartPractice={shared.startPractice}
             onExitPractice={shared.exitPractice}
