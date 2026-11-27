@@ -30,7 +30,6 @@ import type {
 export const BRANCHES: BranchInfo[] = [
   { id: 'lomas', name: 'Lomas', folioPrefix: 'LOM' },
   { id: 'trevino', name: 'Treviño', folioPrefix: 'TRE' },
-  { id: 'sucursal-3', name: 'Sucursal 3 (por confirmar)', folioPrefix: 'S3', provisional: true },
 ];
 
 export const ENCARGO_STAGES: { id: EncargoStage; label: string }[] = [
@@ -128,12 +127,14 @@ export function buildSampleBranchMachines(
   branchId: BranchId,
   now = new Date().toISOString(),
 ): Machine[] {
-  const count = branchId === 'sucursal-3' ? 7 : 8;
+  const count = 11;
+  const branchTag =
+    branchId === 'lomas' ? 'Lomas Demo' : branchId === 'trevino' ? 'Treviño Demo' : 'Sucursal Demo';
   const washers: Machine[] = Array.from({ length: count }, (_, idx) => ({
     id: `${branchId}-L${idx + 1}`,
     branchId,
     code: `L${idx + 1}`,
-    name: `Lavadora #${idx + 1}`,
+    name: `L${idx + 1} ${branchTag}`,
     kind: 'lavadora',
     model: 'LG Giant C Max',
     capacityKg: 15,
@@ -147,7 +148,7 @@ export function buildSampleBranchMachines(
     id: `${branchId}-S${idx + 1}`,
     branchId,
     code: `S${idx + 1}`,
-    name: `Secadora #${idx + 1}`,
+    name: `S${idx + 1} ${branchTag}`,
     kind: 'secadora',
     model: 'LG Giant C Pro',
     capacityKg: 16,
@@ -158,6 +159,73 @@ export function buildSampleBranchMachines(
     updatedAt: now,
   }));
   return [...washers, ...dryers];
+}
+
+/**
+ * Genera los 22 equipos de demostración por sucursal (11 lavadoras + 11 secadoras = 44 totales)
+ * incluyendo equipos en uso con progreso de ciclo y fuera de servicio para probar todos los filtros.
+ */
+export function buildDemoShowcaseMachines(
+  branchId: BranchId,
+  base = new Date(),
+): Machine[] {
+  const nowIso = base.toISOString();
+  const baseMachines = buildSampleBranchMachines(branchId, nowIso);
+  const minsAgoIso = (mins: number) => new Date(base.getTime() - mins * 60_000).toISOString();
+
+  const inUseMap: Record<
+    string,
+    { folio: string; minsAgo: number }
+  > =
+    branchId === 'lomas'
+      ? {
+          L1: { folio: 'LOM-0014', minsAgo: 18 },
+          L2: { folio: 'LOM-0015', minsAgo: 34 },
+          L4: { folio: 'LOM-0016', minsAgo: 9 },
+          S1: { folio: 'LOM-0012', minsAgo: 27 },
+          S3: { folio: 'LOM-0013', minsAgo: 14 },
+        }
+      : {
+          L1: { folio: 'TRE-0006', minsAgo: 22 },
+          L3: { folio: 'TRE-0007', minsAgo: 11 },
+          S2: { folio: 'TRE-0005', minsAgo: 31 },
+          S4: { folio: 'TRE-0008', minsAgo: 16 },
+        };
+
+  const offlineMap: Record<string, string> =
+    branchId === 'lomas'
+      ? {
+          L7: 'Mantenimiento preventivo de válvula',
+          S9: 'Revisión de sensor de temperatura',
+        }
+      : {
+          L8: 'Cambio de empaque de puerta',
+          S10: 'Limpieza de ducto y banda',
+        };
+
+  return baseMachines.map((m) => {
+    const busy = inUseMap[m.code];
+    if (busy) {
+      return {
+        ...m,
+        status: 'en_uso',
+        currentOrderFolio: busy.folio,
+        updatedAt: minsAgoIso(busy.minsAgo),
+        updatedBy: 'Demo Horeb',
+      };
+    }
+    const reason = offlineMap[m.code];
+    if (reason) {
+      return {
+        ...m,
+        status: 'fuera_de_servicio',
+        outOfServiceReason: reason,
+        updatedAt: minsAgoIso(95),
+        updatedBy: 'Demo Horeb',
+      };
+    }
+    return m;
+  });
 }
 
 export type DomainResult<T> =
@@ -433,8 +501,11 @@ export function updateBranchSettings(
 
 export function getBranchInfo(branchId: BranchId): BranchInfo {
   const found = BRANCHES.find((b) => b.id === branchId);
-  if (!found) throw new Error(`Sucursal desconocida: ${branchId}`);
-  return found;
+  if (found) return found;
+  if (branchId === 'sucursal-3') {
+    return { id: 'sucursal-3', name: 'Sucursal 3 (Histórico)', folioPrefix: 'S3', provisional: true };
+  }
+  throw new Error(`Sucursal desconocida: ${branchId}`);
 }
 
 export function getBranchDisplayName(state: DemoState, branchId: BranchId): string {
@@ -2609,4 +2680,123 @@ export function calculateProfitAndLoss(
     byCategory,
     byBranch,
   };
+}
+
+export function buildDemoShowcaseSupplies(branchId: BranchId, now = new Date().toISOString()): SupplyItem[] {
+  const catalog: Array<{ name: string; unitLabel: string; unitCostCents: number; notes?: string }> = [
+    ...DEFAULT_SUPPLY_ITEMS,
+    { name: 'Ganchos para ropa', unitLabel: 'paquete', unitCostCents: 6500, notes: 'Paquete con 50 ganchos' },
+  ];
+  return catalog.map((item, idx) => ({
+    id: `sup-demo-${branchId}-${idx + 1}`,
+    branchId,
+    name: item.name,
+    unitLabel: item.unitLabel,
+    unitCostCents: item.unitCostCents,
+    notes: item.notes,
+    updatedAt: now,
+    updatedBy: 'Demo Horeb',
+  }));
+}
+
+export function buildDemoShowcaseExpenses(branchId: BranchId, base = new Date()): BranchExpense[] {
+  const nowIso = base.toISOString();
+  const dayKey = (daysAgo: number) => {
+    const d = new Date(base.getTime() - daysAgo * 86_400_000);
+    return localIsoDateFormatter.format(d);
+  };
+
+  const seeds: Array<Omit<BranchExpense, 'id' | 'branchId' | 'totalCents' | 'createdAt' | 'createdBy' | 'updatedAt'>> =
+    branchId === 'lomas'
+      ? [
+          {
+            date: dayKey(0),
+            category: 'insumos',
+            concept: 'Jabón líquido',
+            unitLabel: 'garrafa',
+            quantity: 4,
+            unitCostCents: 18000,
+            supplyItemId: `sup-demo-lomas-2`,
+            notes: 'Compra semanal de detergente líquido',
+          },
+          {
+            date: dayKey(1),
+            category: 'insumos',
+            concept: 'Jabón para lavadora',
+            unitLabel: 'unidad',
+            quantity: 5,
+            unitCostCents: 7000,
+            supplyItemId: `sup-demo-lomas-1`,
+            notes: 'Reposición de mostrador',
+          },
+          {
+            date: dayKey(2),
+            category: 'luz',
+            concept: 'Recibo de electricidad (CFE)',
+            unitLabel: 'recibo',
+            quantity: 1,
+            unitCostCents: 145000,
+          },
+          {
+            date: dayKey(4),
+            category: 'agua',
+            concept: 'Servicio de agua potable',
+            unitLabel: 'recibo',
+            quantity: 1,
+            unitCostCents: 62000,
+          },
+          {
+            date: dayKey(5),
+            category: 'sueldos',
+            concept: 'Nómina semanal turno matutino',
+            unitLabel: 'nómina',
+            quantity: 1,
+            unitCostCents: 280000,
+          },
+        ]
+      : [
+          {
+            date: dayKey(0),
+            category: 'insumos',
+            concept: 'Suavizante concentrado',
+            unitLabel: 'garrafa',
+            quantity: 3,
+            unitCostCents: 12500,
+            supplyItemId: `sup-demo-trevino-3`,
+          },
+          {
+            date: dayKey(1),
+            category: 'gas',
+            concept: 'Recarga de gas para secadoras',
+            unitLabel: 'carga',
+            quantity: 1,
+            unitCostCents: 98000,
+          },
+          {
+            date: dayKey(3),
+            category: 'mantenimiento',
+            concept: 'Limpieza de trampas y revisión de válvulas',
+            unitLabel: 'servicio',
+            quantity: 1,
+            unitCostCents: 65000,
+          },
+          {
+            date: dayKey(5),
+            category: 'renta',
+            concept: 'Renta parcial semanal de local',
+            unitLabel: 'semana',
+            quantity: 1,
+            unitCostCents: 220000,
+          },
+        ];
+
+  return seeds.map((s, idx) => ({
+    id: `exp-demo-${branchId}-${idx + 1}`,
+    branchId,
+    ...s,
+    totalCents: Math.round(s.quantity * s.unitCostCents),
+    createdAt: nowIso,
+    createdBy: 'Demo Horeb',
+    updatedAt: nowIso,
+  }));
 }

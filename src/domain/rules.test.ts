@@ -222,10 +222,10 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
       }),
     ).state;
 
-    // Sucursal 3: $20 efectivo + $30 tarjeta + $20 transferencia, y otra venta de $70 transferencia
+    // Treviño adicional: $20 efectivo + $30 tarjeta + $20 transferencia, y otra venta de $70 transferencia
     state = unwrap(
       createOrder(state, {
-        branchId: 'sucursal-3',
+        branchId: 'trevino',
         serviceType: 'autoservicio',
         paymentLines: [
           { method: 'efectivo', amountCents: 2000 },
@@ -236,7 +236,7 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
     ).state;
     state = unwrap(
       createOrder(state, {
-        branchId: 'sucursal-3',
+        branchId: 'trevino',
         serviceType: 'autoservicio',
         paymentLines: [{ method: 'transferencia', amountCents: 7000, confirmImmediately: true }],
       }),
@@ -251,10 +251,8 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
 
     const lomas = admin.byBranch.find((b) => b.branch.id === 'lomas')!;
     const trevino = admin.byBranch.find((b) => b.branch.id === 'trevino')!;
-    const s3 = admin.byBranch.find((b) => b.branch.id === 'sucursal-3')!;
     expect(lomas.totalConfirmedCents).toBe(14000);
-    expect(trevino.totalConfirmedCents).toBe(7000);
-    expect(s3.totalConfirmedCents).toBe(14000);
+    expect(trevino.totalConfirmedCents).toBe(21000);
 
     const withPendingTransfer = getGlobalAdminTotals({
       ...state,
@@ -312,16 +310,16 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
 
   it('permite agregar producto nuevo al catálogo, renombrar sucursal y registrar bitácora de auditoría', () => {
     let state = createInitialState('2026-11-18T10:00:00Z');
-    expect(getBranchDisplayName(state, 'sucursal-3')).toBe('Sucursal 3 (por confirmar)');
+    expect(getBranchDisplayName(state, 'trevino')).toBe('Treviño');
 
-    const existingCatalog = getBranchCatalog(state, 'sucursal-3');
+    const existingCatalog = getBranchCatalog(state, 'trevino');
     const updated = unwrap(
       updateBranchSettings(
         state,
-        'sucursal-3',
+        'trevino',
         {
-          branchDisplayName: 'Sucursal Norte',
-          branchAddress: 'Av. Constitución #240',
+          branchDisplayName: 'Treviño Centro',
+          branchAddress: 'Calle Treviño #240',
           catalog: [
             ...existingCatalog,
             {
@@ -339,9 +337,9 @@ describe('HOREB 360 · Reglas de dinero y operación', () => {
       ),
     );
     state = updated.state;
-    expect(getBranchDisplayName(state, 'sucursal-3')).toBe('Sucursal Norte');
-    expect(getBranchCatalog(state, 'sucursal-3').some((c) => c.id === 'edredon-king')).toBe(true);
-    expect((state.auditLogs ?? []).some((log) => log.branchId === 'sucursal-3')).toBe(true);
+    expect(getBranchDisplayName(state, 'trevino')).toBe('Treviño Centro');
+    expect(getBranchCatalog(state, 'trevino').some((c) => c.id === 'edredon-king')).toBe(true);
+    expect((state.auditLogs ?? []).some((log) => log.branchId === 'trevino')).toBe(true);
   });
 
   it('calcula tendencia anclada a actividad y delimita pendientes en cierre manual fuera de las 23:00', () => {

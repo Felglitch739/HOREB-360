@@ -2,6 +2,12 @@ import { Suspense, lazy, useCallback, useEffect, useEffectEvent, useRef, useStat
 import { createClient, FunctionsHttpError, type Session } from '@supabase/supabase-js';
 import { Eye, EyeOff, WashingMachine } from 'lucide-react';
 import { operate, type Operation } from './domain/operations';
+import {
+  BRANCHES,
+  buildDemoShowcaseExpenses,
+  buildDemoShowcaseMachines,
+  buildDemoShowcaseSupplies,
+} from './domain/rules';
 import { createTrainingSandboxState } from './domain/sandboxManual';
 import {
   enqueueOfflineOperation,
@@ -30,9 +36,10 @@ import {
   type DbRaffleTicketRow,
   type GlobalRecordsBundle,
 } from './domain/sharedState';
-import type { BranchExpense, BranchId, Customer, DemoState, Order, SupplyItem } from './domain/types';
+import type { BranchExpense, BranchId, Customer, DemoState, Machine, Order, SupplyItem } from './domain/types';
 import { useBrandTheme } from './theme';
 
+const ACTIVE_BRANCH_IDS = new Set<BranchId>(BRANCHES.map((b) => b.id));
 const EXPENSE_OVERLAY_PREFIX = 'horeb_local_expenses_v1_';
 const EXPENSE_ACTIONS = new Set<Operation['action']>([
   'upsertSupplyItem',
@@ -40,27 +47,38 @@ const EXPENSE_ACTIONS = new Set<Operation['action']>([
   'upsertExpense',
   'deleteExpense',
 ]);
+const MACHINE_DEMO_ACTIONS = new Set<Operation['action']>([
+  'upsertMachine',
+  'deleteMachine',
+  'setMachineStatus',
+]);
 
 interface LocalExpenseOverlay {
   supplies: SupplyItem[];
   deletedSupplyIds: string[];
   expenses: BranchExpense[];
   deletedExpenseIds: string[];
+  machines?: Machine[];
+  deletedMachineIds?: string[];
 }
 
 function readLocalExpenseOverlay(userId: string): LocalExpenseOverlay {
   try {
     const raw = localStorage.getItem(`${EXPENSE_OVERLAY_PREFIX}${userId}`);
-    if (!raw) return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [] };
+    if (!raw) {
+      return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [], machines: [], deletedMachineIds: [] };
+    }
     const parsed = JSON.parse(raw) as Partial<LocalExpenseOverlay>;
     return {
       supplies: Array.isArray(parsed.supplies) ? parsed.supplies : [],
       deletedSupplyIds: Array.isArray(parsed.deletedSupplyIds) ? parsed.deletedSupplyIds : [],
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       deletedExpenseIds: Array.isArray(parsed.deletedExpenseIds) ? parsed.deletedExpenseIds : [],
+      machines: Array.isArray(parsed.machines) ? parsed.machines : [],
+      deletedMachineIds: Array.isArray(parsed.deletedMachineIds) ? parsed.deletedMachineIds : [],
     };
   } catch {
-    return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [] };
+    return { supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [], machines: [], deletedMachineIds: [] };
   }
 }
 
@@ -72,38 +90,73 @@ function writeLocalExpenseOverlay(userId: string, overlay: LocalExpenseOverlay) 
   }
 }
 
-function applyExpenseOverlay(state: DemoState, overlay: LocalExpenseOverlay): DemoState {
-  if (
-    overlay.supplies.length === 0 &&
-    overlay.deletedSupplyIds.length === 0 &&
-    overlay.expenses.length === 0 &&
-    overlay.deletedExpenseIds.length === 0
-  ) {
-    return state;
-  }
+function applyExpenseOverlay(state: DemoState, overlay: LocalExpenseOverlay, activeBranches: BranchId[]): DemoState {
   const deletedSup = new Set(overlay.deletedSupplyIds);
   const deletedExp = new Set(overlay.deletedExpenseIds);
+  const deletedMach = new Set(overlay.deletedMachineIds ?? []);
+
+  // Equipos: usar remotos + completar hasta 22 (11+11) por sucursal activa con los de Demo + cambios locales
+  const machineMap = new Map<string, Machine>();
+  for (const bId of activeBranches) {
+    const existingRemote = (state.machines ?? []).filter((m) => m.branchId === bId);
+    const seedList = existingRemote.length < 22 ? buildDemoShowcaseMachines(bId) : [];
+    for (const m of seedList) {
+      if (!deletedMach.has(m.id)) machineMap.set(m.id, m);
+    }
+    for (const m of existingRemote) {
+      if (!deletedMach.has(m.id)) machineMap.set(m.id, m);
+    }
+  }
+  for (const m of overlay.machines ?? []) {
+    if (ACTIVE_BRANCH_IDS.has(m.branchId) && !deletedMach.has(m.id)) {
+      machineMap.set(m.id, m);
+    }
+  }
+
+  // Insumos: usar remotos o seed demo por sucursal activa + cambios locales
   const supMap = new Map<string, SupplyItem>();
-  for (const s of state.supplyCatalog ?? []) {
-    if (!deletedSup.has(s.id)) supMap.set(s.id, s);
+  for (const bId of activeBranches) {
+    const existingRemote = (state.supplyCatalog ?? []).filter((s) => s.branchId === bId);
+    const baseList = existingRemote.length > 0 ? existingRemote : buildDemoShowcaseSupplies(bId);
+    for (const s of baseList) {
+      if (!deletedSup.has(s.id)) supMap.set(s.id, s);
+    }
   }
   for (const s of overlay.supplies) {
-    if (!deletedSup.has(s.id)) supMap.set(s.id, s);
+    if (ACTIVE_BRANCH_IDS.has(s.branchId) && !deletedSup.has(s.id)) {
+      supMap.set(s.id, s);
+    }
   }
+
+  // Gastos: usar remotos o seed demo por sucursal activa + cambios locales
   const expMap = new Map<string, BranchExpense>();
-  for (const e of state.expenses ?? []) {
-    if (!deletedExp.has(e.id)) expMap.set(e.id, e);
+  for (const bId of activeBranches) {
+    const existingRemote = (state.expenses ?? []).filter((e) => e.branchId === bId);
+    const baseList = existingRemote.length > 0 ? existingRemote : buildDemoShowcaseExpenses(bId);
+    for (const e of baseList) {
+      if (!deletedExp.has(e.id)) expMap.set(e.id, e);
+    }
   }
   for (const e of overlay.expenses) {
-    if (!deletedExp.has(e.id)) expMap.set(e.id, e);
+    if (ACTIVE_BRANCH_IDS.has(e.branchId) && !deletedExp.has(e.id)) {
+      expMap.set(e.id, e);
+    }
   }
+
   const expenses = Array.from(expMap.values()).sort((a, b) =>
     a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date),
   );
+
   return {
     ...state,
+    orders: state.orders.filter((o) => ACTIVE_BRANCH_IDS.has(o.branchId)),
+    shifts: state.shifts.filter((s) => ACTIVE_BRANCH_IDS.has(s.branchId)),
+    machines: Array.from(machineMap.values()),
     supplyCatalog: Array.from(supMap.values()),
     expenses,
+    raffleTickets: (state.raffleTickets ?? []).filter((t) => ACTIVE_BRANCH_IDS.has(t.branchId)),
+    nightClosings: (state.nightClosings ?? []).filter((n) => ACTIVE_BRANCH_IDS.has(n.branchId)),
+    auditLogs: (state.auditLogs ?? []).filter((a) => ACTIVE_BRANCH_IDS.has(a.branchId)),
   };
 }
 
@@ -222,14 +275,26 @@ export function Root() {
     if (access.error || data.error) {
       return null;
     }
-    const nextMemberships = access.data as Membership[];
-    const nextRows = data.data as BranchRow[];
+    const nextMemberships = (access.data as Membership[]).filter((m) =>
+      ACTIVE_BRANCH_IDS.has(m.branch_id),
+    );
+    const nextRows = (data.data as BranchRow[]).filter((r) =>
+      ACTIVE_BRANCH_IDS.has(r.branch_id),
+    );
     const nextGlobal: GlobalRecordsBundle = {};
     if (custRes.data) nextGlobal.customers = (custRes.data as DbCustomerRow[]).map(mapDbCustomer);
     if (loyaltyRes.data) nextGlobal.loyaltyEvents = (loyaltyRes.data as DbLoyaltyEventRow[]).map(mapDbLoyaltyEvent);
-    if (ticketsRes.data) nextGlobal.raffleTickets = (ticketsRes.data as DbRaffleTicketRow[]).map(mapDbRaffleTicket);
+    if (ticketsRes.data) {
+      nextGlobal.raffleTickets = (ticketsRes.data as DbRaffleTicketRow[])
+        .map(mapDbRaffleTicket)
+        .filter((t) => ACTIVE_BRANCH_IDS.has(t.branchId));
+    }
     if (drawsRes.data) nextGlobal.raffleDraws = (drawsRes.data as DbRaffleDrawRow[]).map(mapDbRaffleDraw);
-    if (ncRes.data) nextGlobal.nightClosings = (ncRes.data as DbNightClosingRow[]).map(mapDbNightClosing);
+    if (ncRes.data) {
+      nextGlobal.nightClosings = (ncRes.data as DbNightClosingRow[])
+        .map(mapDbNightClosing)
+        .filter((n) => ACTIVE_BRANCH_IDS.has(n.branchId));
+    }
     const complete = [custRes, loyaltyRes, ticketsRes, drawsRes, ncRes].every((result) => result.data !== null);
     return { memberships: nextMemberships, rows: nextRows, globalRecords: nextGlobal, complete };
   }, []);
@@ -419,7 +484,14 @@ export function Root() {
     setExpensesLocalFallback(false);
     const userId = session?.user.id;
     if (!userId) {
-      setLocalExpenseOverlay({ supplies: [], deletedSupplyIds: [], expenses: [], deletedExpenseIds: [] });
+      setLocalExpenseOverlay({
+        supplies: [],
+        deletedSupplyIds: [],
+        expenses: [],
+        deletedExpenseIds: [],
+        machines: [],
+        deletedMachineIds: [],
+      });
       return;
     }
 
@@ -428,9 +500,12 @@ export function Root() {
     setPendingQueue(cachedQueue);
 
     const cachedSnapshot = readOfflineSnapshot(userId);
-    if (cachedSnapshot && cachedSnapshot.rows.length > 0 && cachedSnapshot.memberships.length > 0) {
-      setMemberships(cachedSnapshot.memberships);
-      setRows(cachedSnapshot.rows);
+    const filteredCachedRows = cachedSnapshot?.rows.filter((r) => ACTIVE_BRANCH_IDS.has(r.branch_id)) ?? [];
+    const filteredCachedMemberships =
+      cachedSnapshot?.memberships.filter((m) => ACTIVE_BRANCH_IDS.has(m.branch_id)) ?? [];
+    if (cachedSnapshot && filteredCachedRows.length > 0 && filteredCachedMemberships.length > 0) {
+      setMemberships(filteredCachedMemberships);
+      setRows(filteredCachedRows);
       setGlobalRecords(cachedSnapshot.globalRecords);
       setErrorKind('none');
       setError('');
@@ -454,37 +529,45 @@ export function Root() {
     });
   }
 
-  function applyExpenseLocallyFallback(branch: BranchId, operation: Operation) {
+  function applyExpenseLocallyFallback(
+    branch: BranchId,
+    operation: Operation,
+    options: { markFallbackNotice?: boolean } = {},
+  ) {
     const userId = session?.user.id;
     if (!userId || !rows?.length) {
-      return { ok: false as const, error: 'Sin sesión activa para guardar gastos.' };
+      return { ok: false as const, error: 'Sin sesión activa para guardar cambios.' };
     }
     const rolesMap = Object.fromEntries(memberships.map((entry) => [entry.branch_id, entry.role]));
     if (rolesMap[branch] !== 'supervisor') {
-      return { ok: false as const, error: 'Solo Dirección / Supervisión puede administrar gastos e insumos.' };
+      return { ok: false as const, error: 'Solo Dirección / Supervisión puede realizar esta acción.' };
     }
+    const activeBranchList = memberships
+      .map((m) => m.branch_id)
+      .filter((b) => ACTIVE_BRANCH_IDS.has(b));
     const baseCombined = combineBranches(rows, globalRecords);
-    const current = applyExpenseOverlay(baseCombined, localExpenseOverlay);
+    const current = applyExpenseOverlay(baseCombined, localExpenseOverlay, activeBranchList);
     const result = operate(current, branch, operation, {
       role: 'supervisor',
       actorLabel: session.user.email ?? userId,
     });
     if (!result.ok) return { ok: false as const, error: result.error };
 
-    let nextOverlay: LocalExpenseOverlay = {
+    const nextOverlay: LocalExpenseOverlay = {
       supplies: [...localExpenseOverlay.supplies],
       deletedSupplyIds: [...localExpenseOverlay.deletedSupplyIds],
       expenses: [...localExpenseOverlay.expenses],
       deletedExpenseIds: [...localExpenseOverlay.deletedExpenseIds],
+      machines: [...(localExpenseOverlay.machines ?? [])],
+      deletedMachineIds: [...(localExpenseOverlay.deletedMachineIds ?? [])],
     };
 
     if (operation.action === 'upsertSupplyItem') {
       const targetList = result.state.supplyCatalog ?? [];
-      const baseIds = new Set((baseCombined.supplyCatalog ?? []).map((s) => s.id));
+      const curMap = new Map((current.supplyCatalog ?? []).map((s) => [s.id, JSON.stringify(s)]));
       const nextMap = new Map(nextOverlay.supplies.map((s) => [s.id, s]));
       for (const s of targetList) {
-        const prevOverlay = nextMap.get(s.id);
-        if (!baseIds.has(s.id) || (prevOverlay && JSON.stringify(prevOverlay) !== JSON.stringify(s)) || JSON.stringify(s) !== JSON.stringify((baseCombined.supplyCatalog ?? []).find((x) => x.id === s.id))) {
+        if (curMap.get(s.id) !== JSON.stringify(s)) {
           nextMap.set(s.id, s);
         }
       }
@@ -496,11 +579,10 @@ export function Root() {
       }
     } else if (operation.action === 'upsertExpense') {
       const targetList = result.state.expenses ?? [];
-      const baseMap = new Map((baseCombined.expenses ?? []).map((e) => [e.id, e]));
+      const curMap = new Map((current.expenses ?? []).map((e) => [e.id, JSON.stringify(e)]));
       const nextMap = new Map(nextOverlay.expenses.map((e) => [e.id, e]));
       for (const e of targetList) {
-        const baseItem = baseMap.get(e.id);
-        if (!baseItem || JSON.stringify(baseItem) !== JSON.stringify(e)) {
+        if (curMap.get(e.id) !== JSON.stringify(e)) {
           nextMap.set(e.id, e);
         }
       }
@@ -510,11 +592,28 @@ export function Root() {
       if (!nextOverlay.deletedExpenseIds.includes(operation.expenseId)) {
         nextOverlay.deletedExpenseIds.push(operation.expenseId);
       }
+    } else if (operation.action === 'upsertMachine' || operation.action === 'setMachineStatus') {
+      const targetList = result.state.machines ?? [];
+      const curMap = new Map((current.machines ?? []).map((m) => [m.id, JSON.stringify(m)]));
+      const nextMap = new Map((nextOverlay.machines ?? []).map((m) => [m.id, m]));
+      for (const m of targetList) {
+        if (curMap.get(m.id) !== JSON.stringify(m)) {
+          nextMap.set(m.id, m);
+        }
+      }
+      nextOverlay.machines = Array.from(nextMap.values());
+    } else if (operation.action === 'deleteMachine') {
+      nextOverlay.machines = (nextOverlay.machines ?? []).filter((m) => m.id !== operation.machineId);
+      if (!nextOverlay.deletedMachineIds?.includes(operation.machineId)) {
+        nextOverlay.deletedMachineIds = [...(nextOverlay.deletedMachineIds ?? []), operation.machineId];
+      }
     }
 
     writeLocalExpenseOverlay(userId, nextOverlay);
     setLocalExpenseOverlay(nextOverlay);
-    setExpensesLocalFallback(true);
+    if (options.markFallbackNotice) {
+      setExpensesLocalFallback(true);
+    }
     return { ok: true as const };
   }
 
@@ -551,7 +650,7 @@ export function Root() {
       const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       if (browserOffline || !isOnline || pendingQueue.length > 0) {
         if (EXPENSE_ACTIONS.has(operation.action)) {
-          return applyExpenseLocallyFallback(branch, operation);
+          return applyExpenseLocallyFallback(branch, operation, { markFallbackNotice: true });
         }
         return runLocallyOffline(branch, operation, operationId);
       }
@@ -560,7 +659,7 @@ export function Root() {
       if (outcome.status === 'network_error') {
         setIsOnline(false);
         if (EXPENSE_ACTIONS.has(operation.action)) {
-          return applyExpenseLocallyFallback(branch, operation);
+          return applyExpenseLocallyFallback(branch, operation, { markFallbackNotice: true });
         }
         return runLocallyOffline(branch, operation, operationId);
       }
@@ -571,6 +670,9 @@ export function Root() {
       }
       if (outcome.status === 'rejected') {
         if (EXPENSE_ACTIONS.has(operation.action) && outcome.error === 'Revisa los datos de la operación.') {
+          return applyExpenseLocallyFallback(branch, operation, { markFallbackNotice: true });
+        }
+        if (MACHINE_DEMO_ACTIONS.has(operation.action)) {
           return applyExpenseLocallyFallback(branch, operation);
         }
         return { ok: false, error: outcome.error };
@@ -723,7 +825,14 @@ export function Root() {
       return { ok: true, order: result.order, customer: result.customer };
     };
 
-    const mergedCombinedState = applyExpenseOverlay(effective.combinedState, localExpenseOverlay);
+    const activeBranchesList = memberships
+      .map((m) => m.branch_id)
+      .filter((b) => ACTIVE_BRANCH_IDS.has(b));
+    const mergedCombinedState = applyExpenseOverlay(
+      effective.combinedState,
+      localExpenseOverlay,
+      activeBranchesList,
+    );
 
     const sharedProps: SharedWorkspace = {
       state: activePractice ? practiceState : mergedCombinedState,

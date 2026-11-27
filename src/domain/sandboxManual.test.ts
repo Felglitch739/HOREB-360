@@ -6,11 +6,10 @@ describe('sandboxManual (training state & walkthrough flows)', () => {
   it('builds a realistic training sandbox with orders, pending balances, customers, and machines', () => {
     const state = createTrainingSandboxState();
 
-    expect(state.orders.length).toBeGreaterThan(10);
+    expect(state.orders.length).toBeGreaterThan(8);
     expect((state.customers ?? []).length).toBeGreaterThanOrEqual(4);
-    expect(getBranchMachines(state, 'lomas')).toHaveLength(16);
-    expect(getBranchMachines(state, 'trevino')).toHaveLength(16);
-    expect(getBranchMachines(state, 'sucursal-3')).toHaveLength(14);
+    expect(getBranchMachines(state, 'lomas')).toHaveLength(22);
+    expect(getBranchMachines(state, 'trevino')).toHaveLength(22);
 
     // Every active lavado/secado order has assigned machines belonging to its branch
     const stageOrders = state.orders.filter(

@@ -3,14 +3,13 @@ import {
   DEFAULT_SUPPLY_ITEMS,
   advanceEncargoStage,
   assignOrderMachines,
+  buildDemoShowcaseMachines,
   captureEncargoPayment,
   confirmPaymentLine,
   createOrder,
   getBranchMachines,
   getOrderPendingCents,
   seedSampleCustomersForTesting,
-  seedSampleMachinesForBranch,
-  setMachineStatus,
   upsertCustomer,
   upsertExpense,
   upsertMachine,
@@ -59,7 +58,7 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
   let state = createExampleState(base);
   const nowIso = base.toISOString();
 
-  // Sembrar clientes de lealtad y boleto de rifa en Lomas, Treviño y Sucursal 3
+  // Sembrar clientes de lealtad y boleto de rifa en Lomas y Treviño
   const custRes = seedSampleCustomersForTesting(state, 'lomas', 'Modo Práctica', nowIso);
   if (custRes.ok) {
     state = custRes.state;
@@ -67,23 +66,23 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
   const extraCustomers = [
     { branchId: 'trevino' as const, name: 'Mateo Castillo [Demo]', phone: '8682113344', contactConsent: true },
     { branchId: 'trevino' as const, name: 'Valeria Ortiz [Demo]', phone: '8682557788', contactConsent: false },
-    { branchId: 'sucursal-3' as const, name: 'Sofía Herrera [Demo]', phone: '8683449900', contactConsent: true },
   ];
   for (const extra of extraCustomers) {
     const res = upsertCustomer(state, extra.branchId, extra, 'Modo Práctica', nowIso);
     if (res.ok) state = res.state;
   }
 
-  // Sembrar máquinas en las 3 sucursales (8+8 Lomas, 8+8 Treviño, 7+7 Sucursal 3)
-  for (const branchId of ['lomas', 'trevino', 'sucursal-3'] as const) {
-    const mRes = seedSampleMachinesForBranch(state, branchId, 'Modo Práctica', nowIso);
-    if (mRes.ok) {
-      state = mRes.state;
-    }
-  }
+  // Sembrar 44 máquinas de demostración (11+11 Lomas y 11+11 Treviño) con estados variados
+  state = {
+    ...state,
+    machines: [
+      ...buildDemoShowcaseMachines('lomas', base),
+      ...buildDemoShowcaseMachines('trevino', base),
+    ],
+  };
 
-  // Vincular TODAS las órdenes en etapa 'lavado' o 'secado' con equipos disponibles en su sucursal
-  for (const branchId of ['lomas', 'trevino', 'sucursal-3'] as const) {
+  // Vincular órdenes en etapa 'lavado' o 'secado' con equipos disponibles en su sucursal
+  for (const branchId of ['lomas', 'trevino'] as const) {
     for (const order of state.orders.filter((o) => o.branchId === branchId)) {
       if (order.encargoStage === 'lavado') {
         const freeWasher = getBranchMachines(state, branchId).find(
@@ -105,28 +104,13 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
     }
   }
 
-  // Marcar un equipo de Lomas fuera de servicio para demostración
-  const l3 = getBranchMachines(state, 'lomas').find((m) => m.code === 'L3' && m.status === 'disponible');
-  if (l3) {
-    const offline = setMachineStatus(state, 'lomas', l3.id, 'fuera_de_servicio', {
-      reason: 'Mantenimiento preventivo (Demo)',
-      actorLabel: 'Modo Práctica',
-      now: nowIso,
-    });
-    if (offline.ok) state = offline.state;
-  }
-
-  // Vincular órdenes de Treviño y Sucursal 3 con sus clientes locales
+  // Vincular órdenes de Treviño con sus clientes locales
   const trevCust = (state.customers ?? []).find((c) => c.createdBranchId === 'trevino');
-  const s3Cust = (state.customers ?? []).find((c) => c.createdBranchId === 'sucursal-3');
   state = {
     ...state,
     orders: state.orders.map((o) => {
       if (o.branchId === 'trevino' && !o.customerId && trevCust) {
         return { ...o, customerId: trevCust.id, customerPhone: trevCust.phone };
-      }
-      if (o.branchId === 'sucursal-3' && o.serviceType === 'encargo' && !o.customerId && s3Cust) {
-        return { ...o, customerId: s3Cust.id, customerPhone: s3Cust.phone };
       }
       return o;
     }),
@@ -163,8 +147,8 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
     state = partialOrder.state;
   }
 
-  // Sembrar catálogo de insumos (estilo QLAK) en las 3 sucursales y gastos de demostración
-  for (const branchId of ['lomas', 'trevino', 'sucursal-3'] as const) {
+  // Sembrar catálogo de insumos y gastos demo en Lomas y Treviño
+  for (const branchId of ['lomas', 'trevino'] as const) {
     for (const sup of DEFAULT_SUPPLY_ITEMS) {
       const supRes = upsertSupplyItem(state, branchId, sup, 'Modo Práctica', nowIso);
       if (supRes.ok) state = supRes.state;
@@ -230,7 +214,7 @@ export function createTrainingSandboxState(base = new Date()): DemoState {
       unitCostCents: 98000,
     },
     {
-      branchId: 'sucursal-3' as const,
+      branchId: 'trevino' as const,
       date: matamorosDay(2),
       category: 'mantenimiento' as const,
       concept: 'Limpieza de trampas y revisión de válvulas',
@@ -353,7 +337,7 @@ export const WALKTHROUGH_FLOWS: readonly WalkthroughFlow[] = [
         selector: '.order-list',
         title: 'Cómo leer sucursal, hora, folio y si sigue activa',
         description:
-          'Cada tarjeta te da todo de un vistazo: el prefijo del folio indica la sucursal (LOM- Lomas, TRE- Treviño, S3- Sucursal 3); junto al folio ves la etapa activa (Recibido, Lavado, Secado o Listo); abajo aparece el cliente y la hora exacta; y la etiqueta ámbar muestra el saldo "Pendiente $XX.XX".',
+          'Cada tarjeta te da todo de un vistazo: el prefijo del folio indica la sucursal (LOM- Lomas, TRE- Treviño); junto al folio ves la etapa activa (Recibido, Lavado, Secado o Listo); abajo aparece el cliente y la hora exacta; y la etiqueta ámbar muestra el saldo "Pendiente $XX.XX".',
         tip: 'Las órdenes con etiqueta "Entregado" se atenúan para distinguirlas fácilmente de las que siguen activas.',
       },
       {

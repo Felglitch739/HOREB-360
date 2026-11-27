@@ -186,9 +186,9 @@ describe('Gastos y Ganancia + Catálogo de Insumos (QLAK style)', () => {
     expect(dayLomas.suppliesCents).toBe(72000);
     expect(dayLomas.netProfitCents).toBe(-58000);
 
-    // Consolidado todo noviembre: ingresos $280 (28000) - gastos ($720 + $112.50 + $500 = 133250)
+    // Consolidado Lomas + Treviño en noviembre: ingresos $280 (28000) - gastos ($720 + $112.50 + $500 = 133250)
     const allMonth = calculateProfitAndLoss(state, {
-      branches: ['lomas', 'trevino', 'sucursal-3'],
+      branches: ['lomas', 'trevino'],
       fromDate: '2026-11-01',
       toDate: '2026-11-30',
     });
@@ -206,7 +206,7 @@ describe('Gastos y Ganancia + Catálogo de Insumos (QLAK style)', () => {
 
     // Hojas de Excel
     const sheets = buildExpensesAndProfitSheets(state, {
-      branches: ['lomas', 'trevino', 'sucursal-3'],
+      branches: ['lomas', 'trevino'],
       fromDate: '2026-11-01',
       toDate: '2026-11-30',
       periodLabel: 'Noviembre 2026',

@@ -7,16 +7,15 @@ import {
   Package,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   TrendingDown,
   TrendingUp,
   Wallet,
+  X,
 } from 'lucide-react';
 import { exportExpensesAndProfitToExcel } from '../domain/excelExport';
 import { formatMxnCurrency, parsePesosToCents } from '../domain/money';
 import {
-  DEFAULT_SUPPLY_ITEMS,
   EXPENSE_CATEGORIES,
   calculateProfitAndLoss,
   getBranchDisplayName,
@@ -152,7 +151,8 @@ export function GastosGananciaView({
   const [expBusy, setExpBusy] = useState(false);
   const [expFeedback, setExpFeedback] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
 
-  // Supply catalog (QLAK style) form
+  // Supply catalog drawer/modal state
+  const [supplyModalOpen, setSupplyModalOpen] = useState(false);
   const [editingSupplyId, setEditingSupplyId] = useState<string | undefined>(undefined);
   const [supBranch, setSupBranch] = useState<BranchId>(activeBranchId);
   const [supName, setSupName] = useState('');
@@ -168,11 +168,11 @@ export function GastosGananciaView({
   const periodRange = useMemo(() => {
     if (period === 'semana') {
       const from = getMondayOfCurrentWeek(todayKey);
-      return { fromDate: from, toDate: todayKey, label: `Esta semana (${from} al ${todayKey})` };
+      return { fromDate: from, toDate: todayKey, label: `Semana (${from} al ${todayKey})` };
     }
     if (period === 'mes') {
       const { from, to } = getMonthBounds(todayKey);
-      return { fromDate: from, toDate: to, label: `Este mes (${from.slice(0, 7)})` };
+      return { fromDate: from, toDate: to, label: `Mes ${from.slice(0, 7)}` };
     }
     if (period === 'fecha') {
       const d = specificDate || todayKey;
@@ -184,7 +184,7 @@ export function GastosGananciaView({
       return {
         fromDate: from,
         toDate: to,
-        label: `Rango (${from ?? 'inicio'} – ${to ?? 'hoy'})`,
+        label: `Rango ${from ?? 'inicio'} – ${to ?? 'hoy'}`,
       };
     }
     return { fromDate: undefined, toDate: undefined, label: 'Todo el historial' };
@@ -224,12 +224,11 @@ export function GastosGananciaView({
     [branches, state],
   );
 
-  // Live expense total preview
   const parsedQty = Number.parseFloat(expQuantity);
   const parsedUnitCents = parsePesosToCents(expUnitCost);
   const previewTotalCents =
     Number.isFinite(parsedQty) && parsedQty > 0 && parsedUnitCents !== null && parsedUnitCents > 0
-      ? Math.round(Math.round(parsedQty * 100) / 100 * parsedUnitCents)
+      ? Math.round((Math.round(parsedQty * 100) / 100) * parsedUnitCents)
       : null;
 
   const suppliesSharePct =
@@ -247,18 +246,34 @@ export function GastosGananciaView({
     setExpUnit(catMeta?.defaultUnit ?? 'unidad');
   }
 
-  function applySupplyToExpenseForm(item: SupplyItem) {
+  function selectCatalogSupplyInForm(supplyId: string) {
+    if (!supplyId || supplyId === '__manual__') {
+      setExpSupplyId(null);
+      return;
+    }
+    const found = branchSupplies.find((s) => s.id === supplyId);
+    if (!found) return;
+    setExpSupplyId(found.id);
+    setExpConcept(found.name);
+    setExpUnit(found.unitLabel);
+    setExpUnitCost((found.unitCostCents / 100).toFixed(2));
+    if (!expQuantity || Number.parseFloat(expQuantity) <= 0) setExpQuantity('1');
+    setExpFeedback(null);
+  }
+
+  function applySupplyFromModal(item: SupplyItem) {
     setEditingExpenseId(undefined);
     setExpBranch(item.branchId);
     setExpCategory('insumos');
+    setExpSupplyId(item.id);
     setExpConcept(item.name);
     setExpUnit(item.unitLabel);
     setExpUnitCost((item.unitCostCents / 100).toFixed(2));
-    setExpSupplyId(item.id);
     if (!expQuantity || Number.parseFloat(expQuantity) <= 0) setExpQuantity('1');
+    setSupplyModalOpen(false);
     setExpFeedback({
       type: 'ok',
-      text: `Insumo "${item.name}" cargado (${formatMxnCurrency(item.unitCostCents)}/${item.unitLabel}). Ajusta cantidad y guarda.`,
+      text: `Insumo "${item.name}" seleccionado (${formatMxnCurrency(item.unitCostCents)}/${item.unitLabel}). Ajusta la cantidad y registra el gasto.`,
     });
   }
 
@@ -300,7 +315,7 @@ export function GastosGananciaView({
     const qty = Number.parseFloat(expQuantity);
     const unitCents = parsePesosToCents(expUnitCost);
     if (!expConcept.trim()) {
-      setExpFeedback({ type: 'error', text: 'Escribe el concepto del gasto (ej. Jabón líquido).' });
+      setExpFeedback({ type: 'error', text: 'Escribe el concepto o elige un insumo del catálogo.' });
       return;
     }
     if (!Number.isFinite(qty) || qty <= 0) {
@@ -385,28 +400,9 @@ export function GastosGananciaView({
       type: 'ok',
       text: editingSupplyId
         ? `Insumo "${supName.trim()}" actualizado.`
-        : `Insumo "${supName.trim()}" agregado al catálogo (${formatMxnCurrency(costCents)}/${supUnit.trim() || 'unidad'}).`,
+        : `Insumo "${supName.trim()}" guardado en catálogo (${formatMxnCurrency(costCents)}/${supUnit.trim() || 'unidad'}).`,
     });
     resetSupplyForm();
-  }
-
-  async function handleSeedDefaultSupplies() {
-    if (!canEdit) return;
-    setSupBusy(true);
-    setSupFeedback(null);
-    let added = 0;
-    for (const def of DEFAULT_SUPPLY_ITEMS) {
-      const res = await onUpsertSupply(effectiveSupplyBranch, def);
-      if (res.ok) added += 1;
-    }
-    setSupBusy(false);
-    setSupFeedback({
-      type: added > 0 ? 'ok' : 'error',
-      text:
-        added > 0
-          ? `Se cargaron ${added} insumo(s) sugeridos en ${getBranchDisplayName(state, effectiveSupplyBranch)}.`
-          : 'Los insumos sugeridos ya están registrados en esta sucursal.',
-    });
   }
 
   function handleExportCsv() {
@@ -453,16 +449,27 @@ export function GastosGananciaView({
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      {/* Barra superior de periodo, alcance y exportación */}
-      <section className="card" style={{ padding: '14px 18px' }}>
-        <div className="section-head" style={{ marginBottom: 10 }}>
+      {/* Barra superior de periodo, catálogo y exportación */}
+      <section className="card">
+        <div className="section-head" style={{ marginBottom: 12 }}>
           <div>
-            <h2>Gastos y Ganancia Neta</h2>
+            <h2>Rentabilidad · Gastos y Ganancia</h2>
             <p>
-              Control de insumos, gastos operativos por sucursal y utilidad real (ingresos confirmados − gastos).
+              Compara tus ingresos confirmados contra tus compras de insumos y gastos operativos por periodo y sucursal.
             </p>
           </div>
-          <div className="export-btn-group">
+          <div className="expense-toolbar-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setSupFeedback(null);
+                setSupplyModalOpen(true);
+              }}
+            >
+              <Package size={15} />
+              Catálogo de insumos ({visibleCatalogSupplies.length})
+            </button>
             <button
               type="button"
               className="btn btn-primary btn-sm"
@@ -476,7 +483,7 @@ export function GastosGananciaView({
               }
             >
               <FileSpreadsheet size={15} />
-              Exportar Excel (.xlsx)
+              Excel (.xlsx)
             </button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCsv}>
               <Download size={14} />
@@ -485,7 +492,7 @@ export function GastosGananciaView({
           </div>
         </div>
 
-        <div className="report-filters-bar" style={{ marginBottom: 0 }}>
+        <div className="report-filters-bar">
           <div className="filter-row" role="group" aria-label="Periodo de análisis">
             {(
               [
@@ -509,9 +516,9 @@ export function GastosGananciaView({
           </div>
 
           {period === 'fecha' && (
-            <label className="inline-filter-date">
-              <Calendar size={14} />
-              <span>Día:</span>
+            <label className="expense-date-inline">
+              <Calendar size={14} aria-hidden="true" />
+              <span>Día</span>
               <input
                 type="date"
                 className="input"
@@ -522,9 +529,9 @@ export function GastosGananciaView({
           )}
 
           {period === 'rango' && (
-            <div className="inline-filter-range">
-              <label className="inline-filter-date">
-                <span>Desde:</span>
+            <div className="expense-date-range">
+              <label className="expense-date-inline">
+                <span>Desde</span>
                 <input
                   type="date"
                   className="input"
@@ -532,8 +539,8 @@ export function GastosGananciaView({
                   onChange={(e) => setCustomFrom(e.target.value)}
                 />
               </label>
-              <label className="inline-filter-date">
-                <span>Hasta:</span>
+              <label className="expense-date-inline">
+                <span>Hasta</span>
                 <input
                   type="date"
                   className="input"
@@ -552,8 +559,7 @@ export function GastosGananciaView({
         {localFallbackActive && (
           <div className="alert alert-warning" role="status" style={{ marginTop: 10 }}>
             <span>
-              Nota técnica: la Edge Function de nube aún no se ha actualizado con la acción de gastos, por lo que los
-              cambios nuevos en esta sección se resguardan localmente en este navegador hasta publicar el backend.
+              Guardado en modo local en este navegador mientras se sincroniza la Edge Function de gastos en Supabase.
             </span>
           </div>
         )}
@@ -608,73 +614,72 @@ export function GastosGananciaView({
         </div>
       </div>
 
-      {/* Cuerpo principal: 2 columnas proporción áurea */}
+      {/* Dos columnas proporción áurea: Registrar gasto (izq) + Desglose/Sucursales (der) */}
       <div className="admin-two-col-exec">
-        {/* COLUMNA IZQUIERDA: Formulario de gasto + Historial */}
-        <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
-          <section className="card">
-            <div className="section-head" style={{ marginBottom: 12 }}>
-              <div>
-                <h2>
-                  <Wallet size={17} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-                  {editingExpenseId ? 'Editar gasto registrado' : 'Registrar gasto o compra de insumos'}
-                </h2>
-                <p>
-                  Ejemplo: jabón líquido, 4 garrafas × $180.00 MXN — el sistema calcula el gasto total automáticamente.
-                </p>
-              </div>
-              {editingExpenseId && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={resetExpenseForm}>
-                  Cancelar edición
-                </button>
-              )}
+        <section className="card">
+          <div className="section-head" style={{ marginBottom: 14 }}>
+            <div>
+              <h2>
+                <Wallet size={17} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
+                {editingExpenseId ? 'Editar gasto registrado' : 'Registrar gasto o compra de insumo'}
+              </h2>
+              <p>
+                Elige un insumo del catálogo o captura cualquier gasto operativo; el total se calcula al instante.
+              </p>
             </div>
+            {editingExpenseId && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={resetExpenseForm}>
+                Cancelar edición
+              </button>
+            )}
+          </div>
 
-            {!canEdit ? (
-              <div className="alert alert-warning">
-                Solo las cuentas con perfil de Administrador / Supervisión pueden registrar o editar gastos.
-              </div>
-            ) : (
-              <form className="grid-form" onSubmit={handleSaveExpense}>
-                <div className="field-row">
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="exp-branch">Sucursal *</label>
-                    {scopeBranch === 'all' ? (
-                      <CustomSelect
-                        id="exp-branch"
-                        value={expBranch}
-                        options={branches.map((b) => ({
-                          value: b,
-                          label: getBranchDisplayName(state, b),
-                        }))}
-                        onChange={(next) => {
-                          setExpBranch(next as BranchId);
-                          setExpSupplyId(null);
-                        }}
-                      />
-                    ) : (
-                      <input
-                        id="exp-branch"
-                        className="input"
-                        value={getBranchDisplayName(state, effectiveFormBranch)}
-                        disabled
-                      />
-                    )}
-                  </div>
-
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="exp-date">Fecha *</label>
-                    <input
-                      id="exp-date"
-                      type="date"
-                      className="input"
-                      value={expDate}
-                      onChange={(e) => setExpDate(e.target.value)}
-                      required
+          {!canEdit ? (
+            <div className="alert alert-warning">
+              Solo las cuentas con perfil de Administrador / Supervisión pueden registrar o editar gastos.
+            </div>
+          ) : (
+            <form className="expense-form-grid" onSubmit={handleSaveExpense}>
+              <div className="expense-form-row">
+                <div className="field">
+                  <label htmlFor="exp-branch">Sucursal *</label>
+                  {scopeBranch === 'all' ? (
+                    <CustomSelect
+                      id="exp-branch"
+                      value={expBranch}
+                      options={branches.map((b) => ({
+                        value: b,
+                        label: getBranchDisplayName(state, b),
+                      }))}
+                      onChange={(next) => {
+                        setExpBranch(next as BranchId);
+                        setExpSupplyId(null);
+                      }}
                     />
-                  </div>
+                  ) : (
+                    <input
+                      id="exp-branch"
+                      className="input"
+                      value={getBranchDisplayName(state, effectiveFormBranch)}
+                      disabled
+                    />
+                  )}
                 </div>
 
+                <div className="field">
+                  <label htmlFor="exp-date">Fecha *</label>
+                  <input
+                    id="exp-date"
+                    type="date"
+                    className="input"
+                    value={expDate}
+                    onChange={(e) => setExpDate(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="expense-form-row">
                 <div className="field">
                   <label htmlFor="exp-category">Categoría *</label>
                   <CustomSelect
@@ -691,252 +696,173 @@ export function GastosGananciaView({
                   />
                 </div>
 
-                {/* Chips rápidos del catálogo de insumos (estilo QLAK) */}
-                {expCategory === 'insumos' && branchSupplies.length > 0 && (
-                  <div>
-                    <small className="muted" style={{ display: 'block', marginBottom: 6 }}>
-                      Atajos del catálogo de insumos ({getBranchDisplayName(state, effectiveFormBranch)}):
-                    </small>
-                    <div className="supply-quick-chips">
-                      {branchSupplies.map((sup) => (
-                        <button
-                          key={sup.id}
-                          type="button"
-                          className={`filter-pill${expSupplyId === sup.id ? ' active' : ''}`}
-                          onClick={() => applySupplyToExpenseForm(sup)}
-                        >
-                          {sup.name} · {formatMxnCurrency(sup.unitCostCents)}/{sup.unitLabel}
-                        </button>
-                      ))}
+                {expCategory === 'insumos' && (
+                  <div className="field">
+                    <div className="expense-label-with-link">
+                      <label htmlFor="exp-supply-select">Insumo del catálogo</label>
+                      <button
+                        type="button"
+                        className="expense-inline-link"
+                        onClick={() => {
+                          setSupBranch(effectiveFormBranch);
+                          setSupFeedback(null);
+                          setSupplyModalOpen(true);
+                        }}
+                      >
+                        + Editar catálogo
+                      </button>
                     </div>
+                    <CustomSelect
+                      id="exp-supply-select"
+                      value={expSupplyId ?? '__manual__'}
+                      options={[
+                        { value: '__manual__', label: 'Escribir insumo manualmente…' },
+                        ...branchSupplies.map((sup) => ({
+                          value: sup.id,
+                          label: `${sup.name} · ${formatMxnCurrency(sup.unitCostCents)} / ${sup.unitLabel}`,
+                        })),
+                      ]}
+                      onChange={selectCatalogSupplyInForm}
+                    />
                   </div>
                 )}
+              </div>
 
-                <div className="field-row">
-                  <div className="field" style={{ flex: 2 }}>
-                    <label htmlFor="exp-concept">Concepto / Insumo *</label>
-                    <input
-                      id="exp-concept"
-                      className="input"
-                      type="text"
-                      placeholder="Ej. Jabón líquido para lavadora"
-                      value={expConcept}
-                      onChange={(e) => setExpConcept(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="exp-unit">Unidad</label>
-                    <input
-                      id="exp-unit"
-                      className="input"
-                      type="text"
-                      placeholder="garrafa / unidad / recibo"
-                      value={expUnit}
-                      onChange={(e) => setExpUnit(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="field-row">
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="exp-qty">Cantidad *</label>
-                    <input
-                      id="exp-qty"
-                      className="input"
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      max="10000"
-                      value={expQuantity}
-                      onChange={(e) => setExpQuantity(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="exp-cost">Costo unitario ($ MXN) *</label>
-                    <input
-                      id="exp-cost"
-                      className="input"
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      placeholder="180.00"
-                      value={expUnitCost}
-                      onChange={(e) => setExpUnitCost(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label htmlFor="exp-notes">Notas / proveedor (opcional)</label>
+              <div className="expense-form-row">
+                <div className="field" style={{ flex: 2 }}>
+                  <label htmlFor="exp-concept">Concepto / Insumo *</label>
                   <input
-                    id="exp-notes"
+                    id="exp-concept"
                     className="input"
                     type="text"
-                    placeholder="Ej. Compra en distribuidora o folio de nota"
-                    value={expNotes}
-                    onChange={(e) => setExpNotes(e.target.value)}
+                    placeholder="Ej. Jabón líquido para lavadora"
+                    value={expConcept}
+                    onChange={(e) => setExpConcept(e.target.value)}
+                    required
                   />
                 </div>
-
-                <div className="expense-preview-banner" aria-live="polite">
-                  <span>Cálculo total del gasto:</span>
-                  <strong>
-                    {previewTotalCents !== null
-                      ? `${Number.parseFloat(expQuantity)} ${expUnit || 'unidad'} × ${formatMxnCurrency(
-                          parsedUnitCents!,
-                        )} = ${formatMxnCurrency(previewTotalCents)}`
-                      : 'Ingresa cantidad y costo unitario para calcular'}
-                  </strong>
+                <div className="field">
+                  <label htmlFor="exp-unit">Unidad</label>
+                  <input
+                    id="exp-unit"
+                    className="input"
+                    type="text"
+                    placeholder="garrafa / unidad / recibo"
+                    value={expUnit}
+                    onChange={(e) => setExpUnit(e.target.value)}
+                  />
                 </div>
+              </div>
 
-                {expFeedback && (
-                  <div
-                    className={`alert ${expFeedback.type === 'ok' ? 'alert-success' : 'alert-error'}`}
-                    role="status"
-                  >
-                    {expFeedback.text}
-                  </div>
-                )}
-
-                <div className="order-actions">
-                  <button type="submit" className="btn btn-primary" disabled={expBusy}>
-                    <Plus size={15} />
-                    {expBusy
-                      ? 'Guardando…'
-                      : editingExpenseId
-                        ? 'Guardar cambios'
-                        : 'Registrar gasto'}
-                  </button>
+              <div className="expense-form-row">
+                <div className="field">
+                  <label htmlFor="exp-qty">Cantidad *</label>
+                  <input
+                    id="exp-qty"
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="10000"
+                    value={expQuantity}
+                    onChange={(e) => setExpQuantity(e.target.value)}
+                    required
+                  />
                 </div>
-              </form>
-            )}
-          </section>
+                <div className="field">
+                  <label htmlFor="exp-cost">Costo unitario ($ MXN) *</label>
+                  <input
+                    id="exp-cost"
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    placeholder="180.00"
+                    value={expUnitCost}
+                    onChange={(e) => setExpUnitCost(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
 
-          {/* Tabla / historial de gastos */}
+              <div className="field">
+                <label htmlFor="exp-notes">Notas / proveedor (opcional)</label>
+                <input
+                  id="exp-notes"
+                  className="input"
+                  type="text"
+                  placeholder="Ej. Compra semanal o folio de nota"
+                  value={expNotes}
+                  onChange={(e) => setExpNotes(e.target.value)}
+                />
+              </div>
+
+              <div className="expense-preview-banner" aria-live="polite">
+                <span>Total calculado del gasto</span>
+                <strong>
+                  {previewTotalCents !== null
+                    ? `${Number.parseFloat(expQuantity)} ${expUnit || 'unidad'} × ${formatMxnCurrency(
+                        parsedUnitCents!,
+                      )} = ${formatMxnCurrency(previewTotalCents)}`
+                    : 'Ingresa cantidad y costo unitario'}
+                </strong>
+              </div>
+
+              {expFeedback && (
+                <div
+                  className={`alert ${expFeedback.type === 'ok' ? 'alert-success' : 'alert-error'}`}
+                  role="status"
+                >
+                  {expFeedback.text}
+                </div>
+              )}
+
+              <div className="order-actions">
+                <button type="submit" className="btn btn-primary" disabled={expBusy}>
+                  <Plus size={15} />
+                  {expBusy
+                    ? 'Guardando…'
+                    : editingExpenseId
+                      ? 'Guardar cambios'
+                      : 'Registrar gasto'}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        {/* COLUMNA DERECHA: Desglose por categoría y Utilidad por sucursal */}
+        <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
           <section className="card">
             <div className="section-head" style={{ marginBottom: 12 }}>
               <div>
-                <h2>Historial de gastos ({periodExpenses.length})</h2>
-                <p>Registros filtrados por el periodo y sucursales seleccionadas</p>
+                <h2>Gastos por categoría</h2>
+                <p>Toca una categoría para filtrar el historial</p>
               </div>
-            </div>
-
-            <div className="report-filters-bar">
-              <label className="search-input-wrap" style={{ flex: '1 1 200px', margin: 0 }}>
-                <Search size={15} />
-                <input
-                  type="search"
-                  className="input"
-                  placeholder="Buscar por concepto o nota…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </label>
-              <div style={{ minWidth: 210 }}>
-                <CustomSelect
-                  ariaLabel="Filtrar gastos por categoría"
-                  value={categoryFilter}
-                  options={[
-                    { value: 'all', label: 'Todas las categorías' },
-                    ...EXPENSE_CATEGORIES.map((c) => ({ value: c.id, label: CATEGORY_SHORT_LABEL[c.id] })),
-                  ]}
-                  onChange={(next) => setCategoryFilter(next as 'all' | ExpenseCategory)}
-                />
-              </div>
-            </div>
-
-            {periodExpenses.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>
-                No hay gastos registrados en este periodo con los filtros actuales.
-              </p>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table" role="table">
-                  <thead>
-                    <tr role="row">
-                      <th role="columnheader">Fecha</th>
-                      <th role="columnheader">Sucursal</th>
-                      <th role="columnheader">Categoría</th>
-                      <th role="columnheader">Concepto</th>
-                      <th role="columnheader" className="num">Cantidad × Costo</th>
-                      <th role="columnheader" className="num">Total MXN</th>
-                      {canEdit && <th role="columnheader" className="num">Acciones</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {periodExpenses.map((exp) => (
-                      <tr role="row" key={exp.id}>
-                        <td role="cell" data-row-heading>
-                          <strong>{exp.date}</strong>
-                        </td>
-                        <td role="cell" data-label="Sucursal">
-                          {getBranchDisplayName(state, exp.branchId)}
-                        </td>
-                        <td role="cell" data-label="Categoría">
-                          <span className="badge badge-info">{CATEGORY_SHORT_LABEL[exp.category]}</span>
-                        </td>
-                        <td role="cell" data-label="Concepto">
-                          <div>{exp.concept}</div>
-                          {exp.notes && <small className="muted">{exp.notes}</small>}
-                        </td>
-                        <td role="cell" data-label="Detalle" className="num">
-                          {exp.quantity} {exp.unitLabel ?? 'u'} × {formatMxnCurrency(exp.unitCostCents)}
-                        </td>
-                        <td role="cell" data-label="Total MXN" className="num">
-                          <strong>{formatMxnCurrency(exp.totalCents)}</strong>
-                        </td>
-                        {canEdit && (
-                          <td role="cell" data-label="Acciones" className="num">
-                            <div style={{ display: 'inline-flex', gap: 6 }}>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                title="Editar gasto"
-                                aria-label={`Editar ${exp.concept}`}
-                                onClick={() => startEditExpense(exp)}
-                              >
-                                <Edit3 size={13} />
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                title="Eliminar gasto"
-                                aria-label={`Eliminar ${exp.concept}`}
-                                disabled={expBusy}
-                                onClick={() => void handleDeleteExpense(exp)}
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* COLUMNA DERECHA: Desglose por categoría, Rentabilidad por sucursal y Catálogo de Insumos */}
-        <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
-          <section className="card">
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <div>
-                <h2>Desglose por categoría</h2>
-                <p>Distribución de gastos en el periodo seleccionado</p>
-              </div>
+              {categoryFilter !== 'all' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setCategoryFilter('all')}
+                >
+                  Ver todas
+                </button>
+              )}
             </div>
 
             <div className="category-breakdown-list">
               {pnl.byCategory.map((cat) => {
-                const widthPct = cat.totalCents > 0 ? Math.max(4, Math.round((cat.totalCents / maxCategoryCents) * 100)) : 0;
+                const widthPct =
+                  cat.totalCents > 0 ? Math.max(4, Math.round((cat.totalCents / maxCategoryCents) * 100)) : 0;
+                const isSelected = categoryFilter === cat.category;
                 return (
-                  <div key={cat.category} className="category-breakdown-row">
+                  <button
+                    key={cat.category}
+                    type="button"
+                    className={`category-breakdown-row clickable${isSelected ? ' active' : ''}`}
+                    aria-pressed={isSelected}
+                    onClick={() => setCategoryFilter((prev) => (prev === cat.category ? 'all' : cat.category))}
+                  >
                     <div className="category-breakdown-head">
                       <span>
                         <strong>{CATEGORY_SHORT_LABEL[cat.category]}</strong>{' '}
@@ -950,7 +876,7 @@ export function GastosGananciaView({
                     <div className="category-bar-track">
                       <div className="category-bar-fill" style={{ width: `${widthPct}%` }} />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -958,9 +884,9 @@ export function GastosGananciaView({
 
           {pnl.byBranch.length > 1 && (
             <section className="card">
-              <div className="section-head" style={{ marginBottom: 10 }}>
+              <div className="section-head" style={{ marginBottom: 12 }}>
                 <div>
-                  <h2>Utilidad por sucursal</h2>
+                  <h2>Ganancia por sucursal</h2>
                   <p>Comparativo ingresos vs gastos en el periodo</p>
                 </div>
               </div>
@@ -980,160 +906,277 @@ export function GastosGananciaView({
                       <span>Ingresos: {formatMxnCurrency(row.revenueCents)}</span>
                       <span>Gastos: {formatMxnCurrency(row.expensesCents)}</span>
                       <span>Insumos: {formatMxnCurrency(row.suppliesCents)}</span>
+                      {row.marginPct !== null && <span>Margen: {row.marginPct}%</span>}
                     </div>
                   </div>
                 ))}
               </div>
             </section>
           )}
+        </div>
+      </div>
 
-          {/* Catálogo de insumos (estilo QLAK) */}
-          <section className="card">
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <div>
-                <h2>
-                  <Package size={16} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-                  Catálogo de Insumos (estilo QLAK)
-                </h2>
-                <p>
-                  Define costo unitario por insumo (ej. jabón para lavadora $70.00 MXN/unidad) para registrar compras en un clic.
-                </p>
-              </div>
-              {canEdit && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={supBusy}
-                  onClick={() => void handleSeedDefaultSupplies()}
-                >
-                  <Sparkles size={13} />
-                  Cargar sugeridos
-                </button>
-              )}
-            </div>
+      {/* Historial ancho completo abajo */}
+      <section className="card">
+        <div className="section-head" style={{ marginBottom: 12 }}>
+          <div>
+            <h2>Historial de gastos ({periodExpenses.length})</h2>
+            <p>Movimientos registrados dentro del periodo y sucursal seleccionados</p>
+          </div>
+        </div>
 
-            {canEdit && (
-              <form className="grid-form" style={{ marginBottom: 14 }} onSubmit={handleSaveSupply}>
-                {scopeBranch === 'all' && (
-                  <div className="field">
-                    <label htmlFor="sup-branch">Sucursal del insumo *</label>
-                    <CustomSelect
-                      id="sup-branch"
-                      value={supBranch}
-                      options={branches.map((b) => ({
-                        value: b,
-                        label: getBranchDisplayName(state, b),
-                      }))}
-                      onChange={(next) => setSupBranch(next as BranchId)}
-                    />
-                  </div>
-                )}
+        <div className="expense-history-toolbar">
+          <div className="expense-search-box">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              className="input"
+              placeholder="Buscar por concepto, insumo o nota…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div style={{ minWidth: 220 }}>
+            <CustomSelect
+              ariaLabel="Filtrar gastos por categoría"
+              value={categoryFilter}
+              options={[
+                { value: 'all', label: 'Todas las categorías' },
+                ...EXPENSE_CATEGORIES.map((c) => ({ value: c.id, label: CATEGORY_SHORT_LABEL[c.id] })),
+              ]}
+              onChange={(next) => setCategoryFilter(next as 'all' | ExpenseCategory)}
+            />
+          </div>
+        </div>
 
-                <div className="field-row">
-                  <div className="field" style={{ flex: 2 }}>
-                    <label htmlFor="sup-name">Nombre del insumo *</label>
-                    <input
-                      id="sup-name"
-                      className="input"
-                      type="text"
-                      placeholder="Ej. Jabón para lavadora"
-                      value={supName}
-                      onChange={(e) => setSupName(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="sup-unit">Unidad *</label>
-                    <input
-                      id="sup-unit"
-                      className="input"
-                      type="text"
-                      placeholder="unidad / garrafa"
-                      value={supUnit}
-                      onChange={(e) => setSupUnit(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="field-row">
-                  <div className="field" style={{ flex: 1 }}>
-                    <label htmlFor="sup-cost">Costo unitario ($ MXN) *</label>
-                    <input
-                      id="sup-cost"
-                      className="input"
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      placeholder="70.00"
-                      value={supCost}
-                      onChange={(e) => setSupCost(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="field" style={{ flex: 2 }}>
-                    <label htmlFor="sup-notes">Nota (opcional)</label>
-                    <input
-                      id="sup-notes"
-                      className="input"
-                      type="text"
-                      placeholder="Marca / proveedor"
-                      value={supNotes}
-                      onChange={(e) => setSupNotes(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {supFeedback && (
-                  <div
-                    className={`alert ${supFeedback.type === 'ok' ? 'alert-success' : 'alert-error'}`}
-                    role="status"
-                  >
-                    {supFeedback.text}
-                  </div>
-                )}
-
-                <div className="order-actions">
-                  <button type="submit" className="btn btn-primary btn-sm" disabled={supBusy}>
-                    <Plus size={14} />
-                    {editingSupplyId ? 'Actualizar insumo' : 'Agregar insumo'}
-                  </button>
-                  {editingSupplyId && (
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={resetSupplyForm}>
-                      Cancelar
-                    </button>
-                  )}
-                </div>
-              </form>
-            )}
-
-            {visibleCatalogSupplies.length === 0 ? (
-              <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
-                Sin insumos guardados aún. Usa &ldquo;Cargar sugeridos&rdquo; o agrega tu primer insumo arriba.
-              </p>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {visibleCatalogSupplies.map((sup) => (
-                  <div key={sup.id} className="supply-catalog-item">
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <strong>{sup.name}</strong>
-                        <span className="badge badge-info">{getBranchDisplayName(state, sup.branchId)}</span>
-                      </div>
-                      <small className="muted">
-                        {formatMxnCurrency(sup.unitCostCents)} / {sup.unitLabel}
-                        {sup.notes ? ` · ${sup.notes}` : ''}
-                      </small>
-                    </div>
-                    <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-                      {canEdit && (
-                        <>
+        {periodExpenses.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            No hay gastos registrados en este periodo con los filtros actuales.
+          </p>
+        ) : (
+          <div className="table-wrap stacked-table">
+            <table className="data-table" role="table">
+              <thead>
+                <tr role="row">
+                  <th role="columnheader">Fecha</th>
+                  <th role="columnheader">Sucursal</th>
+                  <th role="columnheader">Categoría</th>
+                  <th role="columnheader">Concepto</th>
+                  <th role="columnheader" className="num">Cantidad × Costo</th>
+                  <th role="columnheader" className="num">Total MXN</th>
+                  {canEdit && <th role="columnheader" className="num">Acciones</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {periodExpenses.map((exp) => (
+                  <tr role="row" key={exp.id}>
+                    <td role="cell" data-row-heading>
+                      <strong>{exp.date}</strong>
+                    </td>
+                    <td role="cell" data-label="Sucursal">
+                      {getBranchDisplayName(state, exp.branchId)}
+                    </td>
+                    <td role="cell" data-label="Categoría">
+                      <span className="badge badge-info">{CATEGORY_SHORT_LABEL[exp.category]}</span>
+                    </td>
+                    <td role="cell" data-label="Concepto">
+                      <div>{exp.concept}</div>
+                      {exp.notes && <small className="muted">{exp.notes}</small>}
+                    </td>
+                    <td role="cell" data-label="Cantidad × Costo" className="num">
+                      {exp.quantity} {exp.unitLabel ?? 'u'} × {formatMxnCurrency(exp.unitCostCents)}
+                    </td>
+                    <td role="cell" data-label="Total MXN" className="num">
+                      <strong>{formatMxnCurrency(exp.totalCents)}</strong>
+                    </td>
+                    {canEdit && (
+                      <td role="cell" data-label="Acciones" className="num">
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            onClick={() => applySupplyToExpenseForm(sup)}
+                            title="Editar gasto"
+                            aria-label={`Editar ${exp.concept}`}
+                            onClick={() => startEditExpense(exp)}
                           >
-                            Usar
+                            <Edit3 size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            title="Eliminar gasto"
+                            aria-label={`Eliminar ${exp.concept}`}
+                            disabled={expBusy}
+                            onClick={() => void handleDeleteExpense(exp)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Modal limpio de Catálogo de Insumos */}
+      {supplyModalOpen && (
+        <div
+          className="orders-drawer-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSupplyModalOpen(false);
+          }}
+        >
+          <aside
+            className="orders-drawer admin-inspector-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Catálogo de Insumos"
+          >
+            <div className="orders-drawer-head">
+              <div className="orders-drawer-title-group">
+                <h2>Catálogo de Insumos</h2>
+                <span className="badge badge-info">{visibleCatalogSupplies.length} registrado(s)</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm orders-drawer-close"
+                aria-label="Cerrar catálogo"
+                onClick={() => setSupplyModalOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="orders-drawer-body" style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
+              {canEdit && (
+                <form className="card expense-form-grid" style={{ padding: 14 }} onSubmit={handleSaveSupply}>
+                  <strong style={{ fontSize: '0.92rem' }}>
+                    {editingSupplyId ? 'Editar insumo' : 'Agregar nuevo insumo'}
+                  </strong>
+
+                  {scopeBranch === 'all' && (
+                    <div className="field">
+                      <label htmlFor="sup-branch">Sucursal *</label>
+                      <CustomSelect
+                        id="sup-branch"
+                        value={supBranch}
+                        options={branches.map((b) => ({
+                          value: b,
+                          label: getBranchDisplayName(state, b),
+                        }))}
+                        onChange={(next) => setSupBranch(next as BranchId)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="expense-form-row">
+                    <div className="field" style={{ flex: 2 }}>
+                      <label htmlFor="sup-name">Nombre *</label>
+                      <input
+                        id="sup-name"
+                        className="input"
+                        type="text"
+                        placeholder="Ej. Jabón para lavadora"
+                        value={supName}
+                        onChange={(e) => setSupName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="sup-unit">Unidad *</label>
+                      <input
+                        id="sup-unit"
+                        className="input"
+                        type="text"
+                        placeholder="unidad / garrafa"
+                        value={supUnit}
+                        onChange={(e) => setSupUnit(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="expense-form-row">
+                    <div className="field">
+                      <label htmlFor="sup-cost">Costo unitario ($ MXN) *</label>
+                      <input
+                        id="sup-cost"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        placeholder="70.00"
+                        value={supCost}
+                        onChange={(e) => setSupCost(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="field" style={{ flex: 2 }}>
+                      <label htmlFor="sup-notes">Nota (opcional)</label>
+                      <input
+                        id="sup-notes"
+                        className="input"
+                        type="text"
+                        placeholder="Proveedor o presentación"
+                        value={supNotes}
+                        onChange={(e) => setSupNotes(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {supFeedback && (
+                    <div
+                      className={`alert ${supFeedback.type === 'ok' ? 'alert-success' : 'alert-error'}`}
+                      role="status"
+                    >
+                      {supFeedback.text}
+                    </div>
+                  )}
+
+                  <div className="order-actions">
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={supBusy}>
+                      <Plus size={14} />
+                      {editingSupplyId ? 'Actualizar insumo' : 'Guardar en catálogo'}
+                    </button>
+                    {editingSupplyId && (
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={resetSupplyForm}>
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
+
+              {visibleCatalogSupplies.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>
+                  Aún no hay insumos guardados en esta sucursal.
+                </p>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {visibleCatalogSupplies.map((sup) => (
+                    <div key={sup.id} className="supply-catalog-item">
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <strong>{sup.name}</strong>
+                          <span className="badge badge-info">{getBranchDisplayName(state, sup.branchId)}</span>
+                        </div>
+                        <small className="muted">
+                          {formatMxnCurrency(sup.unitCostCents)} / {sup.unitLabel}
+                          {sup.notes ? ` · ${sup.notes}` : ''}
+                        </small>
+                      </div>
+                      {canEdit && (
+                        <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => applySupplyFromModal(sup)}
+                          >
+                            Usar en gasto
                           </button>
                           <button
                             type="button"
@@ -1152,16 +1195,16 @@ export function GastosGananciaView({
                           >
                             <Trash2 size={13} />
                           </button>
-                        </>
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
-      </div>
+      )}
     </div>
   );
 }
